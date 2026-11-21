@@ -24,6 +24,8 @@ export const toneColor = (t: Tone = "default") =>
 export const fmt = (v: number, unit = "") => `${Number(v.toFixed(1))}${unit}`;
 export const signed = (v: number, unit = "") =>
   `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v), unit)}`;
+/** A change between two percentages is in points. */
+export const delta = (v: number, unit = "") => signed(v, unit === "%" ? " pts" : unit);
 
 export const scale =
   ([d0, d1]: Domain, [r0, r1]: Domain) =>

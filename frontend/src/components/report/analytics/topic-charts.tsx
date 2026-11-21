@@ -30,12 +30,16 @@ export function TopicTargets({ result }: { result: Result }) {
   const planned = new Map(result.study_plan.topics.map((t) => [t.topic, t.target_mastery]));
   const target = (topic: string) => planned.get(topic) || TARGET_MASTERY;
   const below = topics.filter((t) => t.mastery < target(t.topic)).length;
+  const lowest = topics.filter((t) => t.mastery === topics[0].mastery).length;
   return (
     <ChartFrame
       title={title}
       takeaway={
         below
-          ? `${below} of ${topics.length} topics are below target (dark tick); the weakest is ${topics[0].topic} at ${pct(topics[0].mastery)}.`
+          ? `${below} of ${topics.length} topics are below target (dark tick); ` +
+            (lowest === 1
+              ? `the weakest is ${topics[0].topic} at ${pct(topics[0].mastery)}.`
+              : `${lowest} topics tie for weakest at ${pct(topics[0].mastery)}.`)
           : `All ${topics.length} topics are at or above target (dark tick).`
       }
       table={{
@@ -87,7 +91,7 @@ export function FocusQuadrant({ result }: { result: Result }) {
       legend={
         focus.size && hasContext
           ? [
-              { label: "Top 5 by ROI", series: 1 },
+              { label: "Study plan focus", series: 1 },
               { label: "Other topics", series: "context" },
             ]
           : undefined
@@ -134,9 +138,9 @@ export function ProjectedGain({ result }: { result: Result }) {
     .map((t) => {
       const share = t.effort_hours > 0 ? Math.min(1, t.allocated_hours / t.effort_hours) : 0;
       const gain = total ? ((marks.get(t.topic) ?? 0) * share * Math.max(0, t.target_mastery - t.mastery)) / total : 0;
-      return { label: t.topic, value: round1(gain) };
+      return { label: t.topic, value: gain };
     })
-    .filter((s) => s.value > 0);
+    .filter((s) => round1(s.value) > 0);
   if (!steps.length || ps.expected <= ps.current) {
     return (
       <ChartFrame title={title}>
@@ -152,13 +156,13 @@ export function ProjectedGain({ result }: { result: Result }) {
       title={title}
       takeaway={
         `Working the top ${steps.length === 1 ? "topic" : `${steps.length} topics`} could take this paper from ${pct(ps.current)} to ${pct(end)} ` +
-        `(range ${pct(ps.low)}–${pct(ps.high)}); the biggest step is ${biggest.label} (${signedPts(biggest.value)}).`
+        `(range ${pct(ps.low)}–${pct(ps.high)}); the biggest step is ${biggest.label} (${signedPts(round1(biggest.value))}).`
       }
       table={{
         columns: ["Step", "Change (pts)", "Running total %"],
         rows: [
           ["Current score", ps.current, ps.current],
-          ...steps.map((s, i) => [s.label, s.value, running[i]]),
+          ...steps.map((s, i) => [s.label, round1(s.value), running[i]]),
           ["Projected score", round1(end - ps.current), end],
         ],
       }}
@@ -213,7 +217,7 @@ export function PlanLoad({ result }: { result: Result }) {
         ]),
       }}
     >
-      <StackedBars rows={rows} seriesOrder={names} unit=" h" />
+      <StackedBars rows={rows} seriesOrder={names} unit=" h" rest={OTHER} />
     </ChartFrame>
   );
 }

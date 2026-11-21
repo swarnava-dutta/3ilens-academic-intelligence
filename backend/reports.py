@@ -1146,8 +1146,11 @@ def _chart_topics(result: ResultOut) -> list[Block]:
     rows = [(t.topic, [(0.0, t.mastery, CYAN)], _pct(t.mastery), target.get(t.topic, TARGET_MASTERY))
             for t in topics]
     below = sum(t.mastery < target.get(t.topic, TARGET_MASTERY) for t in topics)
-    text = (f"{below} of {len(topics)} topics are below target (dark tick); the weakest is {topics[0].topic} at "
-            f"{_pct(topics[0].mastery)}." if below else f"All {len(topics)} topics are at or above target (dark tick).")
+    lowest = sum(t.mastery == topics[0].mastery for t in topics)
+    weakest = (f"the weakest is {topics[0].topic} at {_pct(topics[0].mastery)}." if lowest == 1
+               else f"{lowest} topics tie for weakest at {_pct(topics[0].mastery)}.")
+    text = (f"{below} of {len(topics)} topics are below target (dark tick); {weakest}" if below
+            else f"All {len(topics)} topics are at or above target (dark tick).")
     return _bar_charts(title, text, rows, 100.0, _pct)
 
 
@@ -1159,10 +1162,13 @@ def _chart_questions(result: ResultOut) -> list[Block]:
     rows = [(f"Q{q.question} {q.topic}", [(0.0, q.max_marks, CONTEXT), (0.0, q.estimated_marks, CYAN)],
              f"{_n(q.estimated_marks)} / {_n(q.max_marks)}", None) for q in questions]
     full = sum(q.estimated_marks >= q.max_marks for q in questions)
-    worst = max(questions, key=lambda q: q.max_marks - q.estimated_marks)
+    most = max(q.max_marks - q.estimated_marks for q in questions)
+    worst = [q for q in questions if q.max_marks - q.estimated_marks == most]
+    lost = (f"; most marks lost on Q{worst[0].question} ({_n(worst[0].estimated_marks)} / {_n(worst[0].max_marks)}, "
+            f"{worst[0].topic})." if len(worst) == 1 else
+            f"; the largest loss on one question is {_n(most)} mark{'' if most == 1 else 's'}, on {len(worst)} questions.")
     text = f"Full marks on {full} of {len(questions)} questions" + (
-        f"; most marks lost on Q{worst.question} ({_n(worst.estimated_marks)} / {_n(worst.max_marks)}, {worst.topic})."
-        if full < len(questions) else ".") + " Grey = marks available."
+        lost if full < len(questions) else ".") + " Grey = marks available."
     return _bar_charts(title, text, rows, max(q.max_marks for q in questions), _n)
 
 

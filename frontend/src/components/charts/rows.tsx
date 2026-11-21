@@ -5,6 +5,7 @@ import {
   bar,
   CONTEXT,
   CRITICAL,
+  delta,
   type Domain,
   Empty,
   fmt,
@@ -14,7 +15,6 @@ import {
   Plot,
   scale,
   SERIES,
-  signed,
   Text,
   textWidth,
   tickCount,
@@ -92,7 +92,7 @@ export function Dumbbell({
           const tip = tipBody(r.label, [
             [aLabel, fmt(r.a, unit), SERIES[0]],
             [bLabel, fmt(r.b, unit), CONTEXT],
-            ["Difference", signed(r.a - r.b, unit)],
+            ["Difference", delta(r.a - r.b, unit)],
           ]);
           return (
             <g key={i} {...c.mark(tip)}>
@@ -130,7 +130,7 @@ export function Waterfall({
       from: run,
       to: run + s.value,
       color: s.value < 0 ? CRITICAL : SERIES[0],
-      note: signed(s.value, unit),
+      note: delta(s.value, unit),
       step: true,
     });
     run += s.value;
@@ -173,21 +173,25 @@ export function StackedBars({
   rows,
   seriesOrder,
   unit,
+  rest,
 }: {
   rows: { label: string; segments: { name: string; value: number }[] }[];
   seriesOrder: string[];
   unit?: string;
+  /** Name of a catch-all series, drawn in the context grey. */
+  rest?: string;
 }) {
   const c = useChart();
   if (!rows.length) return <Empty />;
   const names = seriesOrder.slice(0, 3);
+  const color = (k: number) => (names[k] === rest ? CONTEXT : SERIES[k]);
   const stacks = rows.map((r) => {
     const segs: { name: string; color: string; value: number; from: number; to: number }[] = [];
     let acc = 0;
     for (const [k, name] of names.entries()) {
       const value = r.segments.find((s) => s.name === name)?.value ?? 0;
       if (value <= 0) continue;
-      segs.push({ name, color: SERIES[k], value, from: acc, to: acc + value });
+      segs.push({ name, color: color(k), value, from: acc, to: acc + value });
       acc += value;
     }
     return { label: r.label, segs, total: acc };
@@ -196,7 +200,7 @@ export function StackedBars({
   const L = layout(c.w, rows.map((r) => r.label), domain);
   return (
     <div className="space-y-2">
-      <Legend items={names.map((label, k) => ({ label, color: SERIES[k] }))} />
+      <Legend items={names.map((label, k) => ({ label, color: color(k) }))} />
       <Plot chart={c} h={L.h} label={`Stacked bars of ${names.join(", ")} for ${rows.length} rows.`}>
         <Axis L={L} domain={domain} unit={unit} n={5} />
         {stacks.map((r, i) => {

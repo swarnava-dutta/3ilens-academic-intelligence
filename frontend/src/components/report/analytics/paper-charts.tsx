@@ -18,7 +18,9 @@ export function QuestionMarks({ result }: { result: Result }) {
     );
   }
   const full = qs.filter((q) => q.estimated_marks >= q.max_marks).length;
-  const worst = qs.reduce((w, q) => (q.max_marks - q.estimated_marks > w.max_marks - w.estimated_marks ? q : w));
+  const lost = (q: (typeof qs)[number]) => q.max_marks - q.estimated_marks;
+  const maxLost = Math.max(...qs.map(lost));
+  const worst = qs.filter((q) => lost(q) === maxLost);
   const read = qs.filter((q) => q.outcome !== "BLANK");
   const threshold = result.extraction.threshold * 100;
   const low = read.filter((q) => q.confidence * 100 < threshold);
@@ -30,9 +32,11 @@ export function QuestionMarks({ result }: { result: Result }) {
         title="Marks by question"
         takeaway={
           `Full marks on ${full} of ${qs.length} questions` +
-          (full < qs.length
-            ? `; most marks lost on Q${worst.question} ${worst.topic} (${fmtNumber(worst.estimated_marks)} of ${fmtNumber(worst.max_marks)}).`
-            : ".")
+          (full === qs.length
+            ? "."
+            : worst.length === 1
+              ? `; most marks lost on Q${worst[0].question} ${worst[0].topic} (${fmtNumber(worst[0].estimated_marks)} of ${fmtNumber(worst[0].max_marks)}).`
+              : `; the largest loss on one question is ${fmtNumber(maxLost)} mark${maxLost === 1 ? "" : "s"}, on ${worst.length} questions.`)
         }
         table={{
           columns: ["Question", "Topic", "Marks", "Out of", "%"],
@@ -104,11 +108,15 @@ export function BloomAccuracy({ result }: { result: Result }) {
     );
   }
   const items = buckets.map((b) => ({ label: `${b.level} ${BLOOM_LABELS[b.level]}`, value: round1((b.accuracy ?? 0) * 100) }));
-  const sorted = [...items].sort((a, b) => b.value - a.value);
+  const top = Math.max(...items.map((i) => i.value));
+  const bottom = Math.min(...items.map((i) => i.value));
+  const at = (v: number) => `${items.filter((i) => i.value === v).map((i) => i.label).join(" and ")} (${pct(v)})`;
   const takeaway =
     items.length === 1
       ? `All tagged questions are ${items[0].label}: ${pct(items[0].value)} of the marks.`
-      : `Strongest at ${sorted[0].label} (${pct(sorted[0].value)}), weakest at ${sorted[sorted.length - 1].label} (${pct(sorted[sorted.length - 1].value)}).`;
+      : top === bottom
+        ? `Every level at ${pct(top)}.`
+        : `Strongest at ${at(top)}, weakest at ${at(bottom)}.`;
   return (
     <ChartFrame
       title={title}
