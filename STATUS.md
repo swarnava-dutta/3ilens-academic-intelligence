@@ -11,12 +11,12 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **786 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **795 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
-| Frontend `npm run build` | not re-run since the latest feature work |
+| Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
-| Live AI checks, newer features | partial: two fallback drills (Claude primary 3.0/4 in 9.4 s, Rs 1.85; simulated outage served by gpt-4o 3.5/4 in 4.0 s, Rs 0.76), one live transcription of the Hindi-English voice sample (`gpt-transcribe`, 30 s), live result rows showing their AI routes |
-| Live UI checks | headless screenshots of the intake page, live and demo reports, `/owner` (including a what-if run), `/cohort` and `/integrations`; `/owner`, `/cohort` and `/integrations` have no horizontal scroll at 390 px |
+| Live AI checks, newer features | partial: two fallback drills (Claude primary 3.0/4 in 9.4 s, Rs 1.85; simulated outage served by gpt-4o 3.5/4 in 4.0 s, Rs 0.76), one live transcription of the Hindi-English voice sample (`gpt-transcribe`, 30 s), live result rows showing their AI routes; one upload of `neat_02` (#71): OCR cache hit (no vision call), graded 13/20 for Rs 4.28, then re-evaluated from the stored OCR (cache read 6,802 tokens, Rs 3.03) into version 2 |
+| Live UI checks | headless Edge screenshots at 1440 px and 390 px (device emulation) of `/`, a completed live report, a demo report, a human-review report, a superseded report version, `/students`, `/cohort`, `/owner`, `/integrations` and `/journey`: no horizontal scroll and no console errors. Report analytics: takeaways checked against the API for a live and two demo reports, hover tooltips and every "Show data" table open. Student PDF chart pages rendered to PNG and checked |
 | Full end-to-end walkthrough with the `insights` sample set in the live database | not done (see Pending 1) |
 
 ## Done
@@ -65,6 +65,9 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
   - re-evaluation confirmation with a cost estimate;
   - cohort extensions (ranking, at-risk, common errors, interventions, exam date, operations, filters);
   - `/journey` page.
+- **Interface:** one flat, data-dense style across all pages (Fira Sans / Fira Code, white bordered panels, KPI strips, dense tables, small rectangular status tags, navy primary actions, cyan as the single accent); sample / simulated / illustrative labels kept as quiet tags.
+- **Report analytics:** a "Performance analytics" section with 10 charts (marks and reading confidence by question, topic mastery vs target, batch comparison, score position, focus quadrant, projected gain, score trend, study plan load, Bloom accuracy, accuracy through the paper), each with a computed takeaway and a data table. The student PDF has the matching mastery, marks, quadrant, projected-gain and trend charts.
+- **Result versions:** `GET /api/results/{id}/versions` and `/versions/{n}`; the report has a version selector and a "Superseded by version N" view of older versions.
 
 ### Previously deferred requirements (now implemented)
 - **FR-2.8 voice answers.** MP3 / WAV / M4A / OGG detected from the bytes; OpenAI `gpt-transcribe` as a stand-in for Whisper / Sarvam, labelled **not residency-approved** with cost shown as **unknown**. Per-question recordings make no extra AI call; whole-paper recordings are mapped onto the rubric questions by Claude (GPT-4o fallback). The transcript then goes through the confidence gate and grading. Audio and transcript endpoints, an audio player and transcript in the report and review editor, a "Voice answer" chip and question select at intake. Retry, dead-letter, review, re-evaluate and restart handling work for voice rows. Two synthetic TTS clips in `samples/`.
@@ -80,6 +83,9 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - **Sample data:** `POST /api/demo/seed?set=insights` adds batch `NEET-C (sample)` with the NEET MCQ Mock 09 / Mock 10 (sample) papers, 25 submissions, 24 interventions (22 measured) and a voice sample row, all labelled as sample data and scored by the real engine. `set=all` is unchanged (27 rows). A synthetic MCQ answer sheet for Mock 09 is in `samples/`.
 
 ### Fixes to earlier known issues
+- Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).
+- Report charts: ties are named in the takeaways, changes between percentages read as points, and the projected-gain chart ends at the stored projected score.
+- An archived report version lists the live versions (no duplicate entry in the superseded view).
 - README states the 0.70 OCR threshold.
 - `API_CONTRACT.md` lists the rubric-parse / review / re-evaluate error codes and the `?demo=`, `urgency` and `topic` query params.
 - Reports with no stored AI summary (all demo rows) show a computed summary line, labelled as computed.
@@ -96,7 +102,7 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 ## Pending
 
 ### 1. Live walkthrough and build check
-- [ ] `cd frontend && npm run build`, and fix anything that breaks.
+- [x] `cd frontend && npm run build`, and fix anything that breaks.
 - [ ] Load `set=all` and `set=insights` into a copy of the live database (or the live one, if acceptable) and check:
   - NEET-C reports: MCQ rows with -1 and the net-total note, the Q25 marking-scheme table with the required-step lock, the voice sample card, the exam-behaviour cards for the over-attempter / fatigue / memorisation students, intervention statuses, and recording / deleting an intervention;
   - `/owner`: populated effectiveness card with the "Sample data" pill, the calibration toggle once a calibration factor exists, the "Ms. K. Menon (sample)" faculty row, inline faculty-lead save;
@@ -106,30 +112,32 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - [ ] AI Bloom suggestions in the rubric version editor against the live API.
 - [ ] Re-run live OCR on the test sheet that was misread ("32P" read as "15N") and on the prompt-injection sheet (`edge-04`) to confirm the new OCR prompt.
 - [ ] Base-pipeline live checklist with real keys (small cost):
-  - re-uploading the same file logs "OCR cache hit - no vision call (Rs 0.00)";
-  - a `.docx` upload works;
-  - `cache_read_input_tokens > 0` on the second student (prompt caching);
-  - the student PDF and cohort PDF look right;
-  - re-evaluate after a rubric edit and retry of a FAILED sheet both work.
-- [ ] Mobile 390 px check of the report and intake pages (`/owner`, `/cohort` and `/integrations` were checked).
+  - [x] re-uploading the same file logs "OCR cache hit - no vision call (Rs 0.00)" (#71);
+  - [ ] a `.docx` upload works;
+  - [x] prompt caching: cache read 6,802 tokens on the re-evaluation of #71 (not yet checked across two different students);
+  - [x] the student PDF looks right (charts included); [ ] the cohort PDF;
+  - [x] re-evaluate without a rubric change (#71 -> version 2); [ ] re-evaluate after a rubric edit; [ ] retry of a FAILED sheet.
+- [x] Mobile 390 px check of every page, including the report and intake pages.
 - [ ] Owner institution switcher with more than one institution (only checked in code; the data has one institution).
 
 ### 2. Known issues and follow-ups
 - [ ] Required-step rule: each step award is rounded to `mark_step` before the 50% check, so 0.4 on a 1-mark required step rounds to 0.5 and counts as met. Confirm this is intended.
 - [ ] Study plan: with the target at max(mastery, 85%), the ROI lab's observed-gap candidate filter admits every topic below 85%, and the PDF's "Current -> target" column shows "-> 85%". Confirm this is acceptable.
-- [ ] Cohort exam-behaviour lists for NEET-C can show the same student twice (Mock 09 and Mock 10); filtering by test shows one at a time.
-- [ ] `INTERVENTION_DEFAULT_HOURS` is not exposed by `/api/health`; the intervention dialog uses 3 h.
-- [ ] The LMS key dialog loads the whole owner dashboard just to list institutions; a small institutions endpoint would be lighter.
-- [ ] `API_CONTRACT.md` should also document: `POST /api/interventions` 422 `invalid_applied_at`; `GET /api/whatif/options` 404 `unknown_batch`; 404 `not_found` for an unknown submission on `/audio` and `/transcript`; the units of the pattern fields (accuracy as a 0-1 fraction; transfer accuracies, gaps and fatigue drops in percentage points); CSV exports return all matching rows up to `LMS_MAX_ROWS` when no limit is given (JSON pages default to 500).
-- [ ] Older report versions are only available as PDFs (there is no archived-result JSON endpoint), so there is no "Superseded" banner on the web.
-- [ ] Demo learner percentages come from the mastery arrays, not the spec's score/max (urgency labels do match). In the `insights` set, a few Mock 09 urgencies differ from the intended mix (e.g. Kunal Desai shows at risk), and Mock 10 has no designed fatigue pattern.
+- [x] Cohort exam-behaviour lists show each student once (latest flagged test) with a note when students sat more than one test.
+- [x] `/api/health` exposes `intervention_default_hours`; the intervention dialog starts from it (3 h fallback).
+- [x] The LMS key dialog lists institutions from `GET /api/institutions`.
+- [x] `API_CONTRACT.md` documents: `POST /api/interventions` 422 `invalid_applied_at`; `GET /api/whatif/options` 404 `unknown_batch`; 404 `not_found` for an unknown submission on `/audio` and `/transcript`; the units of the pattern fields (accuracy as a 0-1 fraction; transfer accuracies, gaps and fatigue drops in percentage points); CSV exports return all matching rows up to `LMS_MAX_ROWS` when no limit is given (JSON pages default to 500).
+- [x] Older report versions open on the web (version selector, "Superseded by version N" notice).
+- [ ] Demo learner percentages come from the mastery arrays, not the spec's score/max (urgency labels do match).
+- [x] `insights` set: Mock 09 has the intended 2 / 6 / 4 urgency mix and Mock 10 the designed fatigue students. The seed is idempotent, so a database seeded earlier keeps the old NEET-C rows until it is re-seeded.
 - [ ] Cache-write price convention in `costing.py` not re-checked against the current price list ($2.50/MTok assumed for claude-sonnet-5-5).
-- [ ] Sheet confidence ignores blank answers (one clean answer plus four blanks still passes the sheet-level check); re-test now that pages are gated individually.
+- [x] Mostly blank sheets (fewer than half the rubric questions answered) go to human review before grading; the per-page 0.70 gate is unchanged.
 - [ ] Small run-to-run grading drift (up to +/-0.5 marks).
-- [ ] With six navigation links, the header's days-to-exam chip only shows on very wide screens (the Cohort page still shows the exam date).
+- [x] The days-to-exam figure is always visible in the header.
+- [ ] The student PDF's "Teacher action plan" follows the stored ROI order, while the web action plan uses the observed-gap order, so P1 can differ between the two (e.g. report #70).
+- [ ] When the ROI lab's strategy ranks by recoverable marks, its "How #1 was calculated" topic (the plan's #1) is not the topic with the highest ROI in "Relative ROI by topic"; the wording could make the ranking basis clearer.
 
 ### 3. Not built (deliberately trimmed for the PoC)
-- OCR-cache reuse for voice answers (a repeated recording is transcribed again).
 - Audio decoding for MP3 / M4A / OGG durations: they come from the transcription response; WAV is measured locally.
 
 ## Out of scope for the PoC (infrastructure / legal)
