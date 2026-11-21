@@ -361,3 +361,11 @@ def test_interrupted_voice_jobs_are_recovered(upload, fake_ai, fake_transcriber,
     assert pipeline.recover_interrupted_jobs(db_session) == 1
     assert client.post(f"/api/submissions/{sub['id']}/retry").status_code == 202
     assert result_of(client, sub["id"])["submission"]["status"] == "COMPLETED"
+
+
+def test_script_languages_cover_code_switched_transcripts():
+    import voice
+
+    assert voice.script_languages("DNA replication semi-conservative होता है") == ["hi", "en"]
+    assert voice.script_languages("ok") == [] and voice.script_languages("") == []
+    assert voice.script_languages("இது ஒரு பதில்") == ["ta"]

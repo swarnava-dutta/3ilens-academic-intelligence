@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import wave
 from pathlib import Path
@@ -28,6 +29,14 @@ UsageCallback = Callable[[ModelUsage], None]
 STAND_IN_LABEL = "stand-in for Whisper large-v3 / Sarvam Saarika"
 # artifacts/<submission id>/transcript.json: {text, model, languages, seconds, request_id, created_at}
 TRANSCRIPT_FILE = "transcript.json"
+# Writing systems seen in a transcript (code-switched answers often report only one language).
+_SCRIPTS = (
+    ("hi", re.compile(r"[\u0900-\u097F]")),  # Devanagari
+    ("te", re.compile(r"[\u0C00-\u0C7F]")),  # Telugu
+    ("kn", re.compile(r"[\u0C80-\u0CFF]")),  # Kannada
+    ("ta", re.compile(r"[\u0B80-\u0BFF]")),  # Tamil
+)
+_LATIN_WORD = re.compile(r"\b[A-Za-z]{2,}\b")
 # File extension per sniffed audio MIME type (uploads.MIME_EXTENSIONS reuses it).
 AUDIO_EXTENSIONS: dict[str, str] = {
     "audio/mpeg": ".mp3",
@@ -143,6 +152,7 @@ def transcribe(
         code for code in (getattr(item, "code", None) for item in getattr(response, "languages", None) or [])
         if isinstance(code, str) and code
     ]
+    languages = list(dict.fromkeys([*languages, *script_languages(text)]))
     logger.info(
         "Transcribed %s (%s): %d characters, languages %s, %d ms", path.name, model, len(text),
         ",".join(languages) or "-", latency_ms,
@@ -152,6 +162,15 @@ def transcribe(
         seconds=float(seconds) if isinstance(seconds, (int, float)) else None,
         request_id=request_id if isinstance(request_id, str) else None,
     )
+
+
+def script_languages(text: str) -> list[str]:
+    """Language codes implied by the scripts in a transcript: Devanagari -> hi, Telugu -> te,
+    Kannada -> kn, Tamil -> ta, and en when there are at least 3 Latin-script words."""
+    codes = [code for code, pattern in _SCRIPTS if pattern.search(text or "")]
+    if len(_LATIN_WORD.findall(text or "")) >= 3:
+        codes.append("en")
+    return codes
 
 
 def wav_seconds(path: Path) -> float | None:
