@@ -17,6 +17,19 @@ Regenerate the sheets from the repo root. The output is deterministic, and the s
 backend\.venv\Scripts\python.exe samples\generate_samples.py
 ```
 
+## MCQ answer sheet (negative marking, FR-4.8)
+
+| File | Content | What it demonstrates |
+| --- | --- | --- |
+| `answer_sheet_mcq_mock09_sample.png` | Synthetic handwritten-style sheet for the "NEET MCQ Practice - Mock 09 (sample)" rubric: option letters for Q1-Q24 plus short worked answers for the descriptive Q25 and Q26 | NEET +4 / -1 / 0 scoring with no grading call for the MCQs. Q5, Q13 and Q21 (all Organic Chemistry) are wrong and Q20 and Q23 are blank, so Organic Chemistry shows as over-attempting (high negative-marking risk). Expect 81/104 if the sheet is read correctly. |
+| `generate_mcq_sample.py` | Generator | Re-creates the sheet from `backend/rubrics/neet_mcq_mock09_sample.json` (Pillow only). |
+
+The Mock 09 rubric is created by the `insights` demo set, so load it first (the "Load insights sample" button on the Cohort or Owner page, or `POST http://localhost:8000/api/demo/seed?set=insights`), then upload the sheet against that rubric. It is a synthetic sample, not a real student.
+
+```
+backend\.venv\Scripts\python.exe samples\generate_mcq_sample.py
+```
+
 ## Voice answers (FR-2.8, synthetic TTS samples)
 
 | File | Content | What it demonstrates |
