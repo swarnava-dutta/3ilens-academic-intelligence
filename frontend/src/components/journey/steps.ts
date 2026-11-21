@@ -56,7 +56,10 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     gate: "No student processing before permission / privacy basis are confirmed.",
     poc: {
       status: "mocked",
-      text: "Single seeded tenant (one institution, one or more batches). No login, roles or row-level security in the PoC.",
+      text:
+        "Single seeded tenant (one institution, one or more batches). An institute-owner view aggregates batches, faculty and trends, but there is no login, roles or row-level security in the PoC: anyone who opens it sees the owner view.",
+      href: "/owner",
+      linkLabel: "Open the owner view",
     },
   },
   {
@@ -104,8 +107,9 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     gate: "Never interpret a user-selected demo file as actually uploaded or scored.",
     poc: {
       status: "implemented",
+      secondary: "stand_in",
       text:
-        "Single sheet or batch / folder upload (3 at a time, per-file progress, retry / replace), magic-byte checks in the browser and on the server, SHA-256 custody hash with in-batch duplicate detection, DOCX accepted. Files go to local storage (S3 stand-in) in one streamed upload.",
+        "Single sheet or batch / folder upload (3 at a time, per-file progress, retry / replace), magic-byte checks in the browser and on the server, SHA-256 custody hash with in-batch duplicate detection, DOCX accepted. Files go to local storage (S3 stand-in) in one streamed upload. Voice answers (MP3 / WAV / M4A / OGG, one recording per question or for the whole paper) are implemented: OpenAI gpt-transcribe stands in for Whisper large-v3 / Sarvam Saarika (not residency-approved - PoC only; transcription cost shown as unknown).",
       href: "/#upload",
       linkLabel: "Try a folder upload",
     },
@@ -208,7 +212,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "implemented",
       text:
-        "Claude grades each answer against the rubric (structured output, marks bounded per question), writes strengths, gaps and teaching nudges, and the urgency tag follows one deterministic rule. A consistency re-grade checks the ±2-mark goal. Scores stay provisional until a teacher releases them.",
+        "Claude grades each answer against the rubric (structured output, marks bounded per question), writes strengths, gaps and teaching nudges, and the urgency tag follows one deterministic rule. A consistency re-grade checks the ±2-mark goal. Scores stay provisional until a teacher releases them. Also implemented: per-question marking schemes with partial credit, NEET MCQs scored +4 / -1 server-side, Bloom levels K1-K5 (faculty, AI-suggested or heuristic), and a Claude -> GPT-4o fallback when Claude fails, with the route shown on each report (the fallback is not residency-approved - PoC only).",
       href: "/students",
       linkLabel: "See student cards",
     },
@@ -233,7 +237,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "implemented",
       text:
-        "Cohort dashboard with batch / test / urgency / topic filters: ranking, at-risk students, common errors, concept confusions, class interventions, and the excluded (review / failed / processing) students listed separately.",
+        "Cohort dashboard with batch / test / urgency / topic filters: ranking, at-risk students, common errors, concept confusions, class interventions, and the excluded (review / failed / processing) students listed separately. Exam-behaviour patterns are implemented: negative-marking risk with a skip threshold per topic, end-of-paper fatigue, and memorisation vs transfer (thresholds are defaults - confirm with the academic lead).",
       href: "/cohort",
       linkLabel: "Open the cohort dashboard",
     },
@@ -259,7 +263,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "implemented",
       text:
-        "Deterministic ROI engine with a versioned, illustrative chapter-weightage matrix (labelled sample data, not calibrated), four quadrants, strategy modes by days to exam and a visible calculation trace. No LLM ranks topics.",
+        "Deterministic ROI engine with a versioned, illustrative chapter-weightage matrix (labelled sample data, not calibrated), four quadrants, strategy modes by days to exam and a visible calculation trace. No LLM ranks topics. Per-student negative-marking, fatigue and transfer advice sits next to the plan, and the owner view has an illustrative what-if simulator (extra hours on a topic -> projected NEET marks with a range).",
       href: "/students",
       linkLabel: "Open the ROI view",
     },
@@ -285,9 +289,9 @@ export const JOURNEY_STEPS: JourneyStep[] = [
       status: "implemented",
       secondary: "mocked",
       text:
-        "Branded student and cohort PDFs plus a ZIP of every report. WhatsApp delivery is simulated: each attempt is recorded as BLOCKED / NOT sent with a signed, time-limited download link - no message is ever sent.",
-      href: "/cohort",
-      linkLabel: "Download PDFs / simulate WhatsApp",
+        "Branded student and cohort PDFs plus a ZIP of every report. WhatsApp delivery is simulated: each attempt is recorded as BLOCKED / NOT sent with a signed, time-limited download link - no message is ever sent. LMS export API (JSON / CSV, API key) implemented: read-only, released results only by default, keys stored hashed.",
+      href: "/integrations",
+      linkLabel: "Open LMS export",
     },
   },
   {
@@ -334,9 +338,11 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     api: "Proposed: POST /v1/interventions; GET /v1/trends/{student}",
     gate: "Not first-MVP functionality; sequence depends on approved release baseline.",
     poc: {
-      status: "out_of_scope",
+      status: "implemented",
       text:
-        "Phase 2. The PoC keeps each student's test history (linked by roll no) but does not measure intervention impact or calibrate projections.",
+        "Intervention log + outcome tracking built; effects shown on sample data; observational, not causal. Faculty log an action per student and topic, the next test measures the change, and the owner view compares treated with untreated topics and derives a calibration factor for the what-if simulator.",
+      href: "/owner",
+      linkLabel: "See intervention effectiveness",
     },
   },
 ];
