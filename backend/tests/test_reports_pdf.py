@@ -300,3 +300,61 @@ def test_report_logo_path_is_drawn_and_a_bad_logo_falls_back(client, monkeypatch
     assert response.status_code == 200
     with pymupdf.open("pdf", response.content) as doc:
         assert not doc[0].get_images() and "3iLens" in doc[0].get_text()
+
+
+CHART_TITLES = ("Score trend", "Topic mastery vs target", "Marks by question",
+                "Where to focus - mastery vs exam weightage", "Projected gain (illustrative)")
+
+
+def _demo_result(client, name: str = "Rohan Joshi"):
+    import result_view
+    from database import SessionLocal, StudentSubmission
+    from sqlalchemy import select
+
+    client.post("/api/demo/seed")
+    with SessionLocal() as db:
+        sub = db.scalar(select(StudentSubmission).where(StudentSubmission.student_name == name))
+        return result_view.build_result(db, sub)
+
+
+def test_student_pdf_draws_the_charts_inside_the_page(client):
+    from datetime import timedelta
+
+    import reports
+
+    out = _demo_result(client)
+    current = next(h for h in out.history if h.current)
+    older = current.model_copy(update={"submission_id": 0, "date": current.date - timedelta(days=14), "pct": 40.0,
+                                       "current": False})
+    data = reports.render_student_pdf(out.model_copy(update={"history": [older, current]}))
+    text = pdf_text(data)
+    for title in CHART_TITLES:
+        assert title in text, title
+    assert "points over 2 tests" in text and "this report" in text
+    q = out.question_evaluations[0]
+    assert f"Q{q.question} {q.topic}" in text and f"{q.estimated_marks:g} / {q.max_marks:g}" in text
+    cyan = tuple(int(reports.CYAN[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    with pymupdf.open("pdf", data) as doc:
+        assert 4 <= doc.page_count <= 12
+        marks = [d["rect"] for page in doc for d in page.get_drawings()
+                 if d.get("fill") and all(abs(a - b) < 0.01 for a, b in zip(d["fill"], cyan))]
+    assert len(marks) >= len(out.topic_mastery) + len(out.question_evaluations)
+    for rect in marks:  # below the header band, above the footer, inside the margins
+        assert reports.CONTENT.x0 - 10 <= rect.x0 and rect.x1 <= reports.CONTENT.x1 + 10, rect
+        assert reports.CONTENT.y0 <= rect.y0 and rect.y1 <= reports.CONTENT.y1, rect
+
+
+def test_student_pdf_without_history_or_plan_still_builds(client):
+    import reports
+
+    out = _demo_result(client)
+    bare = out.model_copy(update={
+        "history": [], "study_plan": out.study_plan.model_copy(update={"topics": [], "focus": []}),
+    })
+    data = reports.render_student_pdf(bare)
+    text = pdf_text(data)
+    assert "Only this test is on record for the student, so there is no trend yet." in text
+    assert "No topic plan is available" in text and "No projected gain" in text
+    assert "Topic mastery vs target" in text and "Marks by question" in text
+    with pymupdf.open("pdf", data) as doc:
+        assert 4 <= doc.page_count <= 12

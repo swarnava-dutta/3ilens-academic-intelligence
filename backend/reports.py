@@ -10,6 +10,8 @@ long Story across several pages makes MuPDF repaint the backgrounds of earlier b
 the top of every later page, so long stories are deliberately avoided.) HTML uses tables and div
 bars only - no flexbox or grid. The header band, footer and diagonal watermark are stamped on the
 reopened document afterwards, then fonts are subset and the file is saved with garbage=3 + deflate.
+Charts are Html blocks ending in a blank box of a known height; once the pages exist, the bars, axes
+and labels are drawn into that box with plain PyMuPDF vector calls.
 
 Text that may reach the PDF is always HTML-escaped. Every narrative list renders gracefully when
 it is empty (older rows and stubbed analytics).
@@ -19,15 +21,19 @@ from __future__ import annotations
 import html
 import io
 import logging
+import math
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from itertools import zip_longest
+from statistics import median
 from typing import Any
 
 import pymupdf
 
+from analytics import EXAM_TOTAL_MARKS, TARGET_MASTERY, WEAK_MASTERY
 from config import get_settings
 from report_meta import fmt_ist
 from schemas import CohortOut, ResultOut, StudentCard
@@ -244,6 +250,14 @@ class Table:
 
 
 @dataclass
+class Chart(Html):
+    """An Html block whose last `height` points are left blank for draw(page, rect)."""
+
+    height: float = 0.0
+    draw: Callable[[pymupdf.Page, pymupdf.Rect], None] | None = None
+
+
+@dataclass
 class PageBreak:
     pass
 
@@ -258,6 +272,7 @@ class _Layout:
         self.device: Any = None
         self.y = CONTENT.y0
         self.pages = 0
+        self.charts: list[tuple[int, pymupdf.Rect, Any]] = []
 
     # -- pages -----------------------------------------------------------------------------
     def _new_page(self) -> None:
@@ -281,7 +296,9 @@ class _Layout:
     def _fits(self, source: str, gap: float) -> tuple[bool, pymupdf.Story, pymupdf.Rect]:
         story = self._story(source)
         more, filled = story.place(self._rect(gap))
-        return not more, story, pymupdf.Rect(filled)
+        filled = pymupdf.Rect(filled)
+        # An empty fixed-height div (chart space) never reports overflow, so check the filled box too.
+        return not more and filled.y1 <= CONTENT.y1 + 0.5, story, filled
 
     def _draw(self, story: pymupdf.Story, filled: pymupdf.Rect) -> None:
         story.draw(self.device)
@@ -312,6 +329,9 @@ class _Layout:
             self._add_table(block)
         else:
             self._add_html(block.html, block.gap)
+            if isinstance(block, Chart):
+                box = pymupdf.Rect(CONTENT.x0, self.y - block.height, CONTENT.x1, self.y)
+                self.charts.append((self.pages - 1, box, block.draw))
 
     def _add_html(self, source: str, gap: float) -> None:
         ok, story, filled = self._fits(source, gap)
@@ -370,7 +390,13 @@ def _layout(blocks: Iterable[Block]) -> bytes:
     layout = _Layout()
     for block in blocks:
         layout.add(block)
-    return layout.finish()
+    data = layout.finish()
+    if not layout.charts:
+        return data
+    with pymupdf.open("pdf", data) as doc:
+        for page, box, draw in layout.charts:
+            draw(doc[page], box)
+        return doc.tobytes()
 
 
 # --------------------------------------------------------------------------- #
@@ -985,16 +1011,255 @@ def _section_appendix(result: ResultOut) -> list[Block]:
     )]
 
 
+# --------------------------------------------------------------------------- #
+# Student charts
+# --------------------------------------------------------------------------- #
+CYAN = "#0490aa"         # the data series
+CONTEXT = "#cbd5e1"      # context marks: marks available, the starting score
+GRID = "#e2e8f0"
+SLATE = "#334155"
+SLATE_MUTED = "#64748b"
+GAIN = "#0ca30c"
+BAR_ROW = 15.0
+BAR_ROWS_PER_CHART = 40  # keeps a bar chart shorter than a page
+
+Bar = tuple[str, list[tuple[float, float, str]], str, float | None]  # label, (from, to, colour)s, value, tick
+
+
+def _chart(title: str, text: str, height: float = 0.0, draw: Callable | None = None) -> Html:
+    head = f"<h3>{_e(title)}</h3>" + (f'<p class="small" style="color:{SLATE}">{_e(text)}</p>' if text else "")
+    if draw is None:
+        return Html(head, gap=10)
+    return Chart(head + f'<div style="height:{height:.1f}pt"></div>', gap=10, height=height, draw=draw)
+
+
+def _clip(text: str, size: float, width: float) -> str:
+    text = _latin1(text)
+    if pymupdf.get_text_length(text, fontname="helv", fontsize=size) <= width:
+        return text
+    while len(text) > 1 and pymupdf.get_text_length(text + "...", fontname="helv", fontsize=size) > width:
+        text = text[:-1]
+    return text.rstrip() + "..."
+
+
+def _text(page: pymupdf.Page, x: float, y: float, text: str, size: float = 7.0, color: str = SLATE,
+          align: float = 0.0, width: float = 1000.0) -> pymupdf.Rect:
+    """Text with its baseline at y; align 0 = left, 0.5 = centred, 1 = right of x. Returns its box."""
+    text = _clip(text, size, width)
+    length = pymupdf.get_text_length(text, fontname="helv", fontsize=size)
+    x -= length * align
+    page.insert_text((x, y), text, fontname="helv", fontsize=size, color=_hex(color))
+    return pymupdf.Rect(x, y - size * 0.75, x + length, y + size * 0.25)
+
+
+def _line(page: pymupdf.Page, a: Any, b: Any, color: str = GRID, width: float = 0.5, dashes: str | None = None) -> None:
+    page.draw_line(a, b, color=_hex(color), width=width, dashes=dashes)
+
+
+def _ticks(top: float) -> list[float]:
+    """0 up to a round number >= top, in at most five steps."""
+    step = next((s for s in (0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100) if top / s <= 5), top / 5) or 1
+    return [i * step for i in range(max(1, math.ceil(top / step - 1e-9)) + 1)]
+
+
+def _scale(start: float, end: float, top: float) -> Callable[[float], float]:
+    return lambda v: start + (end - start) * max(0.0, min(float(v), top)) / top
+
+
+def _grid(page: pymupdf.Page, plot: pymupdf.Rect, ticks: list[float], pos: Callable[[float], float],
+          fmt: Callable[[float], str], vertical: bool = True) -> None:
+    """Light grid lines with their tick labels below (vertical lines) or to the left (horizontal)."""
+    for tick in ticks:
+        p = pos(tick)
+        if vertical:
+            _line(page, (p, plot.y0), (p, plot.y1))
+            _text(page, p, plot.y1 + 9, fmt(tick), 6.5, SLATE_MUTED, 0.5)
+        else:
+            _line(page, (plot.x0, p), (plot.x1, p))
+            _text(page, plot.x0 - 4, p + 2.3, fmt(tick), 6.5, SLATE_MUTED, 1.0)
+
+
+def _draw_bars(rows: Sequence[Bar], ticks: list[float], fmt: Callable[[float], str], page: pymupdf.Page,
+               box: pymupdf.Rect) -> None:
+    plot = pymupdf.Rect(box.x0 + 150, box.y0, box.x1 - 50, box.y1 - 14)
+    sx = _scale(plot.x0, plot.x1, ticks[-1])
+    _grid(page, plot, ticks, sx, fmt)
+    for i, (label, segments, value, tick) in enumerate(rows):
+        mid = plot.y0 + BAR_ROW * (i + 0.5)
+        _text(page, plot.x0 - 6, mid + 2.5, label, align=1.0, width=140)
+        for start, end, colour in segments:
+            if end > start:
+                page.draw_rect(pymupdf.Rect(sx(start), mid - 4.5, sx(end), mid + 4.5), color=None, fill=_hex(colour))
+        if tick is not None:
+            _line(page, (sx(tick), mid - 6.5), (sx(tick), mid + 6.5), SLATE, 1.2)
+        right = max(end for _, end, _ in segments)
+        if tick is not None and 0 <= sx(tick) - sx(right) < 30:  # keep the value clear of a nearby tick
+            right = tick
+        _text(page, sx(right) + 4, mid + 2.5, value)
+
+
+def _bar_charts(title: str, text: str, rows: Sequence[Bar], top: float, fmt: Callable[[float], str]) -> list[Block]:
+    """Horizontal bars; a long list continues in a second chart rather than running off the page."""
+    ticks = _ticks(top)
+    blocks: list[Block] = []
+    for i in range(0, len(rows), BAR_ROWS_PER_CHART):
+        chunk = rows[i:i + BAR_ROWS_PER_CHART]
+        blocks.append(_chart(f"{title} (continued)" if i else title, "" if i else text,
+                             len(chunk) * BAR_ROW + 14, partial(_draw_bars, chunk, ticks, fmt)))
+    return blocks
+
+
+def _chart_trend(result: ResultOut) -> list[Block]:
+    title = "Score trend"
+    tests = sorted(result.history, key=lambda h: h.date)
+    if len(tests) < 2:
+        return [_chart(title, "Only this test is on record for the student, so there is no trend yet.")]
+    first, last = tests[0], tests[-1]
+    change = last.pct - first.pct
+    text = (f"{_pct(first.pct)} on {_ist(first.date)[:10]} to {_pct(last.pct)} on {_ist(last.date)[:10]} "
+            f"({'+' if change >= 0 else ''}{_n(change)} points over {len(tests)} tests); the tests are not "
+            "equated for difficulty.")
+
+    def draw(page: pymupdf.Page, box: pymupdf.Rect) -> None:
+        plot = pymupdf.Rect(box.x0 + 30, box.y0 + 12, box.x1 - 10, box.y1 - 22)
+        sy = _scale(plot.y1, plot.y0, 100.0)
+        step = plot.width / len(tests)
+        _grid(page, plot, _ticks(100), sy, _pct, vertical=False)
+        points = [(plot.x0 + step * (i + 0.5), sy(h.pct)) for i, h in enumerate(tests)]
+        page.draw_polyline(points, color=_hex(CYAN), width=1.4)
+        for (x, y), h in zip(points, tests):
+            page.draw_circle((x, y), 3.4 if h.current else 2.4, color=(1, 1, 1), fill=_hex(CYAN), width=0.8)
+            _text(page, x, y - 6, _pct(h.pct), align=0.5)
+            _text(page, x, plot.y1 + 9, _ist(h.date)[:10], 6.5, SLATE_MUTED, 0.5)
+            _text(page, x, plot.y1 + 17, "this report" if h.current else h.rubric_name, 6.5, SLATE_MUTED, 0.5,
+                  step - 6)
+
+    return [_chart(title, text, 150, draw)]
+
+
+def _chart_topics(result: ResultOut) -> list[Block]:
+    title = "Topic mastery vs target"
+    topics = sorted(result.topic_mastery, key=lambda t: (t.mastery, t.topic))
+    if not topics:
+        return [_chart(title, "No topic-level marks were recorded for this result.")]
+    target = {t.topic: t.target_mastery for t in result.study_plan.topics}
+    rows = [(t.topic, [(0.0, t.mastery, CYAN)], _pct(t.mastery), target.get(t.topic, TARGET_MASTERY))
+            for t in topics]
+    below = sum(t.mastery < target.get(t.topic, TARGET_MASTERY) for t in topics)
+    text = (f"{below} of {len(topics)} topics are below target (dark tick); the weakest is {topics[0].topic} at "
+            f"{_pct(topics[0].mastery)}." if below else f"All {len(topics)} topics are at or above target (dark tick).")
+    return _bar_charts(title, text, rows, 100.0, _pct)
+
+
+def _chart_questions(result: ResultOut) -> list[Block]:
+    title = "Marks by question"
+    questions = sorted(result.question_evaluations, key=lambda q: q.question)
+    if not questions:
+        return [_chart(title, "No question-level marks were recorded for this result.")]
+    rows = [(f"Q{q.question} {q.topic}", [(0.0, q.max_marks, CONTEXT), (0.0, q.estimated_marks, CYAN)],
+             f"{_n(q.estimated_marks)} / {_n(q.max_marks)}", None) for q in questions]
+    full = sum(q.estimated_marks >= q.max_marks for q in questions)
+    worst = max(questions, key=lambda q: q.max_marks - q.estimated_marks)
+    text = f"Full marks on {full} of {len(questions)} questions" + (
+        f"; most marks lost on Q{worst.question} ({_n(worst.estimated_marks)} / {_n(worst.max_marks)}, {worst.topic})."
+        if full < len(questions) else ".") + " Grey = marks available."
+    return _bar_charts(title, text, rows, max(q.max_marks for q in questions), _n)
+
+
+def _chart_quadrant(result: ResultOut) -> list[Block]:
+    title = "Where to focus - mastery vs exam weightage"
+    topics = result.study_plan.topics
+    if not topics:
+        return [_chart(title, "No topic plan is available for this result, so there is nothing to place.")]
+    weight = {t.topic: t.exam_marks / EXAM_TOTAL_MARKS * 100 for t in topics}
+    split = median(weight.values())
+    focus = [t.topic for t in topics if t.mastery < WEAK_MASTERY and weight[t.topic] >= split]
+    text = (f"{len(focus)} of {len(topics)} topics are weak (below {_n(WEAK_MASTERY)}% mastery) and at or above the "
+            f"median exam weightage of {_n(split, 2)}%: {', '.join(focus)}." if focus
+            else f"No topic is both weak (below {_n(WEAK_MASTERY)}% mastery) and at or above the median weightage.")
+    text += " Marker size = effort hours; weightage is from the illustrative chapter matrix."
+
+    def draw(page: pymupdf.Page, box: pymupdf.Rect) -> None:
+        plot = pymupdf.Rect(box.x0 + 36, box.y0 + 16, box.x1 - 10, box.y1 - 24)
+        y_ticks = _ticks(max(weight.values()))
+        sx, sy = _scale(plot.x0, plot.x1, 100.0), _scale(plot.y1, plot.y0, y_ticks[-1])
+        _grid(page, plot, _ticks(100), sx, _pct)
+        _grid(page, plot, y_ticks, sy, lambda v: f"{_n(v, 2)}%", vertical=False)
+        _text(page, box.x0, plot.y0 - 9, "Exam weightage %", 6.5, SLATE_MUTED)
+        _text(page, plot.x1, plot.y1 + 19, "Mastery %", 6.5, SLATE_MUTED, 1.0)
+        split_x, split_y = sx(WEAK_MASTERY), sy(split)
+        _line(page, (split_x, plot.y0), (split_x, plot.y1), SLATE_MUTED, 0.7, "[3 2] 0")
+        _line(page, (plot.x0, split_y), (plot.x1, split_y), SLATE_MUTED, 0.7, "[3 2] 0")
+        # Everything a point label must not cover: quadrant names, split lines, markers.
+        taken = [_text(page, x, y, label, 7, SLATE_MUTED, align)
+                 for x, y, label, align in ((plot.x0 + 4, plot.y0 + 9, "priority focus", 0.0),
+                                            (plot.x1 - 4, plot.y0 + 9, "maintain", 1.0),
+                                            (plot.x0 + 4, plot.y1 - 4, "deprioritise", 0.0),
+                                            (plot.x1 - 4, plot.y1 - 4, "no action", 1.0))]
+        taken += [pymupdf.Rect(split_x - 1, plot.y0, split_x + 1, plot.y1),
+                  pymupdf.Rect(plot.x0, split_y - 1, plot.x1, split_y + 1)]
+        most = max(t.effort_hours for t in topics) or 1.0
+        markers: dict[str, pymupdf.Rect] = {}
+        for t in sorted(topics, key=lambda t: -t.effort_hours):  # big markers first, small ones stay visible
+            x, y = sx(t.mastery), sy(weight[t.topic])
+            r = 2.5 + 6 * math.sqrt(max(0.0, t.effort_hours) / most)
+            page.draw_circle((x, y), r, color=(1, 1, 1), fill=_hex(CYAN), width=0.6, fill_opacity=0.8)
+            markers[t.topic] = pymupdf.Rect(x - r, y - r, x + r, y + r)
+        taken += markers.values()
+        for t in result.study_plan.focus[:5] or sorted(topics, key=lambda t: -t.roi)[:5]:  # the next five
+            label = _clip(t.topic, 6.5, 120)
+            width = pymupdf.get_text_length(label, fontname="helv", fontsize=6.5)
+            m = markers[t.topic]
+            spots = [pymupdf.Rect(x, (m.y0 + m.y1) / 2 + dy - 3, x + width, (m.y0 + m.y1) / 2 + dy + 4)
+                     for dy in (0, -8, 8) for x in (m.x1 + 3, m.x0 - 3 - width)]
+            spot = next((s for s in spots if plot.contains(s) and not any(s.intersects(o) for o in taken)), None)
+            if spot is not None:
+                taken.append(_text(page, spot.x0, spot.y1 - 1.7, label, 6.5))
+
+    return [_chart(title, text, 230, draw)]
+
+
+def _chart_gain(result: ResultOut) -> list[Block]:
+    title = "Projected gain (illustrative)"
+    plan = result.study_plan
+    ps = plan.projected_score
+    marks = {t.topic: t.max_marks for t in result.topic_mastery}
+    weight = sum(marks.values())
+    if not plan.focus or not weight or ps.expected <= ps.current:
+        return [_chart(title, "No projected gain: no focus topic is below target.")]
+    rows: list[Bar] = [("Current score", [(0.0, ps.current, CONTEXT)], _pct(ps.current), None)]
+    level, steps = ps.current, []
+    for t in plan.focus[:5]:
+        # The projected score's arithmetic: this window's share of the topic's gap, weighted by its marks.
+        share = min(1.0, t.allocated_hours / t.effort_hours) if t.effort_hours > 0 else 0.0
+        gain = marks.get(t.topic, 0.0) * share * max(0.0, t.target_mastery - t.mastery) / weight
+        rows.append((f"+ {t.topic}", [(level, min(100.0, level + gain), GAIN)], f"+{_n(gain)} pts", None))
+        steps.append((gain, t.topic))
+        level += gain
+    rows.append(("Projected score", [(0.0, ps.expected, CYAN)], _pct(ps.expected), None))
+    gain, topic = max(steps)
+    top = "the top topic" if len(steps) == 1 else f"the top {len(steps)} topics"
+    text = (f"Working {top} could take the score from {_pct(ps.current)} to "
+            f"{_pct(ps.expected)} of this paper (range {_pct(ps.low)}-{_pct(ps.high)}); the biggest step is "
+            f"{topic} (+{_n(gain)} points). Not a calibrated forecast.")
+    return _bar_charts(title, text, rows, 100.0, _pct)
+
+
 def render_student_pdf(result: ResultOut, *, superseded_by: str | None = None) -> bytes:
     """The branded multi-page Student Academic Intelligence Report for one completed result."""
     blocks: list[Block] = [
         *_student_title(result),
         *_student_meta(result, superseded_by),
         *_section_summary(result),
+        *_chart_trend(result),
         *_section_topics(result),
+        *_chart_topics(result),
+        *_chart_questions(result),
         *_section_strengths(result),
         *_section_nudges(result),
         *_section_roi(result),
+        *_chart_quadrant(result),
+        *_chart_gain(result),
         *_section_actions(result),
         *_section_roadmap(result),
         *_section_coverage(result),
