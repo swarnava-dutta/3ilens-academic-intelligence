@@ -280,7 +280,7 @@ function PastePreview() {
         {secret ? (
           <button
             type="button"
-            className="text-xs font-medium text-slate-600 underline-offset-2 hover:underline"
+            className="self-start px-1 py-2.5 text-xs font-medium text-slate-600 underline-offset-2 hover:underline sm:self-auto"
             onClick={() => {
               setSecret("");
               preview.reset();

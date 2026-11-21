@@ -56,9 +56,10 @@ export function BloomSuggestions({
       });
       return;
     }
-    // Pre-select the rows whose suggestion differs from the current level.
+    // Pre-select only questions without a level: a level already on the rubric (often set by faculty)
+    // is kept unless someone ticks its row.
     const current = new Map(content.questions.map((q) => [q.question, q.bloom_level ?? null]));
-    const selected = new Set(data.levels.filter((t) => current.get(t.question) !== t.level).map((t) => t.question));
+    const selected = new Set(data.levels.filter((t) => !current.get(t.question)).map((t) => t.question));
     setState({ kind: "ready", data, fallback: fallback || data.mode === "heuristic", selected });
   }
 
