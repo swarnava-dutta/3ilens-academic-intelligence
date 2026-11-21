@@ -13,6 +13,9 @@ report keys (defaults are filled in when the report is read).
   (data/weightage/neet.json - sample data, not calibrated):
       gain_marks  = exam_marks x max(0, 85 - mastery) / 100
       roi         = gain_marks x time_factor / effort_hours
+      target_mastery = max(mastery, 85): the level gain_marks and effort_hours (base hours) refer
+      to; allocated_hours is this window's share of effort_hours, and the projected score credits
+      min(1, allocated / effort) of each focus topic's gap.
       time_factor = 1.0 (>= 90 days) | 1 + 0.12 x exam_marks/26 (30-89) |
                     0.76 + 0.5 x error (7-29) | 0.5 + 0.62 x mastery/100 + 0.25 x error (< 7)
   plus mode rules (broad / focused / revision / consolidation) that change which topics are
@@ -552,7 +555,8 @@ def _plan_rows(
                 "mastery": round(mastery, 1),
                 "exam_marks": round(exam_marks, 2),
                 "gain_marks": round(gain, 2),
-                "target_mastery": round(max(mastery, min(TARGET_MASTERY, mastery)), 1),
+                # The level gain_marks and effort_hours refer to (never the window's partial step).
+                "target_mastery": round(max(mastery, TARGET_MASTERY), 1),
                 "effort_hours": round(effort, 2),
                 "time_factor": round(factor, 3),
                 "roi": round(gain * factor / effort, 3),
@@ -750,7 +754,9 @@ def _projected(rows: list[dict[str, Any]], focus: list[dict[str, Any]], current:
     delta = low = high = 0.0
     if weight > 0:
         for r in focus:
-            improvement = max(0.0, r["target_mastery"] - r["mastery"])
+            # Credit this window's share of the gap: allocated / effort hours of the way to target.
+            share = min(1.0, r["allocated_hours"] / r["effort_hours"]) if r["effort_hours"] > 0 else 0.0
+            improvement = share * max(0.0, r["target_mastery"] - r["mastery"])
             gain = r["gain_marks"]
             ratio_low = r["gain_low"] / gain if gain > 0 else 1.0
             ratio_high = r["gain_high"] / gain if gain > 0 else 1.0
@@ -1035,11 +1041,6 @@ def _plan(
     for r in rows:
         in_focus = id(r) in focus_ids
         r["action"] = _action(r, mode, in_focus)
-        if in_focus and r["effort_hours"] > 0 and r["mastery"] < TARGET_MASTERY:
-            share = min(1.0, r["allocated_hours"] / r["effort_hours"])
-            r["target_mastery"] = round(min(TARGET_MASTERY, r["mastery"] + share * (TARGET_MASTERY - r["mastery"])), 1)
-        else:
-            r["target_mastery"] = r["mastery"]
         _ranges(r)
     top = _quadrants(rows, days)
     ordered = focus + sorted((r for r in rows if id(r) not in focus_ids), key=_rank_key(mode))
