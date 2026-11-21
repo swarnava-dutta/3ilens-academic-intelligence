@@ -1,5 +1,11 @@
 // Rubric helpers shared by the intake rubric source and the /cohort "Rubric versions" panel.
-import type { Rubric, RubricCompatibility, RubricContent, RubricQuestion } from "@/lib/types";
+import type { MarkingPolicy, Rubric, RubricCompatibility, RubricContent, RubricQuestion } from "@/lib/types";
+
+/** Option letters of an MCQ (2-6 options). */
+export const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
+/** Allowed mark steps (backend marking.MARK_STEPS). */
+export const MARK_STEPS = [0.25, 0.5, 1, 2] as const;
+export const MAX_SCHEME_STEPS = 20;
 
 export interface CustomRubricFile {
   fileName: string;
@@ -83,18 +89,34 @@ export function blankQuestion(existing: RubricQuestion[], subject: string): Rubr
   };
 }
 
-/** Deep copy (edits never mutate a rubric that is still shown elsewhere). */
+/** Deep copy (edits never mutate a rubric that is still shown elsewhere). Keeps the wave-2 fields. */
 export function cloneContent(content: RubricContent): RubricContent {
-  return {
+  const out: RubricContent = {
     name: content.name ?? "",
     subject: content.subject ?? "",
-    questions: (content.questions ?? []).map((q) => ({
-      ...q,
-      prompt: q.prompt ?? "",
-      chapter: q.chapter ?? "",
-      grading_criteria: [...(q.grading_criteria ?? [])],
-    })),
+    questions: (content.questions ?? []).map((q) => {
+      const copy: RubricQuestion = {
+        ...q,
+        prompt: q.prompt ?? "",
+        chapter: q.chapter ?? "",
+        grading_criteria: [...(q.grading_criteria ?? [])],
+      };
+      if (q.options) copy.options = [...q.options];
+      if (q.marking_scheme) copy.marking_scheme = q.marking_scheme.map((step) => ({ ...step }));
+      return copy;
+    }),
   };
+  if (content.marking_policy) out.marking_policy = { ...content.marking_policy };
+  return out;
+}
+
+export function isMcq(q: Pick<RubricQuestion, "question_type">): boolean {
+  return q.question_type === "mcq";
+}
+
+/** Sum of a question's marking-scheme step marks. */
+export function schemeTotal(q: Pick<RubricQuestion, "marking_scheme">): number {
+  return (q.marking_scheme ?? []).reduce((sum, step) => sum + (Number.isFinite(step.marks) ? step.marks : 0), 0);
 }
 
 function squash(text: string | null | undefined): string {
@@ -121,10 +143,55 @@ export function normalizeContent(content: RubricContent): RubricContent {
         const chapter = squash(q.chapter);
         if (prompt) out.prompt = prompt;
         if (chapter) out.chapter = chapter;
+        // --- wave 2: only the fields that apply to the question type (the API rejects the rest) ---
+        if (isMcq(q)) {
+          out.question_type = "mcq";
+          const options = (q.options ?? []).map((o) => squash(o));
+          if (options.some(Boolean)) out.options = options;
+          if (q.correct_option) out.correct_option = q.correct_option;
+          if (typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks)) out.negative_marks = q.negative_marks;
+        } else {
+          if (q.question_type === "descriptive") out.question_type = "descriptive";
+          if (q.marking_scheme && q.marking_scheme.length) {
+            out.marking_scheme = q.marking_scheme.map((step) => {
+              const s: { criterion: string; marks: number; required?: boolean } = {
+                criterion: squash(step.criterion),
+                marks: step.marks,
+              };
+              if (step.required) s.required = true;
+              return s;
+            });
+          }
+          if (q.partial_credit) out.partial_credit = q.partial_credit;
+          if (typeof q.mark_step === "number" && Number.isFinite(q.mark_step)) out.mark_step = q.mark_step;
+        }
+        if (q.bloom_level) {
+          out.bloom_level = q.bloom_level;
+          out.bloom_source = q.bloom_source ?? "faculty";
+        }
+        const concept = squash(q.concept);
+        if (concept) out.concept = concept;
         return out;
       })
       .sort((a, b) => a.question - b.question),
+    ...(content.marking_policy ? { marking_policy: normalizePolicy(content.marking_policy) } : {}),
   };
+}
+
+function normalizePolicy(policy: MarkingPolicy): MarkingPolicy {
+  const out: MarkingPolicy = {
+    partial_credit: policy.partial_credit,
+    mark_step: policy.mark_step,
+    negative_marks: policy.negative_marks,
+  };
+  const name = squash(policy.scheme_name);
+  if (name) out.scheme_name = name;
+  return out;
+}
+
+/** Stable text of the rubric-level marking policy (to detect a policy-only change). */
+export function policyKey(content: RubricContent | null | undefined): string {
+  return content?.marking_policy ? JSON.stringify(normalizePolicy(content.marking_policy)) : "";
 }
 
 export function totalMarks(content: RubricContent | null | undefined): number {
@@ -155,10 +222,42 @@ export function validateContent(content: RubricContent): ContentIssues {
     if (!squash(q.subject)) problems.push("subject");
     if (!Number.isFinite(q.max_marks) || q.max_marks <= 0 || q.max_marks > 1000) problems.push("marks > 0");
     if (!Number.isFinite(q.effort_hours) || q.effort_hours <= 0 || q.effort_hours > 1000) problems.push("effort hours > 0");
-    if (!(q.expected_answer ?? "").trim()) problems.push("expected answer");
-    if (!(q.grading_criteria ?? []).some((c) => c.trim())) problems.push("at least one criterion");
+    if (isMcq(q)) {
+      // MCQ: the API fills "Option X" and a criterion when they are blank.
+      const options = q.options ?? [];
+      const filled = options.filter((o) => o.trim()).length;
+      if (options.length < 2 || options.length > 6) problems.push("2-6 options");
+      else if (filled > 0 && filled < options.length) problems.push("text for every option (or leave all blank)");
+      const index = (OPTION_LETTERS as readonly string[]).indexOf(q.correct_option ?? "");
+      if (index < 0 || (options.length >= 2 && index >= options.length)) problems.push("the correct option");
+      const neg = q.negative_marks;
+      if (neg !== undefined && (!Number.isFinite(neg) || neg < 0 || neg > q.max_marks)) {
+        problems.push("negative marks between 0 and the question marks");
+      }
+    } else {
+      if (!(q.expected_answer ?? "").trim()) problems.push("expected answer");
+      const scheme = q.marking_scheme ?? [];
+      // A marking scheme stands in for the criteria (the API derives one criterion per step).
+      if (!scheme.length && !(q.grading_criteria ?? []).some((c) => c.trim())) problems.push("at least one criterion");
+      if (scheme.length) {
+        if (scheme.length > MAX_SCHEME_STEPS) problems.push("at most " + MAX_SCHEME_STEPS + " scheme steps");
+        if (scheme.some((step) => !step.criterion.trim())) problems.push("a criterion for every scheme step");
+        if (scheme.some((step) => !Number.isFinite(step.marks) || step.marks <= 0)) problems.push("marks > 0 for every scheme step");
+        const total = schemeTotal(q);
+        if (Number.isFinite(q.max_marks) && Math.abs(total - q.max_marks) > 0.01) {
+          problems.push("scheme marks " + total + " must add up to " + q.max_marks);
+        }
+      }
+      if (q.mark_step !== undefined && Number.isFinite(q.max_marks) && q.mark_step > q.max_marks) {
+        problems.push("mark step no larger than the question marks");
+      }
+    }
     if (problems.length) byIndex[i] = problems;
   });
+  const policy = content.marking_policy;
+  if (policy && (!Number.isFinite(policy.negative_marks) || policy.negative_marks < 0 || policy.negative_marks > 100)) {
+    general.push("Marking policy: negative marks must be 0-100.");
+  }
   const count = general.length + Object.keys(byIndex).length;
   return { general, byIndex, count };
 }
@@ -172,6 +271,15 @@ const COMPARED: (keyof RubricQuestion)[] = [
   "expected_answer",
   "grading_criteria",
   "effort_hours",
+  "question_type",
+  "options",
+  "correct_option",
+  "negative_marks",
+  "bloom_level",
+  "concept",
+  "marking_scheme",
+  "partial_credit",
+  "mark_step",
 ];
 
 function comparable(q: RubricQuestion, key: keyof RubricQuestion): string {
@@ -180,6 +288,7 @@ function comparable(q: RubricQuestion, key: keyof RubricQuestion): string {
     return value.map((c) => squash(typeof c === "string" ? c : JSON.stringify(c))).filter(Boolean).join("\n");
   }
   if (typeof value === "number") return String(value);
+  if (key === "question_type") return value === "mcq" ? "mcq" : "descriptive";
   return squash(value as string | undefined);
 }
 

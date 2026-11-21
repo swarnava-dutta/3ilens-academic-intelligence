@@ -2,9 +2,12 @@
 
 import { useId, useState } from "react";
 import { AlertTriangle, ChevronDown, Plus, Sparkles, Trash2 } from "lucide-react";
-import type { RubricContent, RubricQuestion } from "@/lib/types";
+import type { MarkingPolicy, RubricContent, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { blankQuestion, compareContents, totalMarks, validateContent } from "./rubric-utils";
+import { BloomField } from "./bloom-field";
+import { MarkingPolicyFields } from "./marking-policy-fields";
+import { QuestionMarkingFields, QuestionTypeField } from "./question-marking-fields";
+import { blankQuestion, compareContents, isMcq, totalMarks, validateContent } from "./rubric-utils";
 
 const fieldClass =
   "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
@@ -88,6 +91,17 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
         </div>
       </div>
 
+      <MarkingPolicyFields
+        value={value.marking_policy}
+        disabled={disabled}
+        onChange={(policy) => {
+          const next: RubricContent = { ...value };
+          if (policy) next.marking_policy = policy;
+          else delete next.marking_policy;
+          onChange(next);
+        }}
+      />
+
       {warnings.length > 0 ? (
         <ul className="space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
           {warnings.map((w, i) => (
@@ -137,6 +151,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
             key={index}
             idPrefix={`${ids}-q${index}`}
             question={q}
+            policy={value.marking_policy}
             problems={issues.byIndex[index] ?? []}
             aiDrafted={drafted.has(q.question)}
             changeTag={
@@ -178,6 +193,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
 function QuestionRow({
   idPrefix,
   question: q,
+  policy,
   problems,
   aiDrafted,
   changeTag,
@@ -187,6 +203,7 @@ function QuestionRow({
 }: {
   idPrefix: string;
   question: RubricQuestion;
+  policy: MarkingPolicy | undefined;
   problems: string[];
   aiDrafted: boolean;
   changeTag: "new" | "changed" | null;
@@ -194,7 +211,8 @@ function QuestionRow({
   onChange: (patch: Partial<RubricQuestion>) => void;
   onRemove?: () => void;
 }) {
-  const [showAnswer, setShowAnswer] = useState(aiDrafted || !q.expected_answer);
+  const mcq = isMcq(q);
+  const [showAnswer, setShowAnswer] = useState(aiDrafted || (!mcq && !q.expected_answer));
   const criteriaText = (q.grading_criteria ?? []).join("\n");
 
   return (
@@ -326,7 +344,10 @@ function QuestionRow({
         </div>
         <div>
           <label htmlFor={`${idPrefix}-criteria`} className={labelClass}>
-            Criteria <span className="normal-case text-slate-400">(one per line)</span>
+            Criteria{" "}
+            <span className="normal-case text-slate-400">
+              (one per line{mcq || q.marking_scheme?.length ? "; optional - generated when blank" : ""})
+            </span>
           </label>
           <textarea
             id={`${idPrefix}-criteria`}
@@ -340,6 +361,16 @@ function QuestionRow({
         </div>
       </div>
 
+      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <QuestionTypeField idPrefix={idPrefix} question={q} disabled={disabled} onChange={onChange} />
+          <BloomField idPrefix={idPrefix} question={q} disabled={disabled} onChange={onChange} />
+        </div>
+        <div className="mt-2">
+          <QuestionMarkingFields idPrefix={idPrefix} question={q} policy={policy} disabled={disabled} onChange={onChange} />
+        </div>
+      </div>
+
       <div className="mt-2">
         <button
           type="button"
@@ -349,7 +380,7 @@ function QuestionRow({
           className="inline-flex items-center gap-1 rounded text-xs font-medium text-slate-600 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
         >
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAnswer && "rotate-180")} aria-hidden />
-          Expected answer
+          Expected answer{mcq ? " (optional for MCQs)" : ""}
           {aiDrafted ? (
             <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-inset ring-violet-200">
               <Sparkles className="h-3 w-3" aria-hidden />
