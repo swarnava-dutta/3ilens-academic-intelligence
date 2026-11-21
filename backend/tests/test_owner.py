@@ -124,3 +124,16 @@ def test_a_failing_intervention_summary_never_breaks_the_dashboard(client, seede
     response = client.get(URL)
     assert response.status_code == 200
     assert response.json()["interventions"]["records"] == 0
+
+
+def test_trend_delta_skips_a_small_check_between_two_mocks(client, seeded):
+    """NEET-C (sample): Mock 09 (12) -> oral sample (1) -> Mock 10 (12). The delta compares the mocks."""
+    assert client.post("/api/demo/seed", params={"set": "insights"}).json()["created"] > 0
+    neet_c = batch_named(client.get(URL).json(), "NEET-C (sample)")
+    assert neet_c["latest_test"]["name"] == "NEET MCQ Practice - Mock 10 (sample)"
+    mock09 = [r for r in client.get("/api/submissions").json()
+              if r["batch_id"] == neet_c["batch"]["id"] and r["total_marks"] == 104]
+    assert len(mock09) == 12
+    expected = sum(r["percentage"] for r in mock09) / len(mock09)
+    assert neet_c["previous_average_pct"] == pytest.approx(expected, abs=0.11)
+    assert neet_c["trend_delta_pct"] > 0

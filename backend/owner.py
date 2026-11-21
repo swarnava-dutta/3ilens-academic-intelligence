@@ -44,6 +44,7 @@ ROLE_NOTE = (
 )
 WEAKEST_TOPICS = 5
 SITTING_GAP = timedelta(days=3)
+MIN_TREND_STUDENTS = 3  # a previous test sat by fewer students is not used for the batch delta
 
 
 def _key(name: str | None) -> str:
@@ -121,7 +122,10 @@ def _batch_summary(db: Session, batch: Batch, subs: list[StudentSubmission]) -> 
     tests = _tests_by_recency(completed)
     latest_subs = tests[0][1] if tests else []
     latest_pct = _mean(analytics.percentage(s.result) for s in latest_subs)
-    previous_pct = _mean(analytics.percentage(s.result) for s in tests[1][1]) if len(tests) > 1 else None
+    # The previous test sat by at least MIN_TREND_STUDENTS students (a one-student oral check is
+    # not a comparable sitting for a whole-batch mock).
+    previous = next((t for _rubric, t in tests[1:] if len({_ref(s) for s in t}) >= MIN_TREND_STUDENTS), None)
+    previous_pct = _mean(analytics.percentage(s.result) for s in previous) if previous else None
     delta = round(latest_pct - previous_pct, 1) if latest_pct is not None and previous_pct is not None else None
     gaps = _topic_means(latest_subs)
     cost = db.scalar(select(func.sum(ModelInvocation.cost_inr)).where(ModelInvocation.batch_id == batch.id))
