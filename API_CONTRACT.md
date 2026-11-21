@@ -141,13 +141,13 @@ Additive like v2: no existing field was renamed, retyped or removed. Every new r
 
 ### Changed core shapes
 
-- **Health** += `voice_enabled`, `voice_ready` (enabled AND an OpenAI key), `transcription_model` (`gpt-transcribe`), `accepted_voice_types` (`["mp3","wav","m4a","ogg"]`; `accepted_upload_types` stays documents only), `llm_fallback` (model name or `"off"`), `lms_api_enabled`.
+- **Health** += `voice_enabled`, `voice_ready` (enabled AND an OpenAI key), `transcription_model` (`gpt-transcribe`), `accepted_voice_types` (`["mp3","wav","m4a","ogg"]`; `accepted_upload_types` stays documents only), `llm_fallback` (model name or `"off"`), `lms_api_enabled`, `intervention_default_hours` (`INTERVENTION_DEFAULT_HOURS`, default 3).
 - **Batch** += `faculty_lead` (free text). `PATCH /api/batches/{id}` accepts `faculty_lead` (whitespace normalised, max 120 -> 422; `null` or blank clears it).
 - **Submission** += `input_kind` (`document` \| `voice`; NULL reads `document`), `audio_seconds`, `voice_question`, `detected_languages` (NULL reads `[]`; the transcription model's languages plus every script found in the transcript, so a Hindi-English answer reports `hi` and `en`).
 - **QuestionEvaluation** += `question_type`, `bloom_level`, `bloom_source`, `demonstrated_level`, `concept`, `penalty`, `selected_option` (letter / `MULTI` / `UNKNOWN` / null), `correct_option`, `marking_breakdown` (`MarkingAward[]`), `marking_note` (also flags a `[note to examiner: ...]` written on the sheet: shown to faculty, ignored for grading).
 - **Result** += `llm_routes: LlmRoute[]` (one per stage from the stored model invocations: primary vs served model, `fell_back`, `cross_vendor`, `reason` such as `simulated_outage` or `ocr_cache_hit`), `patterns: StudentPatterns`, `interventions: InterventionRecord[]`, `voice: VoiceInfo | null` (`transcript_chars` counts the synthetic transcript for sample rows). **Cohort** += `patterns: CohortPatterns`.
 - These come from **guarded hooks** run after `analytics.result_extras`, in order `llm_route`, `patterns`, `outcomes`, `voice`; `cohort.build_cohort` guards `patterns.cohort_extras`. A hook that raises or returns a malformed payload is logged and replaced by its default (`[]`, empty patterns with null profiles, `null`), so a hook bug never breaks the report, cohort, PDF or LMS export.
-- **Pattern units**: every `accuracy` field (fatigue `early_accuracy` / `late_accuracy`, `CohortTopicRisk.mean_accuracy`, `BloomBucket.accuracy`, `QuestionAccuracy.accuracy`) is a fraction 0-1; `ConceptTransfer.recall_accuracy` / `transfer_accuracy` / `gap_pts` and `FatigueProfile.drop_pts` are percentage points. `StudentRiskRow.value` is marks lost (negative marking), points dropped (fatigue) or a concept count (transfer).
+- **Pattern units**: every `accuracy` field (fatigue `early_accuracy` / `late_accuracy`, `CohortTopicRisk.mean_accuracy`, `BloomBucket.accuracy`, `QuestionAccuracy.accuracy`) is a fraction 0-1; `ConceptTransfer.recall_accuracy` / `transfer_accuracy` / `gap_pts` and `FatigueProfile.drop_pts` / `adjusted_drop_pts` are percentage points. `StudentRiskRow.value` is marks lost (negative marking), points dropped (fatigue) or a concept count (transfer).
 - `InvocationPurpose` += `transcription`, `voice_mapping`, `bloom_detect`, `llm_drill`. `DemoSet` += `insights`.
 - Student PDFs label voice answers `Speech-to-text` in the run metadata (`RENDER_VERSION` `sair-pdf-v2` re-renders cached PDFs).
 
@@ -202,6 +202,19 @@ New shapes (field lists in `types.ts`): `VoiceInfo`, `VoiceTranscript`, `LlmRout
 - Routers: `routers/ai_ops.py` (LLM chain, drill, Bloom detection), `voice_routes.py`, `lms.py`, `owner_routes.py`, `insights_routes.py`.
 - `config`: `AUDIO_MIME_TYPES`, `AUDIO_LABELS`, `accepted_voice_types(settings)`, `llm_fallback_label(settings)`, `RESIDENCY_NOTE`. `result_view`: `guarded(name, hook, default)`, `extension_result_extras`, `cohort_patterns`.
 - Tests: `FakeAI.structure_transcript` (counted in `structure_calls`, not `calls`), fixture `fake_transcriber`, `wav_bytes` / `_wav(seconds)`; `forbid_ai` also forbids `ai.structure_transcript`, `ai.detect_bloom_levels` and `voice.transcribe`. Contract v3 acceptance lives in `tests/test_contract_v3.py`.
+
+### Later additions (still additive)
+
+| Method & path | Response | Notes / error codes |
+|---|---|---|
+| `GET /api/institutions` | `Institution[]` `{id, name}` | Id order. Lighter than the owner dashboard for pickers. |
+| `GET /api/results/{id}/versions` | `ResultVersion[]` `{version, created_at, rubric_id, rubric_version, total_score, total_marks, current}` | Archived versions (`evaluation_versions`) plus the current result, oldest first; just the current one when never re-run; archived only while a re-grade is in flight. 404 `unknown_submission`. |
+| `GET /api/results/{id}/versions/{version}` | `Result` | The current version returns the live result (`superseded: false`). An archived version is rebuilt from its stored payload with `superseded: true` and `superseded_by` = the next version number (null if unknown). 404 `unknown_submission` / `unknown_version`. |
+
+- **Result** += `superseded: boolean` (false on live results), `superseded_by: number | null`.
+- **Mostly blank sheet**: a document sheet whose OCR has a non-blank answer for fewer than half of the rubric questions goes to `HUMAN_REVIEW_REQUIRED` with detail `Mostly blank sheet - confirm before grading: only n/N rubric questions have a transcribed answer ...`, even when every page passes the 0.70 gate. Voice rows are not checked (a recording often answers one question).
+- **Transcript cache**: voice answers reuse the OCR cache table keyed by the audio SHA-256 + institution + transcription model + language hints + rubric keywords. A hit makes no transcription call, logs `Transcript cache hit - no transcription call (Rs 0.00)`, records a `transcription` invocation with status `cache_hit` and sets `ocr_cache_hit`.
+- **Cohort exam-behaviour lists** (`patterns.*.students`): when the scope holds more than one test for a student, each student is listed once, for their most recent flagged test, and `patterns.notes` gets `n students sat more than one test: each is listed once, for their latest test - filter by test to see the others`. Filtering by `rubric_id` lists every flagged student of that test.
 
 ## Settings (`.env` in the project root; restart the backend after changes)
 
