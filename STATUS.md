@@ -11,7 +11,7 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | 781 passed, 3 failed on the last full run. The 3 failing tests pinned placeholder behaviour (empty AI routes, no transfer profile, no transcript mapping) that is now implemented; they need updating to the real behaviour (see Pending 2) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **786 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | not re-run since the latest feature work |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
@@ -88,6 +88,10 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - Stage durations ignore log entries written after completion (sign-off, delivery).
 - OCR prompt: never correct towards the expected answer (e.g. "32P" stays "32P"), mark doubtful words `[?]`, transcribe diagrams as text, and wrap notes addressed to the examiner in `[note to examiner: ...]`, which the grader ignores and the UI flags. Covered by offline tests; not yet re-checked live (see Pending 1).
 - The human-review banner uses voice-specific wording for voice rows.
+- The consistency re-grade scores each question like the original run: MCQs keep their deterministic +4 / -1 / 0 and marking-scheme questions are re-scored, so there is no false delta.
+- An OCR result served by the GPT-4o fallback is not stored in the OCR cache, so a later upload of the same file goes to Claude again.
+- AI error messages for voice calls name speech-to-text transcription or transcript mapping; the sample voice row counts its synthetic transcript.
+- The contract tests follow the implemented behaviour (transcript mapping, AI routes on migrated rows, transfer profiles).
 
 ## Pending
 
@@ -111,11 +115,6 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - [ ] Owner institution switcher with more than one institution (only checked in code; the data has one institution).
 
 ### 2. Known issues and follow-ups
-- [ ] Update the three backend tests that still pin placeholder behaviour: transcript mapping without a question hint (now raises `AIConfigurationError` without a key instead of `not_implemented`), AI routes on a migrated copy of the real database (now real routes, not `[]`), and the Genetics demo transfer profile (now present).
-- [ ] Consistency re-grade (`POST /api/results/{id}/consistency-check`): MCQs are compared against the grader's marks, which shows a false delta against the deterministic +4 / -1, and marking-scheme questions are not re-scored. Score each question through `marking.score_question` instead.
-- [ ] An OCR result served by the GPT-4o fallback is stored in the OCR cache under the Claude cache key. Harmless, but a fallback transcript can be reused; consider skipping the cache store when the provider differs.
-- [ ] AI error messages for voice calls read "... during rubric evaluation": add labels for `transcription` and `voice_mapping`.
-- [ ] The sample voice row reports `transcript_chars: 0` while its transcript endpoint returns the synthetic transcript.
 - [ ] Required-step rule: each step award is rounded to `mark_step` before the 50% check, so 0.4 on a 1-mark required step rounds to 0.5 and counts as met. Confirm this is intended.
 - [ ] Study plan: with the target at max(mastery, 85%), the ROI lab's observed-gap candidate filter admits every topic below 85%, and the PDF's "Current -> target" column shows "-> 85%". Confirm this is acceptable.
 - [ ] Cohort exam-behaviour lists for NEET-C can show the same student twice (Mock 09 and Mock 10); filtering by test shows one at a time.
