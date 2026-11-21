@@ -20,6 +20,7 @@ import { ExecutiveSummaryCard } from "./executive-summary";
 import { ImmediateReadingCard } from "./immediate-reading";
 import { InsightsCard } from "./insights";
 import { normalizeResult } from "./normalize";
+import { ExamBehaviour } from "./patterns/exam-behaviour";
 import { PrintFooter, ProvisionalBanner, releaseText } from "./provisional-banner";
 import { QuestionEvaluationsCard } from "./question-evaluations";
 import { ReleaseGateCard } from "./release-gate";
@@ -71,7 +72,7 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
           <History className="h-4 w-4 shrink-0" aria-hidden />
           <span>
             Re-evaluated: this is version {currentVersion ?? superseded + 1}; {superseded} earlier{" "}
-            {superseded === 1 ? "version was" : "versions were"} superseded (see Version history in section 04).
+            {superseded === 1 ? "version was" : "versions were"} superseded (see Version history under Question evidence &amp; controls).
           </span>
         </Notice>
       ) : null}
@@ -107,6 +108,13 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
         <ActionPlanTable result={result} />
         <ConfusionsCard result={result} />
         <RoiLab result={result} />
+      </ReportSection>
+
+      <ReportSection
+        id="behaviour"
+        description="Negative marking, fatigue, memorisation vs transfer and the Bloom profile."
+      >
+        <ExamBehaviour result={result} />
       </ReportSection>
 
       <ReportSection id="evidence" description="Every mark traced to the answer, the rubric and the run.">

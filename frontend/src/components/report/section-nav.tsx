@@ -8,8 +8,9 @@ export const REPORT_SECTIONS = [
   { id: "overview", n: "01", label: "Executive overview", short: "Overview" },
   { id: "diagnostics", n: "02", label: "Subject & topic diagnostics", short: "Diagnostics" },
   { id: "action-plan", n: "03", label: "Teacher action plan", short: "Action plan" },
-  { id: "evidence", n: "04", label: "Question evidence & controls", short: "Evidence" },
-  { id: "pages", n: "05", label: "Original pages", short: "Pages" },
+  { id: "behaviour", n: "04", label: "Exam behaviour", short: "Behaviour" },
+  { id: "evidence", n: "05", label: "Question evidence & controls", short: "Evidence" },
+  { id: "pages", n: "06", label: "Original pages", short: "Pages" },
 ] as const;
 
 export type ReportSectionId = (typeof REPORT_SECTIONS)[number]["id"];
@@ -30,7 +31,7 @@ function sectionForHash(hash: string): ReportSectionId {
 }
 
 /**
- * Sticky in-page navigation for the five report sections. The page stays one long scroll (so
+ * Sticky in-page navigation for the report sections. The page stays one long scroll (so
  * print includes everything); the section in view is highlighted and kept in the URL hash.
  * A deep link inside a section (#q-3, #page-2) is left alone while that section is in view.
  */
