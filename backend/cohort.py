@@ -175,6 +175,8 @@ def build_cohort(
     demo_count = sum(1 for s in subs if s.is_demo)
     extras = analytics.cohort_extras(pairs=[(s, s.result) for s in completed_subs], rubrics=rubrics, batch=batch)
     operations = provenance.cohort_operations(db, subs=list(subs))
+    # Wave 2: guarded - a pattern bug never breaks the cohort.
+    cohort_patterns = result_view.cohort_patterns(db, pairs=[(s, s.result) for s in completed_subs], rubrics=rubrics)
     return CohortOut(
         institution=result_view.institution_out(institution),
         batch=result_view.batch_out(batch),
@@ -205,4 +207,5 @@ def build_cohort(
         },
         operations=operations,
         **extras,
+        patterns=cohort_patterns,
     )

@@ -32,7 +32,7 @@ import rubric_store
 import seed
 import uploads
 from ai_schemas import ModelUsage
-from config import accepted_upload_types, get_settings, ocr_adapter_label
+from config import accepted_upload_types, accepted_voice_types, get_settings, llm_fallback_label, ocr_adapter_label
 from database import (
     Batch,
     Institution,
@@ -46,7 +46,7 @@ from database import (
 )
 from errors import ApiError, install_error_handlers
 from hashing import student_ref_for
-from routers import analytics_routes, outputs, pipeline_ops
+from routers import ai_ops, analytics_routes, insights_routes, lms, outputs, owner_routes, pipeline_ops, voice_routes
 from schemas import (
     LANGUAGE_HINTS,
     CohortOut,
@@ -65,7 +65,7 @@ logger = logging.getLogger("3ilens.api")
 
 DbSession = Annotated[Session, Depends(get_db)]
 UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
-DemoSetQuery = Literal["genetics", "mixed", "all"]
+DemoSetQuery = Literal["genetics", "mixed", "all", "insights"]
 
 MAX_STUDENT_NAME = 120
 MAX_ROLL_NO = 40
@@ -319,6 +319,12 @@ def health(db: DbSession) -> HealthOut:
         whatsapp_mode=settings.whatsapp_mode,
         max_upload_mb=settings.max_upload_mb,
         accepted_upload_types=accepted_upload_types(settings),
+        voice_enabled=settings.voice_answers_enabled,
+        voice_ready=settings.voice_answers_enabled and bool(settings.openai_api_key),
+        transcription_model=settings.openai_transcribe_model,
+        accepted_voice_types=accepted_voice_types(settings),
+        llm_fallback=llm_fallback_label(settings),
+        lms_api_enabled=settings.lms_api_enabled,
     )
 
 
@@ -532,3 +538,9 @@ def seed_demo(
 app.include_router(pipeline_ops.router)
 app.include_router(analytics_routes.router)
 app.include_router(outputs.router)
+# Wave 2 (contract v3).
+app.include_router(ai_ops.router)
+app.include_router(voice_routes.router)
+app.include_router(lms.router)
+app.include_router(owner_routes.router)
+app.include_router(insights_routes.router)

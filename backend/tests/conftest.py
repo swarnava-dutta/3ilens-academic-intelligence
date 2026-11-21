@@ -78,9 +78,27 @@ def _pdf(pages: int = 1) -> bytes:
     return data
 
 
+def _wav(seconds: float = 1.0) -> bytes:
+    """A stdlib-wave mono 16 kHz 16-bit silence file."""
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x00" * int(16000 * seconds))
+    return buffer.getvalue()
+
+
 @pytest.fixture
 def png_bytes() -> bytes:
     return _png()
+
+
+@pytest.fixture
+def wav_bytes() -> bytes:
+    return _wav()
 
 
 @pytest.fixture
@@ -136,10 +154,14 @@ def _report_usage(kwargs: dict[str, Any], **fields: Any) -> None:
 
 
 class FakeAI:
-    """Stands in for preprocessing.preprocess_document, ai.run_ocr and ai.run_evaluation."""
+    """Stands in for preprocessing.preprocess_document, ai.run_ocr, ai.run_evaluation and
+    ai.structure_transcript. `calls` keeps exactly {preprocess, ocr, evaluation} (tests pin it);
+    wave-2 fakes are counted in their own attributes (structure_calls)."""
 
     def __init__(self) -> None:
         self.calls = {"preprocess": 0, "ocr": 0, "evaluation": 0}
+        self.structure_calls = 0
+        self.structure_kwargs: list[dict[str, Any]] = []
         self.answer_confidence = 0.93
         self.preprocess_error: BaseException | None = None
         self.ocr_error: BaseException | None = None
@@ -228,6 +250,76 @@ class FakeAI:
             overall_gaps=["Meselson-Stahl experiment details missing", "Codominance example incorrect"],
         )
 
+    def structure_transcript(self, transcript: str, rubric_content: dict, **kwargs: Any):
+        """question_hint -> one answer; else split on 'question N' / 'qN' markers (no markers:
+        everything goes to the first rubric question). Emits voice_mapping usage only without a hint."""
+        import re
+
+        from ai_schemas import OcrAnswer, OcrResult
+
+        self.structure_calls += 1
+        self.structure_kwargs.append(dict(kwargs))
+        numbers = [q["question"] for q in rubric_content["questions"]]
+        hint = kwargs.get("question_hint")
+        text = (transcript or "").strip()
+        pieces: dict[int, str] = {}
+        if hint is not None:
+            if hint not in numbers:
+                raise ValueError(f"Question {hint} is not in the rubric.")
+            if text:
+                pieces[hint] = text
+        else:
+            _report_usage(kwargs, purpose="voice_mapping", request_id=f"req_fake_map_{self.structure_calls}",
+                          input_tokens=400, output_tokens=120)
+            marks = list(re.finditer(r"(?:question|q)\s*(\d+)", text, flags=re.IGNORECASE))
+            if not marks:
+                if text:
+                    pieces[numbers[0]] = text
+            for index, match in enumerate(marks):
+                number = int(match.group(1))
+                end = marks[index + 1].start() if index + 1 < len(marks) else len(text)
+                chunk = text[match.end():end].strip(" .:-\n")
+                if number in numbers and chunk:
+                    pieces[number] = chunk
+        answers = [
+            OcrAnswer(question=n, answer=a, confidence=0.85 if len(a) >= 20 else 0.5, source="voice")
+            for n, a in sorted(pieces.items())
+        ]
+        mean = sum(a.confidence for a in answers) / len(answers) if answers else 0.0
+        return OcrResult(
+            answers=answers, overall_confidence=mean, provider="openai", model="gpt-transcribe",
+            language_hints=list(kwargs.get("language_hints") or []),
+        )
+
+
+class FakeTranscriber:
+    """Stands in for voice.transcribe (FR-2.8). Emits one transcription ModelUsage per call."""
+
+    def __init__(self) -> None:
+        self.text = "Question 1. The F1 generation shows a 3:1 ratio because tall is dominant."
+        self.languages = ["en"]
+        self.seconds: float | None = 12.5
+        self.error: BaseException | None = None
+        self.calls = 0
+        self.kwargs: list[dict[str, Any]] = []
+
+    def __call__(self, path: Path, mime_type: str, **kwargs: Any):
+        from ai_schemas import ModelUsage, Transcript
+
+        self.calls += 1
+        self.kwargs.append({"path": path, "mime_type": mime_type, **kwargs})
+        on_usage = kwargs.get("on_usage")
+        if on_usage is not None:
+            on_usage(ModelUsage(
+                purpose="transcription", provider="openai", model_requested="gpt-transcribe",
+                model_served="gpt-transcribe", request_id=f"req_fake_tx_{self.calls}", latency_ms=900,
+                status="error" if self.error else "ok", error_code=getattr(self.error, "code", None),
+            ))
+        if self.error:
+            raise self.error
+        return Transcript(text=self.text, model="gpt-transcribe", languages=list(self.languages),
+                          seconds=self.seconds, request_id=f"req_fake_tx_{self.calls}")
+
 
 @pytest.fixture
 def fake_ai(monkeypatch: pytest.MonkeyPatch) -> FakeAI:
@@ -238,6 +330,16 @@ def fake_ai(monkeypatch: pytest.MonkeyPatch) -> FakeAI:
     monkeypatch.setattr(preprocessing, "preprocess_document", fake.preprocess)
     monkeypatch.setattr(ai, "run_ocr", fake.run_ocr)
     monkeypatch.setattr(ai, "run_evaluation", fake.run_evaluation)
+    monkeypatch.setattr(ai, "structure_transcript", fake.structure_transcript)
+    return fake
+
+
+@pytest.fixture
+def fake_transcriber(monkeypatch: pytest.MonkeyPatch) -> FakeTranscriber:
+    import voice
+
+    fake = FakeTranscriber()
+    monkeypatch.setattr(voice, "transcribe", fake)
     return fake
 
 
@@ -261,6 +363,11 @@ def forbid_ai(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(ai, "run_evaluation", forbidden("run_evaluation"))
     monkeypatch.setattr(ai, "_anthropic_client", forbidden("anthropic client"), raising=False)
     monkeypatch.setattr(ai, "_openai_client", forbidden("openai client"), raising=False)
+    monkeypatch.setattr(ai, "structure_transcript", forbidden("structure_transcript"), raising=False)
+    monkeypatch.setattr(ai, "detect_bloom_levels", forbidden("detect_bloom_levels"), raising=False)
+    import voice
+
+    monkeypatch.setattr(voice, "transcribe", forbidden("voice.transcribe"), raising=False)
     return calls
 
 

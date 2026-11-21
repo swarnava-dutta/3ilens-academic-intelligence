@@ -1,11 +1,15 @@
 """Read-side assembly of API shapes from ORM rows (main.py and the PDF renderer share it).
 
 build_result merge order: base fields, then provenance.result_extras, then
-report_meta.result_extras, then analytics.result_extras LAST - its topic_mastery,
-roi_recommendations and question_evaluations replace the stored lists.
+report_meta.result_extras, then analytics.result_extras - its topic_mastery,
+roi_recommendations and question_evaluations replace the stored lists - and finally the four
+GUARDED wave-2 hooks (llm_route, patterns, outcomes, voice). A guarded hook that raises is
+logged and replaced by its default payload, so a wave-2 bug never breaks the core report.
 """
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import ValidationError
@@ -14,8 +18,12 @@ from sqlalchemy.orm import Session
 
 import analytics
 import hashing
+import llm_route
+import outcomes
+import patterns
 import provenance
 import report_meta
+import voice
 from config import get_settings
 from database import (
     Batch,
@@ -28,17 +36,36 @@ from database import (
 )
 from schemas import (
     BatchOut,
+    CohortPatterns,
     InstitutionOut,
+    InterventionRecordOut,
+    LlmRoute,
     ProcessingLogEntry,
     ResultOut,
     ResultPendingOut,
     RubricOut,
     RubricRef,
     StudentCard,
+    StudentPatterns,
     SubmissionOut,
+    VoiceInfo,
 )
 
+logger = logging.getLogger("3ilens.result_view")
+
 LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
+
+
+def guarded(name: str, hook: Callable[[], dict[str, Any]], default: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Run a wave-2 read-side hook; on any exception log it and use the default payload."""
+    try:
+        out = hook()
+        if not isinstance(out, dict):
+            raise TypeError(f"{name} returned {type(out).__name__}, expected dict")
+        return out
+    except Exception:  # noqa: BLE001 - a wave-2 bug must never break the core report
+        logger.exception("Wave-2 hook %s failed - using its default payload", name)
+        return default()
 
 
 def institution_out(institution: Institution) -> InstitutionOut:
@@ -58,6 +85,7 @@ def batch_out(batch: Batch) -> BatchOut:
         exam_date_assumed=assumed,
         days_to_exam=days,
         strategy_mode=analytics.strategy_mode_for(days),
+        faculty_lead=batch.faculty_lead or None,
     )
 
 
@@ -139,6 +167,10 @@ def submission_out(sub: StudentSubmission) -> SubmissionOut:
         completed_at=sub.completed_at,
         release_status=(result.release_status or "PROVISIONAL") if completed else None,
         llm_cost_inr=result.llm_cost_inr if completed else None,
+        input_kind=sub.input_kind or "document",
+        audio_seconds=sub.audio_seconds,
+        voice_question=sub.voice_question,
+        detected_languages=[str(code) for code in (sub.detected_languages or [])],
     )
 
 
@@ -221,7 +253,59 @@ def build_result_for(
     payload.update(
         analytics.result_extras(db, sub=sub, result=result, rubric=rubric, batch=batch, institution=institution)
     )
+    payload.update(wave2_result_extras(db, sub=sub, result=result, rubric=rubric))
     return ResultOut.model_validate(payload)
+
+
+def wave2_result_extras(
+    db: Session, *, sub: StudentSubmission, result: EvaluationResult, rubric: Rubric
+) -> dict[str, Any]:
+    """The four guarded wave-2 hooks, in contract order. Each payload is validated inside its
+    guard, so a malformed payload falls back to the default as well."""
+    out: dict[str, Any] = {}
+    out.update(guarded(
+        "llm_route.result_extras",
+        lambda: {"llm_routes": [
+            LlmRoute.model_validate(r).model_dump()
+            for r in llm_route.result_extras(db, sub=sub, result=result, rubric=rubric)["llm_routes"]
+        ]},
+        lambda: {"llm_routes": []},
+    ))
+    out.update(guarded(
+        "patterns.result_extras",
+        lambda: {"patterns": StudentPatterns.model_validate(
+            patterns.result_extras(db, sub=sub, result=result, rubric=rubric)["patterns"]
+        ).model_dump()},
+        lambda: {"patterns": patterns.empty_student_patterns()},
+    ))
+    out.update(guarded(
+        "outcomes.result_extras",
+        lambda: {"interventions": [
+            InterventionRecordOut.model_validate(r).model_dump()
+            for r in outcomes.result_extras(db, sub=sub, result=result)["interventions"]
+        ]},
+        lambda: {"interventions": []},
+    ))
+    out.update(guarded(
+        "voice.result_extras",
+        lambda: {"voice": (
+            VoiceInfo.model_validate(info).model_dump()
+            if (info := voice.result_extras(db, sub=sub)["voice"]) is not None else None
+        )},
+        lambda: {"voice": None},
+    ))
+    return out
+
+
+def cohort_patterns(db: Session, *, pairs: list[tuple[Any, Any]], rubrics: dict[int, Rubric]) -> dict[str, Any]:
+    """Guarded patterns.cohort_extras -> a validated CohortPatterns dict (default on any error)."""
+    return guarded(
+        "patterns.cohort_extras",
+        lambda: {"patterns": CohortPatterns.model_validate(
+            patterns.cohort_extras(db, pairs=pairs, rubrics=rubrics)["patterns"]
+        ).model_dump()},
+        lambda: {"patterns": patterns.empty_cohort_patterns()},
+    )["patterns"]
 
 
 # --------------------------------------------------------------------------- #

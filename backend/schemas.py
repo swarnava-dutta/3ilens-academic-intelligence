@@ -11,7 +11,9 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+import bloom
 import insights
+import marking
 
 
 # --------------------------------------------------------------------------- #
@@ -21,6 +23,66 @@ def _non_empty(value: Any, what: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{what} must be a non-empty string")
     return " ".join(value.split())
+
+
+QUESTION_TYPES = ("descriptive", "mcq")
+MAX_OPTIONS = 6
+MAX_SCHEME_STEPS = 20
+
+
+class MarkingStepIn(BaseModel):
+    """One step of a per-question marking scheme (FR-3.8)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    criterion: str = Field(max_length=500)
+    marks: float = Field(gt=0, le=1000)
+    required: bool = False
+
+    @field_validator("criterion", mode="before")
+    @classmethod
+    def _criterion(cls, v: Any) -> str:
+        return _non_empty(v, "criterion")
+
+    @field_validator("marks", mode="before")
+    @classmethod
+    def _no_bool(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("must be a number")
+        return v
+
+
+class MarkingPolicyIn(BaseModel):
+    """Rubric-wide marking policy (FR-3.8 / FR-4.8). Questions may override mode and step."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    partial_credit: Literal["steps", "proportional", "all_or_nothing"] = "steps"
+    mark_step: float = 0.5
+    negative_marks: float = Field(default=0.0, ge=0, le=100)
+    scheme_name: str | None = Field(default=None, max_length=80)
+
+    @field_validator("mark_step")
+    @classmethod
+    def _step(cls, v: float) -> float:
+        if not any(abs(v - step) < 1e-9 for step in marking.MARK_STEPS):
+            raise ValueError("mark_step must be one of 0.25, 0.5, 1 or 2")
+        return v
+
+    @field_validator("scheme_name", mode="before")
+    @classmethod
+    def _scheme_name(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return " ".join(v.split()) if isinstance(v, str) else v
+
+
+def _fmt_marks(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(number)) if number.is_integer() else f"{number:g}"
 
 
 class RubricQuestionIn(BaseModel):
@@ -35,6 +97,59 @@ class RubricQuestionIn(BaseModel):
     grading_criteria: list[str] = Field(min_length=1, max_length=50)
     effort_hours: int | float = Field(gt=0, le=1000)
     chapter: str | None = Field(default=None, max_length=200)  # syllabus chapter (weightage matrix)
+    # --- wave 2 (all default None, so model_dump(exclude_none=True) keeps old hashes) ----------
+    question_type: Literal["descriptive", "mcq"] | None = None
+    options: list[str] | None = None
+    correct_option: str | None = None
+    negative_marks: float | None = None
+    bloom_level: Literal["K1", "K2", "K3", "K4", "K5"] | None = None
+    bloom_source: Literal["faculty", "ai", "heuristic"] | None = None
+    concept: str | None = Field(default=None, max_length=200)
+    marking_scheme: list[MarkingStepIn] | None = None
+    partial_credit: Literal["steps", "proportional", "all_or_nothing"] | None = None
+    mark_step: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wave2_defaults(cls, data: Any) -> Any:
+        """MCQ: needs a correct_option; fills expected_answer / grading_criteria when missing.
+        A marking scheme without grading_criteria gets one criterion per step."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        number = data.get("question")
+        qtype = data.get("question_type")
+        if isinstance(qtype, str):
+            qtype = qtype.strip().lower() or None
+            data["question_type"] = qtype
+        criteria = data.get("grading_criteria")
+        no_criteria = criteria is None or (
+            isinstance(criteria, list) and not any(isinstance(c, str) and c.strip() for c in criteria)
+        )
+        if qtype == "mcq":
+            options = data.get("options") if isinstance(data.get("options"), list) else None
+            raw_correct = data.get("correct_option")
+            if raw_correct is None or not str(raw_correct).strip():
+                raise ValueError(f"Q{number} is an MCQ: correct_option is required (one option letter A-F)")
+            letter = marking.normalise_option(raw_correct, len(options) if options else None)
+            if letter in (None, marking.MULTI, marking.UNKNOWN):
+                raise ValueError(f"Q{number} correct_option must be one option letter A-F within the options")
+            data["correct_option"] = letter
+            expected = data.get("expected_answer")
+            if not isinstance(expected, str) or not expected.strip():
+                data["expected_answer"] = f"Option {letter}"
+            if no_criteria:
+                data["grading_criteria"] = [
+                    f"{_fmt_marks(data.get('max_marks'))} marks for option {letter}; a wrong option follows the "
+                    "negative-marking rule; 0 if blank"
+                ]
+        elif isinstance(data.get("marking_scheme"), list) and data["marking_scheme"] and no_criteria:
+            steps = [st for st in data["marking_scheme"] if isinstance(st, dict)]
+            data["grading_criteria"] = [
+                f"{_fmt_marks(st.get('marks'))} marks: {' '.join(str(st.get('criterion') or '').split())}"
+                for st in steps
+            ]
+        return data
 
     @field_validator("question", "max_marks", "effort_hours", mode="before")
     @classmethod
@@ -90,6 +205,81 @@ class RubricQuestionIn(BaseModel):
             raise ValueError("grading_criteria must contain only non-empty strings")
         return cleaned
 
+    @field_validator("negative_marks", "mark_step", mode="before")
+    @classmethod
+    def _no_bool_optional(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("must be a number")
+        return v
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _options(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise ValueError("options must be a list of strings")
+        cleaned = [" ".join(o.split()) for o in v if isinstance(o, str) and o.strip()]
+        if len(cleaned) != len(v):
+            raise ValueError("options must contain only non-empty strings")
+        if not 2 <= len(cleaned) <= MAX_OPTIONS:
+            raise ValueError(f"options must have 2-{MAX_OPTIONS} entries")
+        if any(len(o) > 500 for o in cleaned):
+            raise ValueError("each option must be at most 500 characters")
+        return cleaned
+
+    @field_validator("bloom_level", mode="before")
+    @classmethod
+    def _bloom_level(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        level = bloom.parse_level(v)
+        if level is None:
+            raise ValueError("bloom_level must be K1-K5 (or remember / understand / apply / analyse / evaluate)")
+        return level
+
+    @field_validator("concept", mode="before")
+    @classmethod
+    def _concept(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return " ".join(v.split()) if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _wave2_rules(self) -> RubricQuestionIn:
+        n = self.question
+        is_mcq = self.question_type == "mcq"
+        if not is_mcq:
+            for name in ("options", "correct_option", "negative_marks"):
+                if getattr(self, name) is not None:
+                    raise ValueError(f"Q{n} {name} is only allowed when question_type is 'mcq'")
+        else:
+            if self.marking_scheme:
+                raise ValueError(f"Q{n} marking_scheme is only allowed on descriptive questions")
+            if self.options and self.correct_option:
+                index = marking.OPTION_LETTERS.index(self.correct_option)
+                if index >= len(self.options):
+                    raise ValueError(
+                        f"Q{n} correct_option {self.correct_option} is not one of the {len(self.options)} options"
+                    )
+            if self.negative_marks is not None and not 0 <= self.negative_marks <= float(self.max_marks):
+                raise ValueError(f"Q{n} negative_marks must be between 0 and max_marks ({_fmt_marks(self.max_marks)})")
+        if self.marking_scheme is not None:
+            if not 1 <= len(self.marking_scheme) <= MAX_SCHEME_STEPS:
+                raise ValueError(f"Q{n} marking_scheme must have 1-{MAX_SCHEME_STEPS} steps")
+            total = sum(step.marks for step in self.marking_scheme)
+            if abs(total - float(self.max_marks)) > 0.01:
+                raise ValueError(
+                    f"Q{n} marking_scheme marks ({_fmt_marks(total)}) must add up to max_marks "
+                    f"({_fmt_marks(self.max_marks)})"
+                )
+        if self.mark_step is not None:
+            if not any(abs(self.mark_step - step) < 1e-9 for step in marking.MARK_STEPS):
+                raise ValueError(f"Q{n} mark_step must be one of 0.25, 0.5, 1 or 2")
+            if self.mark_step > float(self.max_marks):
+                raise ValueError(f"Q{n} mark_step must not exceed max_marks")
+        return self
+
 
 class RubricContentIn(BaseModel):
     """A complete rubric content object, as stored in Rubric.content."""
@@ -99,6 +289,7 @@ class RubricContentIn(BaseModel):
     name: str = Field(max_length=200)
     subject: str | None = None
     questions: list[RubricQuestionIn] = Field(min_length=1, max_length=60)
+    marking_policy: MarkingPolicyIn | None = None  # wave 2; None keeps the wave-1 marking rule
 
     @field_validator("name", mode="before")
     @classmethod
@@ -143,11 +334,25 @@ EffortFlagKindLit = Literal["over_investing", "low_marginal_return"]
 RoadmapHorizonLit = Literal["7", "30", "60", "90"]
 DeliveryStatusLit = Literal["BLOCKED_TEMPLATE_PENDING", "SIMULATED_NOT_SENT"]
 InvocationStatusLit = Literal["ok", "error", "refusal", "cache_hit"]
-InvocationPurposeLit = Literal["ocr", "evaluation", "consistency", "rubric_parse"]
+InvocationPurposeLit = Literal[
+    "ocr", "evaluation", "consistency", "rubric_parse", "transcription", "voice_mapping", "bloom_detect", "llm_drill",
+]
 LanguageHintLit = Literal["en", "hi", "ta", "kn", "te"]
 ReviewActionLit = Literal["approve", "correct", "rescan"]
 RubricSourceLit = Literal["text", "pdf", "docx", "json"]
-DemoSetLit = Literal["genetics", "mixed", "all"]
+DemoSetLit = Literal["genetics", "mixed", "all", "insights"]
+# --- wave 2 (contract v3) ---
+QuestionTypeLit = Literal["descriptive", "mcq"]
+BloomLevelLit = Literal["K1", "K2", "K3", "K4", "K5"]
+BloomSourceLit = Literal["faculty", "ai", "heuristic"]
+PartialCreditModeLit = Literal["steps", "proportional", "all_or_nothing"]
+InputKindLit = Literal["document", "voice"]
+RiskLevelLit = Literal["low", "medium", "high"]
+TransferClassLit = Literal["memorisation", "transferable", "foundational_gap", "inconsistent", "developing"]
+InterventionKindLit = Literal["nudge", "study_focus", "class_intervention", "custom"]
+OutcomeStatusLit = Literal["pending", "improved", "flat", "declined", "not_assessed"]
+BloomDetectModeLit = Literal["ai", "heuristic"]
+LlmRoleLit = Literal["primary", "fallback"]
 
 URGENCIES: tuple[str, ...] = get_args(UrgencyLit)
 LANGUAGE_HINTS: tuple[str, ...] = get_args(LanguageHintLit)
@@ -170,6 +375,7 @@ class BatchOut(BaseModel):
     exam_date_assumed: bool = True
     days_to_exam: int | None = None
     strategy_mode: StrategyModeLit | None = None
+    faculty_lead: str | None = None
 
 
 class HealthOut(BaseModel):
@@ -188,6 +394,12 @@ class HealthOut(BaseModel):
     whatsapp_mode: str = "blocked"
     max_upload_mb: int = 20
     accepted_upload_types: list[str] = Field(default_factory=list)
+    voice_enabled: bool = True
+    voice_ready: bool = False  # enabled AND an OpenAI key is present
+    transcription_model: str = "gpt-transcribe"
+    accepted_voice_types: list[str] = Field(default_factory=list)
+    llm_fallback: str = "gpt-4o"  # the fallback model name, or "off"
+    lms_api_enabled: bool = True
 
 
 class RubricOut(BaseModel):
@@ -244,6 +456,10 @@ class SubmissionOut(BaseModel):
     completed_at: datetime | None = None
     release_status: ReleaseStatusLit | None = None
     llm_cost_inr: float | None = None
+    input_kind: InputKindLit = "document"
+    audio_seconds: float | None = None
+    voice_question: int | None = None
+    detected_languages: list[str] = Field(default_factory=list)
 
 
 class TopicMasteryOut(BaseModel):
@@ -311,6 +527,13 @@ def question_outcome(item: dict[str, Any]) -> str:
     return "PARTIAL"
 
 
+class MarkingAward(BaseModel):
+    criterion: str
+    marks: float
+    awarded: float
+    required: bool = False
+
+
 class QuestionEvaluationOut(BaseModel):
     question: int
     topic: str
@@ -325,6 +548,17 @@ class QuestionEvaluationOut(BaseModel):
     source_pages: list[int] = Field(default_factory=list)
     uncertain_words: list[UncertainWordOut] = Field(default_factory=list)
     corrected_by_faculty: bool = False
+    # --- wave 2 (defaults so old rows validate) ---
+    question_type: QuestionTypeLit = "descriptive"
+    bloom_level: BloomLevelLit | None = None
+    bloom_source: BloomSourceLit | None = None
+    demonstrated_level: BloomLevelLit | None = None
+    concept: str | None = None
+    penalty: float = 0.0
+    selected_option: str | None = None
+    correct_option: str | None = None
+    marking_breakdown: list[MarkingAward] = Field(default_factory=list)
+    marking_note: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -642,6 +876,212 @@ class StudyPlan(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Wave 2 (contract v3): shapes carried by Result / Cohort
+# --------------------------------------------------------------------------- #
+class VoiceInfo(BaseModel):
+    audio_url: str | None = None  # relative /api/submissions/{id}/audio; null when no audio file is stored
+    audio_seconds: float | None = None
+    detected_languages: list[str] = Field(default_factory=list)
+    transcription_model: str | None = None
+    voice_question: int | None = None
+    transcript_chars: int = 0
+    synthetic: bool = False
+
+
+class LlmRoute(BaseModel):
+    stage: InvocationPurposeLit
+    primary_provider: str
+    primary_model: str
+    served_provider: str | None = None
+    served_model: str | None = None
+    fell_back: bool = False
+    cross_vendor: bool = False
+    reason: str | None = None
+    attempts: int = 1
+
+
+class TopicRisk(BaseModel):
+    topic: str
+    attempted: int
+    correct: int
+    wrong: int
+    blank: int
+    accuracy: float | None = None
+    marks_lost: float
+    risk: RiskLevelLit
+    over_attempting: bool
+    skip_threshold: float
+    eliminate_options: int
+    advice: str
+
+
+class NegativeMarkingProfile(BaseModel):
+    scheme: str
+    break_even: float
+    attempted: int
+    correct: int
+    wrong: int
+    blank: int
+    accuracy: float | None = None
+    marks_lost: float
+    net_marks: float
+    risk: RiskLevelLit
+    topics: list[TopicRisk] = Field(default_factory=list)
+    recommendation: str
+
+
+class QuestionAccuracy(BaseModel):
+    question: int
+    accuracy: float
+    cohort_accuracy: float | None = None
+    final_third: bool
+    blank: bool
+
+
+class FatigueProfile(BaseModel):
+    questions: int
+    final_third_from: int
+    early_accuracy: float
+    late_accuracy: float
+    drop_pts: float
+    adjusted_drop_pts: float | None = None
+    cohort_size: int
+    early_blank_rate: float
+    late_blank_rate: float
+    flagged: bool
+    severity: RiskLevelLit
+    reasons: list[str] = Field(default_factory=list)
+    recommendation: str
+    series: list[QuestionAccuracy] = Field(default_factory=list)
+
+
+class ConceptTransfer(BaseModel):
+    concept: str
+    recall_questions: list[int] = Field(default_factory=list)
+    transfer_questions: list[int] = Field(default_factory=list)
+    recall_accuracy: float
+    transfer_accuracy: float
+    gap_pts: float
+    classification: TransferClassLit
+    advice: str
+
+
+class TransferProfile(BaseModel):
+    concepts: list[ConceptTransfer] = Field(default_factory=list)
+    memorisation: int = 0
+    transferable: int = 0
+    summary: str = ""
+
+
+class BloomBucket(BaseModel):
+    level: BloomLevelLit
+    questions: int
+    marks: float
+    max_marks: float
+    accuracy: float | None = None
+
+
+class StudentPatterns(BaseModel):
+    negative_marking: NegativeMarkingProfile | None = None
+    fatigue: FatigueProfile | None = None
+    transfer: TransferProfile | None = None
+    bloom_profile: list[BloomBucket] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class StudentRiskRow(BaseModel):
+    submission_id: int
+    student_name: str
+    value: float
+    detail: str
+    severity: RiskLevelLit
+
+
+class CohortTopicRisk(BaseModel):
+    topic: str
+    students_profiled: int
+    students_over_attempting: int
+    mean_accuracy: float | None = None
+    marks_lost: float
+    skip_threshold: float
+
+
+class CohortNegativeMarking(BaseModel):
+    students_profiled: int = 0
+    marks_lost_total: float = 0.0
+    topics: list[CohortTopicRisk] = Field(default_factory=list)
+    students: list[StudentRiskRow] = Field(default_factory=list)
+
+
+class CohortFatigue(BaseModel):
+    students_profiled: int = 0
+    flagged_count: int = 0
+    early_accuracy: float | None = None
+    late_accuracy: float | None = None
+    students: list[StudentRiskRow] = Field(default_factory=list)
+
+
+class ConceptSummary(BaseModel):
+    concept: str
+    students: int
+    memorisation: int
+    transferable: int
+    foundational_gap: int
+
+
+class CohortTransfer(BaseModel):
+    students_profiled: int = 0
+    concepts: list[ConceptSummary] = Field(default_factory=list)
+    students: list[StudentRiskRow] = Field(default_factory=list)
+
+
+class CohortPatterns(BaseModel):
+    negative_marking: CohortNegativeMarking | None = None
+    fatigue: CohortFatigue | None = None
+    transfer: CohortTransfer | None = None
+    bloom_profile: list[BloomBucket] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class InterventionOutcome(BaseModel):
+    follow_up_submission_id: int
+    follow_up_date: datetime
+    follow_up_test: str
+    baseline_mastery: float
+    follow_up_mastery: float
+    mastery_change: float
+    predicted_gain_pct: float | None = None
+    roi_accuracy: float | None = None
+    score_change_pct: float | None = None
+
+
+class InterventionRecordOut(BaseModel):
+    """types.ts InterventionRecord (Out suffix: the ORM class is database.InterventionRecord)."""
+
+    id: int
+    institution_id: int
+    batch_id: int
+    submission_id: int
+    student_ref: str
+    student_name: str
+    topic: str
+    kind: InterventionKindLit
+    action: str
+    source: ContentSourceLit = "faculty"
+    applied_by: str
+    applied_at: datetime
+    hours: float | None = None
+    compliance: float | None = None
+    baseline_mastery: float | None = None
+    predicted_gain_pct: float | None = None
+    note: str | None = None
+    is_demo: bool = False
+    created_at: datetime
+    outcome_status: OutcomeStatusLit = "pending"
+    outcome: InterventionOutcome | None = None
+
+
+# --------------------------------------------------------------------------- #
 # Result / pending
 # --------------------------------------------------------------------------- #
 class ResultOut(BaseModel):
@@ -677,6 +1117,11 @@ class ResultOut(BaseModel):
     versions: list[EvaluationVersionOut] = Field(default_factory=list)
     deliveries: list[DeliveryOut] = Field(default_factory=list)
     study_plan: StudyPlan
+    # --- wave 2: guarded read-side hooks (result_view.build_result_for) ---
+    llm_routes: list[LlmRoute] = Field(default_factory=list)
+    patterns: StudentPatterns = Field(default_factory=StudentPatterns)
+    interventions: list[InterventionRecordOut] = Field(default_factory=list)
+    voice: VoiceInfo | None = None
 
 
 class ResultPendingOut(BaseModel):
@@ -808,6 +1253,7 @@ class CohortOut(BaseModel):
     excluded: ExcludedStudents = Field(default_factory=ExcludedStudents)
     operations: Operations
     release_counts: ReleaseCounts = Field(default_factory=ReleaseCounts)
+    patterns: CohortPatterns = Field(default_factory=CohortPatterns)  # wave 2 (guarded hook)
 
 
 class DemoSeedOut(BaseModel):
@@ -1062,6 +1508,345 @@ class ExamOption(BaseModel):
     note: str
 
 
+# --------------------------------------------------------------------------- #
+# Wave 2 (contract v3): voice, LLM chain, Bloom detection
+# --------------------------------------------------------------------------- #
+class VoiceTranscript(BaseModel):
+    submission_id: int
+    text: str
+    model: str | None = None
+    detected_languages: list[str] = Field(default_factory=list)
+    audio_seconds: float | None = None
+    created_at: datetime | None = None
+    synthetic: bool = False
+
+
+class LlmProvider(BaseModel):
+    provider: str
+    model: str
+    role: LlmRoleLit
+    configured: bool
+    stages: list[str] = Field(default_factory=list)
+    deprecation: str | None = None
+    residency_note: str
+
+
+class LlmChainStatus(BaseModel):
+    providers: list[LlmProvider] = Field(default_factory=list)
+    fallback_enabled: bool
+    simulate_outage: bool
+    trigger_codes: list[str] = Field(default_factory=list)
+    recent_fallbacks: list[ModelInvocationOut] = Field(default_factory=list)
+    note: str
+
+
+class LlmDrillResult(BaseModel):
+    ok: bool
+    route: LlmRoute
+    calls: list[ModelInvocationOut] = Field(default_factory=list)
+    sample_marks: float | None = None
+    sample_max_marks: float
+    latency_ms: int
+    message: str
+
+
+class BloomTag(BaseModel):
+    question: int
+    level: BloomLevelLit
+    source: BloomSourceLit
+    rationale: str
+    current_level: BloomLevelLit | None = None
+
+
+class BloomDetection(BaseModel):
+    rubric_id: int
+    mode: BloomDetectModeLit
+    levels: list[BloomTag] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: intervention effectiveness (FR-4.13) and what-if (FR-4.14)
+# --------------------------------------------------------------------------- #
+INTERVENTION_CAVEAT = (
+    "Observational: treated vs untreated topics of the same students. Interventions are not assumed to cause "
+    "the score changes."
+)
+
+
+class EffectRow(BaseModel):
+    key: str
+    label: str
+    n: int
+    mean_change: float | None = None
+    control_change: float | None = None
+    uplift: float | None = None
+    improved_share: float | None = None
+
+
+class InstitutionEffect(BaseModel):
+    institution_id: int
+    institution_name: str
+    records: int
+    measured: int
+    mean_change: float | None = None
+    uplift: float | None = None
+    calibration_factor: float | None = None
+    calibration_n: int = 0
+
+
+class InterventionEffectiveness(BaseModel):
+    institution_id: int | None = None
+    batch_id: int | None = None
+    records: int = 0
+    measured: int = 0
+    pending: int = 0
+    mean_change_treated: float | None = None
+    mean_change_control: float | None = None
+    uplift: float | None = None
+    by_kind: list[EffectRow] = Field(default_factory=list)
+    by_topic: list[EffectRow] = Field(default_factory=list)
+    by_institution: list[InstitutionEffect] = Field(default_factory=list)
+    is_demo: bool = False
+    caveat: str = INTERVENTION_CAVEAT
+    generated_at: datetime
+
+
+class InterventionSummary(BaseModel):
+    records: int = 0
+    measured: int = 0
+    uplift: float | None = None
+    calibration_factor: float | None = None
+
+
+class WhatIfImpact(BaseModel):
+    exam_marks_avg: float
+    exam_marks_low: float
+    exam_marks_high: float
+    test_pct_points_avg: float
+    exam_scale_max: float
+
+
+class WhatIfStudentRow(BaseModel):
+    submission_id: int
+    student_name: str
+    student_ref: str
+    mastery_before: float
+    mastery_after: float
+    exam_marks_gain: float
+
+
+class WhatIfScenarioResult(BaseModel):
+    topic: str
+    subject: str | None = None
+    chapter: str | None = None
+    extra_hours: float
+    hours_to_target: float | None = None
+    students_assessed: int
+    students_at_target: int
+    mean_mastery_before: float | None = None
+    mean_mastery_after: float | None = None
+    impact: WhatIfImpact
+    headline: str
+    students: list[WhatIfStudentRow] = Field(default_factory=list)
+
+
+class WhatIfResult(BaseModel):
+    batch_id: int | None = None
+    batch_name: str | None = None
+    rubric_id: int | None = None
+    institution_id: int | None = None
+    students_considered: int
+    baseline_avg_pct: float | None = None
+    projected_avg_pct: float | None = None
+    scenarios: list[WhatIfScenarioResult] = Field(default_factory=list)
+    combined: WhatIfImpact
+    calibration_factor: float = 1.0
+    calibrated: bool = False
+    label: str
+    assumptions: list[str] = Field(default_factory=list)
+    is_demo: bool = False
+
+
+class WhatIfTopicOption(BaseModel):
+    topic: str
+    subject: str | None = None
+    students: int
+    mean_mastery: float | None = None
+    hours_to_target: float | None = None
+
+
+class WhatIfOptions(BaseModel):
+    batches: list[BatchOut] = Field(default_factory=list)
+    topics: list[WhatIfTopicOption] = Field(default_factory=list)
+    calibration_factor: float | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: owner dashboard (FR-5.9)
+# --------------------------------------------------------------------------- #
+class OwnerTotals(BaseModel):
+    students: int = 0
+    submissions: int = 0
+    completed: int = 0
+    human_review: int = 0
+    failed: int = 0
+    processing: int = 0
+    average_pct: float | None = None
+    released: int = 0
+    provisional: int = 0
+    batches: int = 0
+    faculty: int = 0
+    tests: int = 0
+
+
+class BatchSummary(BaseModel):
+    batch: BatchOut
+    students: int
+    completed: int
+    average_pct: float | None = None
+    previous_average_pct: float | None = None
+    trend_delta_pct: float | None = None
+    urgency_counts: UrgencyCounts
+    latest_test: RubricRef | None = None
+    latest_test_date: datetime | None = None
+    released: int = 0
+    provisional: int = 0
+    review_backlog: int = 0
+    failed: int = 0
+    top_gap_topic: str | None = None
+    cost_inr: float = 0.0
+    is_demo: bool = False
+
+
+class FacultySummary(BaseModel):
+    name: str
+    batches: list[str] = Field(default_factory=list)
+    students: int = 0
+    average_pct: float | None = None
+    reports_released: int = 0
+    ocr_reviews: int = 0
+    interventions_logged: int = 0
+    avg_release_hours: float | None = None
+
+
+class TrendPoint(BaseModel):
+    date: str
+    batch_id: int
+    batch_name: str
+    test_name: str
+    average_pct: float
+    students: int
+
+
+class OwnerDashboard(BaseModel):
+    institution: InstitutionOut
+    institutions: list[InstitutionOut] = Field(default_factory=list)
+    generated_at: datetime
+    totals: OwnerTotals
+    urgency_counts: UrgencyCounts
+    batches: list[BatchSummary] = Field(default_factory=list)
+    faculty: list[FacultySummary] = Field(default_factory=list)
+    trend: list[TrendPoint] = Field(default_factory=list)
+    weakest_topics: list[TopicPoint] = Field(default_factory=list)
+    operations: Operations
+    interventions: InterventionSummary
+    is_demo: bool = False
+    demo_count: int = 0
+    real_count: int = 0
+    role_note: str = "Owner view - no login in this PoC"
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: LMS export (FR-5.10)
+# --------------------------------------------------------------------------- #
+class ApiKeyOut(BaseModel):
+    """types.ts ApiKey (Out suffix: the ORM class is database.ApiKey). Never carries the secret."""
+
+    id: int
+    name: str
+    prefix: str
+    institution_id: int | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
+    use_count: int = 0
+    revoked_at: datetime | None = None
+    active: bool = True
+
+
+class ApiKeyCreated(BaseModel):
+    key: ApiKeyOut
+    secret: str  # shown once; only its SHA-256 is stored
+
+
+class LmsEndpoint(BaseModel):
+    method: str
+    path: str
+    format: str
+    description: str
+
+
+class LmsInfo(BaseModel):
+    enabled: bool
+    header_name: str = "X-API-Key"
+    env_key_configured: bool = False
+    active_keys: int = 0
+    released_only_default: bool = True
+    endpoints: list[LmsEndpoint] = Field(default_factory=list)
+    docs_path: str = "/docs"
+
+
+class LmsTopic(BaseModel):
+    topic: str
+    subject: str
+    mastery: float
+
+
+class LmsResultRow(BaseModel):
+    submission_id: int
+    student_ref: str
+    student_name: str
+    institution_id: int
+    institution_name: str
+    batch_id: int
+    batch_name: str
+    test_name: str
+    test_version: str
+    rubric_id: int
+    evaluated_at: datetime
+    score: float
+    total_marks: float
+    percentage: float
+    urgency: UrgencyLit
+    release_status: ReleaseStatusLit
+    input_kind: InputKindLit = "document"
+    is_demo: bool = False
+    topics: list[LmsTopic] = Field(default_factory=list)
+    focus_topics: list[str] = Field(default_factory=list)
+    nudges: list[str] = Field(default_factory=list)
+
+
+class LmsBatch(BaseModel):
+    batch_id: int
+    name: str
+    exam: str
+    exam_date: str | None = None
+    institution_id: int
+    institution_name: str
+    faculty_lead: str | None = None
+    students: int = 0
+
+
+class LmsStudent(BaseModel):
+    student_ref: str
+    student_name: str
+    batch_ids: list[int] = Field(default_factory=list)
+    assessments: int = 0
+    latest_submission_id: int | None = None
+    latest_percentage: float | None = None
+    latest_urgency: UrgencyLit | None = None
+
+
 class ApiErrorBody(BaseModel):
     detail: str
     code: str | None = None
@@ -1102,6 +1887,14 @@ class RubricVersionInput(BaseModel):
 class BatchPatchInput(BaseModel):
     exam: str | None = Field(default=None, max_length=50)
     exam_date: str | None = None  # ISO date; explicit null resets to the assumed default
+    faculty_lead: str | None = Field(default=None, max_length=120)  # explicit null (or blank) clears it
+
+    @field_validator("faculty_lead", mode="before")
+    @classmethod
+    def _faculty_lead(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return " ".join(v.split()) or None
+        return v
 
 
 class ReleaseInput(BaseModel):
@@ -1113,3 +1906,53 @@ class DeliveryInput(BaseModel):
     submission_ids: list[int] = Field(min_length=1, max_length=200)
     channel: Literal["whatsapp"] = "whatsapp"
     recipient: str | None = Field(default=None, max_length=32)
+
+
+# --- wave 2 request bodies (contract v3) ---------------------------------------------------
+class LlmDrillInput(BaseModel):
+    simulate_outage: bool = False
+
+
+class BloomDetectInput(BaseModel):
+    mode: BloomDetectModeLit = "ai"
+
+
+class InterventionInput(BaseModel):
+    submission_id: int
+    topic: str = Field(min_length=1, max_length=200)
+    kind: InterventionKindLit
+    action: str = Field(min_length=1, max_length=1000)
+    source: ContentSourceLit = "faculty"
+    applied_by: str = Field(min_length=1, max_length=120)
+    applied_at: datetime | None = None  # None means now
+    hours: float | None = Field(default=None, gt=0, le=100)
+    compliance: float | None = Field(default=None, ge=0, le=1)
+    note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("topic", "action", "applied_by", mode="before")
+    @classmethod
+    def _squash(cls, v: Any) -> Any:
+        return " ".join(v.split()) if isinstance(v, str) else v
+
+
+class WhatIfScenarioInput(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+    extra_hours: float = Field(ge=0.5, le=40)
+
+
+class WhatIfInput(BaseModel):
+    batch_id: int | None = None
+    rubric_id: int | None = None
+    institution_id: int | None = None
+    scenarios: list[WhatIfScenarioInput] = Field(min_length=1, max_length=5)
+    use_calibration: bool = False
+
+
+class ApiKeyInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    institution_id: int | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name(cls, v: Any) -> Any:
+        return " ".join(v.split()) if isinstance(v, str) else v

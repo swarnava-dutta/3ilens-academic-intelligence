@@ -14,6 +14,8 @@ RESULT_KEYS = {
     "urgency", "urgency_reasons", "percentage", "summary", "executive_summary", "teaching_nudges", "confusions",
     "outcome_counts", "subject_rollup", "scoring_controls", "roi_basis", "report_meta", "release", "custody",
     "extraction", "cost", "latency", "history", "versions", "deliveries", "study_plan",
+    # contract v3 (guarded wave-2 hooks)
+    "llm_routes", "patterns", "interventions", "voice",
 }
 TOPIC_KEYS = {
     "topic", "subject", "score", "max_marks", "mastery", "weightage", "effort_hours",
@@ -27,6 +29,9 @@ PRIORITY_KEYS = {
 QUESTION_KEYS = {
     "question", "topic", "estimated_marks", "max_marks", "evidence", "strengths", "gaps", "student_answer",
     "confidence", "outcome", "source_pages", "uncertain_words", "corrected_by_faculty",
+    # contract v3 (marking + Bloom)
+    "question_type", "bloom_level", "bloom_source", "demonstrated_level", "concept", "penalty", "selected_option",
+    "correct_option", "marking_breakdown", "marking_note",
 }
 
 

@@ -161,8 +161,9 @@ def list_exams() -> list[ExamOption]:
 
 @router.patch("/api/batches/{batch_id}", response_model=BatchOut)
 def patch_batch(batch_id: int, body: BatchPatchInput, db: DbSession) -> BatchOut:
-    """Set the target exam and/or exam date. exam_date null resets to the assumed default
-    (NEET_EXAM_DATE); a date must be ISO (YYYY-MM-DD) and not in the past."""
+    """Set the target exam, exam date and/or faculty lead. exam_date null resets to the assumed
+    default (NEET_EXAM_DATE); a date must be ISO (YYYY-MM-DD) and not in the past. faculty_lead
+    null (or blank) clears it (max 120 characters, whitespace normalised)."""
     batch = db.get(Batch, batch_id)
     if batch is None:
         raise ApiError(404, f"Batch {batch_id} not found.", "unknown_batch")
@@ -190,6 +191,8 @@ def patch_batch(batch_id: int, body: BatchPatchInput, db: DbSession) -> BatchOut
             if parsed < ist_today():
                 raise ApiError(422, f"exam_date {raw} is in the past.", "invalid_date")
             batch.exam_date = parsed.isoformat()
+    if "faculty_lead" in fields:
+        batch.faculty_lead = body.faculty_lead or None  # normalised by the schema; null / blank clears it
     db.commit()
     db.refresh(batch)
     return result_view.batch_out(batch)

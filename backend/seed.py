@@ -8,7 +8,7 @@ seed_demo_cohort() - OPTIONAL synthetic cohort for the Cohort Dashboard. No AI c
                      Two high scorers carry a demo faculty sign-off (RELEASED).
 seed_demo_extended() - set=mixed: NEET mixed sample rubric (illustrative), batch NEET-B, the 6 V5
                      sample learners and earlier mocks for 4 Genetics students (longitudinal history).
-seed_demo_set()    - POST /api/demo/seed?set=genetics|mixed|all dispatcher.
+seed_demo_set()    - POST /api/demo/seed?set=genetics|mixed|all|insights dispatcher (insights: seed_insights.py).
 
 CLI:  python seed.py          -> base seed only
       python seed.py --demo   -> base seed + synthetic Genetics demo cohort
@@ -787,13 +787,18 @@ def seed_demo_extended(session: Session) -> int:
     return created
 
 
-DEMO_SETS = ("genetics", "mixed", "all")
+DEMO_SETS = ("genetics", "mixed", "all", "insights")
 
 
 def seed_demo_set(session: Session, set_name: str = "genetics") -> int:
-    """genetics -> seed_demo_cohort (13 rows); mixed -> seed_demo_extended; all -> both."""
+    """genetics -> seed_demo_cohort (13 rows); mixed -> seed_demo_extended; all -> both (27);
+    insights -> seed_insights.seed_insights_demo (wave 2 sample set; not part of "all")."""
     if set_name not in DEMO_SETS:
         raise ValueError(f"Unknown demo set '{set_name}' (expected one of {', '.join(DEMO_SETS)}).")
+    if set_name == "insights":
+        import seed_insights  # local import: seed_insights imports this module
+
+        return seed_insights.seed_insights_demo(session)
     created = 0
     if set_name in ("genetics", "all"):
         created += seed_demo_cohort(session)

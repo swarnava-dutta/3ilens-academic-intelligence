@@ -141,6 +141,9 @@ def test_report_shape_matches_contract():
         "question", "topic", "estimated_marks", "max_marks", "evidence",
         "strengths", "gaps", "student_answer", "confidence",
         "outcome", "source_pages", "uncertain_words", "corrected_by_faculty",
+        # wave 2 (contract v3)
+        "question_type", "bloom_level", "bloom_source", "demonstrated_level", "concept", "penalty",
+        "selected_option", "correct_option", "marking_breakdown", "marking_note",
     }
     assert set(report["topic_mastery"][0]) == {
         "topic", "subject", "score", "max_marks", "mastery", "weightage", "effort_hours",

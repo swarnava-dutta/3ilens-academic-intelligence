@@ -43,7 +43,7 @@ class OcrAnswer(BaseModel):
     confidence: float = Field(description="Transcription confidence between 0 and 1.")
     pages: list[int] = Field(default_factory=list, description="1-based page numbers the answer appears on.")
     uncertain_words: list[UncertainWord] = Field(default_factory=list)
-    source: str = "ocr"  # "ocr" | "faculty" (corrected by a faculty reviewer)
+    source: str = "ocr"  # "ocr" | "faculty" (corrected by a faculty reviewer) | "voice" (transcribed audio)
 
 
 class PageAssessment(BaseModel):
@@ -74,12 +74,21 @@ class OcrResult(BaseModel):
 # --------------------------------------------------------------------------- #
 # AI Call 2 - Rubric evaluation
 # --------------------------------------------------------------------------- #
+class CriterionAward(BaseModel):
+    """Marks the grader awarded for one marking-scheme step (FR-3.8); recomputed server-side."""
+
+    index: int = Field(description="0-based index into the question's marking_scheme.")
+    awarded: float = Field(description="Marks awarded for that step, between 0 and the step's marks.")
+
+
 class QuestionGrade(BaseModel):
     question: int = Field(description="Rubric question number being graded.")
     estimated_marks: float = Field(description="Marks awarded, between 0 and the question's max_marks.")
     evidence: str = Field(description="Quote or paraphrase from the answer that justifies the marks.")
     strengths: list[str]
     gaps: list[str]
+    criteria_awards: list[CriterionAward] = Field(default_factory=list)
+    demonstrated_level: str | None = None  # Bloom K1-K5 the answer actually shows (FR-3.9), as returned
 
 
 class TeachingNudgeAI(BaseModel):
@@ -117,10 +126,24 @@ class EvaluationOutput(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Voice answers (FR-2.8)
+# --------------------------------------------------------------------------- #
+class Transcript(BaseModel):
+    """What voice.transcribe returns."""
+
+    text: str
+    model: str
+    languages: list[str] = Field(default_factory=list)  # detected language codes
+    seconds: float | None = None
+    request_id: str | None = None
+
+
+# --------------------------------------------------------------------------- #
 # Provider usage (cost & provenance) - one per provider call, never prompt/response text
 # --------------------------------------------------------------------------- #
 class ModelUsage(BaseModel):
-    purpose: str                       # ocr | evaluation | consistency | rubric_parse
+    purpose: str                       # ocr | evaluation | consistency | rubric_parse | transcription |
+                                       # voice_mapping | bloom_detect | llm_drill
     provider: str                      # anthropic | openai | cache
     model_requested: str
     model_served: str | None = None

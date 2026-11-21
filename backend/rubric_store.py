@@ -16,6 +16,9 @@ _VERSION_RE = re.compile(r"^v(\d+)$", re.IGNORECASE)
 # Fields whose change marks a question as "changed" between two rubric versions.
 _COMPARED_FIELDS = (
     "topic", "subject", "chapter", "max_marks", "prompt", "expected_answer", "grading_criteria", "effort_hours",
+    # wave 2 (bloom_source is provenance only and is not compared)
+    "question_type", "options", "correct_option", "negative_marks", "bloom_level", "concept", "marking_scheme",
+    "partial_credit", "mark_step",
 )
 
 
@@ -74,9 +77,11 @@ def compatibility(old_content: dict[str, Any] | None, new_content: dict[str, Any
     old, new = _questions(old_content), _questions(new_content)
     added = sorted(set(new) - set(old))
     removed = sorted(set(old) - set(new))
+    # A changed rubric-wide marking policy re-scores every question present in both versions.
+    policy_changed = (old_content or {}).get("marking_policy") != (new_content or {}).get("marking_policy")
     changed = sorted(
         n for n in set(old) & set(new)
-        if any(old[n].get(field) != new[n].get(field) for field in _COMPARED_FIELDS)
+        if policy_changed or any(old[n].get(field) != new[n].get(field) for field in _COMPARED_FIELDS)
     )
     return {"reusable": not added and not removed, "added": added, "removed": removed, "changed": changed}
 

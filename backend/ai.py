@@ -517,11 +517,15 @@ def run_evaluation(
     *,
     on_usage: UsageCallback | None = None,
     purpose: str = "evaluation",
+    answer_medium: str = "handwriting",
+    simulate_outage: bool | None = None,
 ) -> EvaluationOutput:
     """AI Call 2: grade structured answers against the rubric with Claude.
 
     purpose is "evaluation" or "consistency" (FR-3.5 re-grade check) and is reported on the
-    ModelUsage passed to on_usage. The rubric block is prompt-cached (FR-3.6)."""
+    ModelUsage passed to on_usage. The rubric block is prompt-cached (FR-3.6).
+    answer_medium ("handwriting" | "speech") and simulate_outage (FR-3.10 drill) are part of the
+    wave-2 interface; they are accepted and not used yet (W2-1)."""
     settings = get_settings()
     _require_anthropic_key(settings)
 
@@ -539,6 +543,61 @@ def run_evaluation(
         len(evaluation.teaching_nudges), len(evaluation.topic_interventions), len(evaluation.confusions),
     )
     return evaluation
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2 interface (contract v3). W2-1 owns the bodies; signatures are fixed.
+# --------------------------------------------------------------------------- #
+# ai.AIServiceError codes that send a call to the fallback model (FR-3.10).
+FALLBACK_TRIGGER_CODES: tuple[str, ...] = (
+    "timeout", "connection", "provider_unavailable", "rate_limited", "refusal", "empty_response", "simulated_outage",
+)
+VOICE_SHORT_ANSWER_CHARS = 20
+
+
+def fallback_available(settings: Settings | None = None) -> bool:
+    """True when a call can fall back to the OpenAI model (LLM_FALLBACK on + OPENAI key). Stub: False."""
+    return False
+
+
+def structure_transcript(
+    transcript: str,
+    rubric_content: dict,
+    *,
+    language_hints: Iterable[Any] | None = None,
+    question_hint: int | None = None,
+    on_usage: UsageCallback | None = None,
+) -> OcrResult:
+    """Map a voice transcript onto rubric questions (FR-2.8).
+
+    With question_hint (one recording per question) the whole transcript is that question's
+    answer - no provider call. Without a hint the multi-question mapping call is W2-1's."""
+    settings = get_settings()
+    if question_hint is None:
+        raise AIServiceError(
+            "Mapping a multi-question voice transcript to rubric questions is not available yet.",
+            code="not_implemented",
+        )
+    numbers = {n for n in (_question_number(q) for q in _rubric_questions(rubric_content)) if n is not None}
+    if question_hint not in numbers:
+        raise ValueError(f"Question {question_hint} is not in the rubric.")
+    text = (transcript or "").strip()
+    answers = []
+    if text:
+        confidence = 0.85 if len(text) >= VOICE_SHORT_ANSWER_CHARS else 0.5
+        answers.append(OcrAnswer(question=question_hint, answer=text, confidence=confidence, source="voice"))
+    return OcrResult(
+        answers=answers,
+        overall_confidence=answers[0].confidence if answers else 0.0,
+        provider="openai",
+        model=settings.openai_transcribe_model,
+        language_hints=clean_language_hints(language_hints),
+    )
+
+
+def detect_bloom_levels(questions: list[dict], *, on_usage: UsageCallback | None = None) -> list[dict]:
+    """AI Bloom K1-K5 suggestions [{question, level, rationale}] (FR-3.9). Stub until W2-1."""
+    raise AIServiceError("AI Bloom level detection is not available yet.", code="not_implemented")
 
 
 def parse_rubric(

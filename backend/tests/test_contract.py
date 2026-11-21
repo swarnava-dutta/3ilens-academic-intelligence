@@ -142,6 +142,23 @@ def test_types_ts_parser_sees_the_contract_interfaces():
         "ApiErrorBody", "ReviewInput", "DeliveryInput",
     ):
         assert name in INTERFACES, name
+    for name in (  # wave 2 (contract v3)
+        "VoiceInfo", "VoiceTranscript", "LlmRoute", "LlmProvider", "LlmChainStatus", "LlmDrillResult", "BloomTag",
+        "BloomDetection", "MarkingStep", "MarkingPolicy", "MarkingAward", "StudentPatterns", "CohortPatterns",
+        "NegativeMarkingProfile", "FatigueProfile", "TransferProfile", "InterventionRecord", "InterventionInput",
+        "InterventionEffectiveness", "WhatIfInput", "WhatIfResult", "WhatIfOptions", "OwnerDashboard", "ApiKey",
+        "ApiKeyCreated", "LmsInfo", "LmsResultRow", "LmsBatch", "LmsStudent",
+    ):
+        assert name in INTERFACES, name
+    for name in (
+        "QuestionType", "BloomLevel", "BloomSource", "PartialCreditMode", "InputKind", "RiskLevel", "TransferClass",
+        "InterventionKind", "OutcomeStatus", "BloomDetectMode", "LlmRole",
+    ):
+        assert name in UNIONS, name
+    assert UNIONS["BloomLevel"] == {"K1", "K2", "K3", "K4", "K5"}
+    assert {"transcription", "voice_mapping", "bloom_detect", "llm_drill"} <= UNIONS["InvocationPurpose"]
+    assert "insights" in UNIONS["DemoSet"]
+    assert INTERFACES["RubricQuestion"]["marking_scheme"][0] is True  # optional (old rubrics lack it)
     assert UNIONS["SubmissionStatus"] == {"PENDING", "PROCESSING", "COMPLETED", "FAILED", "HUMAN_REVIEW_REQUIRED"}
     assert UNIONS["Urgency"] == {"on_track", "needs_attention", "at_risk"}
     assert UNIONS["RoadmapHorizon"] == {"7", "30", "60", "90"}

@@ -57,6 +57,11 @@ class ReleaseStatus(StrEnum):
     RELEASED = "RELEASED"
 
 
+# StudentSubmission.input_kind (NULL reads as INPUT_DOCUMENT).
+INPUT_DOCUMENT = "document"
+INPUT_VOICE = "voice"
+
+
 # India has no DST, so a fixed +05:30 offset is exact (and needs no tzdata on Windows).
 IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
@@ -125,6 +130,7 @@ class Batch(Base):
     # to the UI as an *assumed* date (Batch.exam_date_assumed); PATCH /api/batches sets a real one.
     exam: Mapped[str | None] = mapped_column(String(50), nullable=True, default=_default_exam)
     exam_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO date
+    faculty_lead: Mapped[str | None] = mapped_column(String(120), nullable=True)  # free text (no users table)
 
     institution: Mapped[Institution] = relationship(back_populates="batches")
 
@@ -178,6 +184,11 @@ class StudentSubmission(Base):
     custody_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # --- voice answers (FR-2.8) ------------------------------------------------------------
+    input_kind: Mapped[str | None] = mapped_column(String(16), nullable=True, default=INPUT_DOCUMENT)
+    audio_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    voice_question: Mapped[int | None] = mapped_column(Integer, nullable=True)  # per-question recording
+    detected_languages: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=lambda: [])
 
     batch: Mapped[Batch] = relationship()
     rubric: Mapped[Rubric] = relationship()
@@ -319,6 +330,49 @@ class Delivery(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class InterventionRecord(Base):
+    """FR-4.13: a teaching action applied to a student's topic, measured against a later test."""
+
+    __tablename__ = "intervention_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    institution_id: Mapped[int] = mapped_column(Integer, index=True)
+    batch_id: Mapped[int] = mapped_column(Integer, index=True)
+    # The baseline result the action responds to.
+    submission_id: Mapped[int] = mapped_column(ForeignKey("student_submissions.id"), index=True)
+    student_ref: Mapped[str] = mapped_column(String(160), index=True)
+    student_name: Mapped[str] = mapped_column(String(120))
+    topic: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(32))  # nudge | study_focus | class_intervention | custom
+    action: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(16), default="faculty")  # ai | template | faculty
+    applied_by: Mapped[str] = mapped_column(String(120))
+    applied_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    compliance: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-1
+    baseline_mastery: Mapped[float | None] = mapped_column(Float, nullable=True)  # captured at record time
+    predicted_gain_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # effort model, at record time
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ApiKey(Base):
+    """FR-5.10: LMS export keys. Only the SHA-256 of the secret is stored; it is shown once."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    prefix: Mapped[str] = mapped_column(String(16))  # first 8 characters of the secret, for display
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)  # SHA-256 hex of the full secret
+    institution_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # NULL = all institutions
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
 # --------------------------------------------------------------------------- #
 # Idempotent SQLite migration for databases created by older builds
 # --------------------------------------------------------------------------- #
@@ -356,6 +410,12 @@ MIGRATION_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("evaluation_results", "review_note", "TEXT"),
     ("evaluation_results", "llm_cost_inr", "FLOAT"),
     ("evaluation_results", "cost_breakdown", "JSON"),
+    # --- wave 2 (contract v3) ---
+    ("batches", "faculty_lead", "VARCHAR(120)"),
+    ("student_submissions", "input_kind", "VARCHAR(16)"),
+    ("student_submissions", "audio_seconds", "FLOAT"),
+    ("student_submissions", "voice_question", "INTEGER"),
+    ("student_submissions", "detected_languages", "JSON"),
 )
 # (index name, table, column) - names match SQLAlchemy's ix_<table>_<column> for index=True.
 MIGRATION_INDEXES: tuple[tuple[str, str, str], ...] = (

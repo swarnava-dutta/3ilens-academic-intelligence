@@ -4,7 +4,10 @@ Everything here is pure Python over the rubric, the OCR answers and the LLM grad
 the same inputs always give the same report (seed.py also uses it for synthetic data).
 
 * Marks: clamped to [0, max_marks] and rounded to the nearest 0.5; totals are summed
-  here - LLM totals are never trusted.
+  here - LLM totals are never trusted. Wave 2: every question is scored through marking.py -
+  MCQs by option letter (+max / -negative_marks / 0, the grader's marks are ignored),
+  descriptive questions by the rubric's marking policy and per-step marking scheme. A wrong MCQ
+  can make a total negative; mastery percentages are clamped to 0-100.
 * Topic weightage = subject weight x topic marks / assessed marks of that subject
   (NEET subject weights: Physics 0.25, Chemistry 0.25, Biology 0.50).
 * Preparation ROI (BRD formula) = weightage x gain_potential / effort_hours, where
@@ -23,6 +26,8 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+import bloom
+import marking
 from ai_schemas import EvaluationOutput, OcrAnswer
 
 SUBJECT_WEIGHTS: dict[str, float] = {"Physics": 0.25, "Chemistry": 0.25, "Biology": 0.50}
@@ -84,19 +89,41 @@ def build_evaluation_report(
     if isinstance(evaluation, dict):
         evaluation = EvaluationOutput.model_validate(evaluation)
     grades_by_q = _index_grades(evaluation, known)
+    raw_by_q = _raw_questions(rubric_content)
+    policy = marking.policy_for(rubric_content)
+    levels = bloom.resolve_levels(rubric_content)
 
     question_evaluations = []
     for q in sorted(questions, key=lambda item: item["question"]):
         number, max_marks = q["question"], q["max_marks"]
+        raw = raw_by_q.get(number, {})
         grade = grades_by_q.get(number)
         answer = answers_by_q.get(number)
-        if grade is None:
+        student_answer = answer.answer if answer else ""
+        qtype = marking.question_type(raw)
+        penalty, selected, correct, breakdown, note, demonstrated = 0.0, None, None, [], None, None
+        if qtype == "mcq":
+            # Deterministic: the option letter decides; any grade from the evaluation call is ignored.
+            scored = marking.score_mcq(raw, student_answer, policy)
+            marks, penalty, note = scored["marks"], scored["penalty"], scored["note"]
+            selected, correct = scored["selected_option"], scored["correct_option"]
+            evidence = f"Auto-scored MCQ: {note}"
+            strengths, gaps = _mcq_strengths_gaps(selected, correct, penalty)
+        elif grade is None:
             marks, evidence, strengths, gaps = 0.0, NO_EVALUATION_EVIDENCE, [], [NOT_ATTEMPTED_GAP]
         else:
-            marks = _bounded_marks(grade.estimated_marks, max_marks)
+            scored = marking.score_descriptive(
+                raw,
+                estimated_marks=grade.estimated_marks,
+                criteria_awards=[a.model_dump() for a in grade.criteria_awards],
+                policy=policy,
+            )
+            marks, breakdown, note = scored["marks"], scored["breakdown"], scored["note"]
             evidence = (grade.evidence or "").strip() or "No evidence provided."
             strengths, gaps = _clean_list(grade.strengths), _clean_list(grade.gaps)
-        student_answer = answer.answer if answer else ""
+            demonstrated = bloom.parse_level(grade.demonstrated_level)
+        outcome = question_outcome(student_answer, marks, max_marks)
+        level, level_source = levels.get(number, (None, None))
         question_evaluations.append(
             {
                 "question": number,
@@ -108,16 +135,26 @@ def build_evaluation_report(
                 "gaps": gaps,
                 "student_answer": student_answer,
                 "confidence": _clamp01(answer.confidence) if answer else 0.0,
-                "outcome": question_outcome(student_answer, marks, max_marks),
+                "outcome": outcome,
                 "source_pages": _clean_pages(answer.pages) if answer else [],
                 "uncertain_words": _clean_uncertain_words(answer.uncertain_words) if answer else [],
                 "corrected_by_faculty": bool(answer is not None and answer.source == "faculty"),
+                "question_type": qtype,
+                "bloom_level": level,
+                "bloom_source": level_source,
+                "demonstrated_level": None if outcome == "BLANK" else demonstrated,
+                "concept": bloom.concept_key(raw) or q["topic"],
+                "penalty": float(penalty or 0.0),
+                "selected_option": selected if qtype == "mcq" else None,
+                "correct_option": correct if qtype == "mcq" else None,
+                "marking_breakdown": breakdown or [],
+                "marking_note": note,
             }
         )
 
     total_marks = _clean_number(sum(q["max_marks"] for q in questions))
     total_score = _clean_number(sum(item["estimated_marks"] for item in question_evaluations))
-    overall_mastery = _percent(total_score, total_marks)
+    overall_mastery = max(0.0, _percent(total_score, total_marks))  # net totals may be negative (MCQ -1)
 
     topics = [q["topic"] for q in questions]
     topic_mastery = _topic_mastery(questions, question_evaluations)
@@ -191,6 +228,30 @@ def _validated_questions(rubric_content: dict) -> list[dict[str, Any]]:
             }
         )
     return questions
+
+
+def _raw_questions(rubric_content: dict) -> dict[int, dict[str, Any]]:
+    """The rubric's own question dicts by number (marking.py reads the wave-2 fields from them)."""
+    out: dict[int, dict[str, Any]] = {}
+    for raw in rubric_content.get("questions") or []:
+        if isinstance(raw, dict):
+            number = _as_int(raw.get("question"))
+            if number is not None:
+                out.setdefault(number, raw)
+    return out
+
+
+def _mcq_strengths_gaps(selected: str | None, correct: str | None, penalty: float) -> tuple[list[str], list[str]]:
+    if selected is not None and correct is not None and selected == correct:
+        return [f"Correct option {correct}"], []
+    if selected is None:
+        return [], [NOT_ATTEMPTED_GAP]
+    if selected == marking.MULTI:
+        return [], ["More than one option marked"]
+    if selected == marking.UNKNOWN:
+        return [], ["Option not identifiable - check the sheet"]
+    lost = f"-{_fmt(penalty)}" if penalty else "0"
+    return [], [f"Chose {selected}; correct {correct or '?'} ({lost})"]
 
 
 def _index_answers(answers: Iterable[OcrAnswer | dict] | None, known: set[int]) -> dict[int, OcrAnswer]:
@@ -306,7 +367,7 @@ def _topic_mastery(questions: list[dict[str, Any]], evaluations: list[dict[str, 
                 "subject": subject,
                 "score": _clean_number(topic["score"]),
                 "max_marks": _clean_number(topic["max_marks"]),
-                "mastery": _percent(topic["score"], topic["max_marks"]),
+                "mastery": min(100.0, max(0.0, _percent(topic["score"], topic["max_marks"]))),
                 "weightage": round(weightage, 4),
                 "effort_hours": _clean_number(topic["effort_hours"]),
                 "chapter": topic["chapter"],

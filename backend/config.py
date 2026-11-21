@@ -62,6 +62,19 @@ MIME_LABELS: dict[str, str] = {
     DOCX_MIME: "docx",
 }
 
+# Voice answers (FR-2.8). Reported separately from accepted_upload_types (documents only).
+AUDIO_MIME_TYPES: tuple[str, ...] = ("audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg")
+AUDIO_LABELS: dict[str, str] = {"audio/mpeg": "mp3", "audio/wav": "wav", "audio/mp4": "m4a", "audio/ogg": "ogg"}
+# The only non-deprecated transcription model in openai 3.57 (gpt-4o-transcribe,
+# gpt-4o-mini-transcribe and whisper-1 have an announced shutdown of 2027-02-26).
+DEFAULT_TRANSCRIBE_MODEL = "gpt-transcribe"
+# Cross-vendor fallback (FR-3.10). openai 3.57 lists gpt-4o with an announced shutdown of
+# 2027-01-14, so the model is env-configurable (LLM_FALLBACK_MODEL).
+DEFAULT_FALLBACK_MODEL = "gpt-4o"
+GPT4O_SHUTDOWN = "2027-01-14"
+# Every OpenAI route (fallback grading, voice transcription) is labelled with this note.
+RESIDENCY_NOTE = "Not residency-approved - PoC only (OpenAI, US-hosted)"
+
 WHATSAPP_MODES = ("blocked", "simulate")
 
 # Used to sign download links when DOWNLOAD_LINK_SECRET is not set: generated once per
@@ -175,6 +188,17 @@ class Settings:
     download_link_secret: str = field(default=_PROCESS_LINK_SECRET, repr=False)  # DOWNLOAD_LINK_SECRET
     download_link_ttl_hours: int = 24           # DOWNLOAD_LINK_TTL_HOURS
     report_logo_path: Path | None = None        # REPORT_LOGO_PATH
+    # --- wave 2: voice, LLM fallback, LMS, interventions ----------------------------------
+    voice_answers_enabled: bool = True          # VOICE_ANSWERS (0/false/no/off disables)
+    openai_transcribe_model: str = DEFAULT_TRANSCRIBE_MODEL  # OPENAI_TRANSCRIBE_MODEL
+    allowed_audio_mime_types: tuple[str, ...] = field(default=AUDIO_MIME_TYPES)
+    llm_fallback_enabled: bool = True           # LLM_FALLBACK: Claude -> OpenAI for ocr / evaluation / voice mapping
+    llm_fallback_model: str = DEFAULT_FALLBACK_MODEL  # LLM_FALLBACK_MODEL (gpt-4o retires 2027-01-14)
+    llm_simulate_outage: bool = False           # LLM_SIMULATE_PRIMARY_OUTAGE: demo switch, skips every Claude call
+    lms_api_enabled: bool = True                # LMS_API
+    lms_api_key: str = field(default="", repr=False)  # LMS_API_KEY: optional static key; never logged or returned
+    lms_max_rows: int = 5000                    # LMS_MAX_ROWS (clamped 100-50000)
+    default_intervention_hours: float = 3.0     # INTERVENTION_DEFAULT_HOURS (clamped 0.5-40)
 
     @property
     def max_upload_mb(self) -> int:
@@ -223,6 +247,16 @@ def get_settings() -> Settings:
         download_link_secret=(env("DOWNLOAD_LINK_SECRET") or "").strip() or _PROCESS_LINK_SECRET,
         download_link_ttl_hours=max(1, _int("DOWNLOAD_LINK_TTL_HOURS", 24)),
         report_logo_path=Path(logo) if logo else None,
+        voice_answers_enabled=_bool("VOICE_ANSWERS", True),
+        openai_transcribe_model=(env("OPENAI_TRANSCRIBE_MODEL") or DEFAULT_TRANSCRIBE_MODEL).strip()
+        or DEFAULT_TRANSCRIBE_MODEL,
+        llm_fallback_enabled=_bool("LLM_FALLBACK", True),
+        llm_fallback_model=(env("LLM_FALLBACK_MODEL") or DEFAULT_FALLBACK_MODEL).strip() or DEFAULT_FALLBACK_MODEL,
+        llm_simulate_outage=_bool("LLM_SIMULATE_PRIMARY_OUTAGE", False),
+        lms_api_enabled=_bool("LMS_API", True),
+        lms_api_key=(env("LMS_API_KEY") or "").strip(),
+        lms_max_rows=max(100, min(50000, _int("LMS_MAX_ROWS", 5000))),
+        default_intervention_hours=max(0.5, min(40.0, _float("INTERVENTION_DEFAULT_HOURS", 3.0))),
     )
 
 
@@ -237,3 +271,15 @@ def ocr_adapter_label(settings: Settings | None = None) -> str:
 def accepted_upload_types(settings: Settings | None = None) -> list[str]:
     settings = settings or get_settings()
     return [MIME_LABELS.get(mime, mime) for mime in settings.allowed_mime_types]
+
+
+def accepted_voice_types(settings: Settings | None = None) -> list[str]:
+    """['mp3', 'wav', 'm4a', 'ogg'] - reported by /api/health separately from documents."""
+    settings = settings or get_settings()
+    return [AUDIO_LABELS.get(mime, mime) for mime in settings.allowed_audio_mime_types]
+
+
+def llm_fallback_label(settings: Settings | None = None) -> str:
+    """The fallback model name, or 'off' (LLM_FALLBACK=0)."""
+    settings = settings or get_settings()
+    return settings.llm_fallback_model if settings.llm_fallback_enabled else "off"

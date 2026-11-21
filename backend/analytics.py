@@ -33,6 +33,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 import insights
+import marking
 from config import get_settings
 from database import Batch, EvaluationResult, Institution, Rubric, StudentSubmission, ist_today
 from hashing import student_ref_for
@@ -1294,7 +1295,8 @@ def result_extras(
         "outcome_counts": outcome_counts(questions),
         "subject_rollup": _subject_rollup(topics, questions),
         "scoring_controls": {
-            "marking_rule": MARKING_RULE,
+            # DEFAULT_MARKING_RULE (== MARKING_RULE) unless the rubric has MCQs or a marking policy.
+            "marking_rule": marking.marking_rule_text(rubric.content if rubric is not None else None),
             "rubric_version": rubric.version,
             "rubric_status": rubric.status if rubric.status in ("AUTHOR_DRAFT", "FACULTY_APPROVED") else "AUTHOR_DRAFT",
             "rubric_hash": result.rubric_hash or rubric.rubric_hash or "",
@@ -1316,7 +1318,8 @@ def result_extras(
         "study_plan": plan,
         "topic_mastery": topics,
         "roi_recommendations": priorities,
-        "question_evaluations": questions,
+        # Legacy and seeded rows gain the wave-2 question keys at read time (never re-scored).
+        "question_evaluations": marking.annotate_questions(questions, rubric.content if rubric is not None else None),
     }
 
 

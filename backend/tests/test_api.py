@@ -14,6 +14,8 @@ SUBMISSION_KEYS = {
     "file_sha256", "file_size", "page_count", "language_hints", "student_ref", "intake_batch_id", "attempts",
     "max_attempts", "last_error_code", "flagged_pages", "ocr_cache_hit", "urgency", "percentage", "started_at",
     "completed_at", "release_status", "llm_cost_inr",
+    # contract v3 (voice answers)
+    "input_kind", "audio_seconds", "voice_question", "detected_languages",
 }
 COHORT_KEYS = {
     "institution", "batch", "total_submissions", "completed", "processing", "human_review", "failed",
@@ -22,6 +24,8 @@ COHORT_KEYS = {
     # contract v2
     "filters", "rubric_versions", "mixed_rubrics", "urgency_counts", "ranking", "at_risk", "common_errors",
     "interventions", "confusion_clusters", "excluded", "operations", "release_counts",
+    # contract v3
+    "patterns",
 }
 PRIORITY_KEYS = {
     "topic", "subject", "roi", "weightage", "gain_potential", "effort_hours", "rationale", "mastery",
@@ -35,8 +39,13 @@ HEALTH_KEYS = {
     # contract v2
     "ocr_adapter", "ocr_cache_enabled", "cost_target_inr", "latency_target_seconds", "batch_target_seconds",
     "whatsapp_mode", "max_upload_mb", "accepted_upload_types",
+    # contract v3
+    "voice_enabled", "voice_ready", "transcription_model", "accepted_voice_types", "llm_fallback", "lms_api_enabled",
 }
-BATCH_KEYS = {"id", "name", "exam_type", "exam", "exam_date", "exam_date_assumed", "days_to_exam", "strategy_mode"}
+BATCH_KEYS = {
+    "id", "name", "exam_type", "exam", "exam_date", "exam_date_assumed", "days_to_exam", "strategy_mode",
+    "faculty_lead",  # contract v3
+}
 RUBRIC_KEYS = {
     "id", "version", "name", "total_marks", "content", "status", "rubric_hash", "parent_id", "change_note",
     "created_at",

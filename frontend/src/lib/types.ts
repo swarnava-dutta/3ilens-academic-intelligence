@@ -34,11 +34,34 @@ export type RoadmapHorizon = "7" | "30" | "60" | "90";
 /** WhatsApp is never really sent in this PoC. */
 export type DeliveryStatus = "BLOCKED_TEMPLATE_PENDING" | "SIMULATED_NOT_SENT";
 export type InvocationStatus = "ok" | "error" | "refusal" | "cache_hit";
-export type InvocationPurpose = "ocr" | "evaluation" | "consistency" | "rubric_parse";
+export type InvocationPurpose =
+  | "ocr"
+  | "evaluation"
+  | "consistency"
+  | "rubric_parse"
+  | "transcription"
+  | "voice_mapping"
+  | "bloom_detect"
+  | "llm_drill";
 export type LanguageHint = "en" | "hi" | "ta" | "kn" | "te";
 export type ReviewAction = "approve" | "correct" | "rescan";
 export type RubricSource = "text" | "pdf" | "docx" | "json";
-export type DemoSet = "genetics" | "mixed" | "all";
+/** "insights" = the wave-2 sample set (MCQ papers, NEET-C (sample), interventions); not part of "all". */
+export type DemoSet = "genetics" | "mixed" | "all" | "insights";
+// --- wave 2 (contract v3) ---
+export type QuestionType = "descriptive" | "mcq";
+/** Bloom's taxonomy: K1 Remember, K2 Understand, K3 Apply, K4 Analyse, K5 Evaluate. */
+export type BloomLevel = "K1" | "K2" | "K3" | "K4" | "K5";
+/** Who set a Bloom level: faculty, AI suggestion (accepted), or the verb heuristic. */
+export type BloomSource = "faculty" | "ai" | "heuristic";
+export type PartialCreditMode = "steps" | "proportional" | "all_or_nothing";
+export type InputKind = "document" | "voice";
+export type RiskLevel = "low" | "medium" | "high";
+export type TransferClass = "memorisation" | "transferable" | "foundational_gap" | "inconsistent" | "developing";
+export type InterventionKind = "nudge" | "study_focus" | "class_intervention" | "custom";
+export type OutcomeStatus = "pending" | "improved" | "flat" | "declined" | "not_assessed";
+export type BloomDetectMode = "ai" | "heuristic";
+export type LlmRole = "primary" | "fallback";
 
 // --------------------------------------------------------------------------- //
 // Core records
@@ -61,6 +84,8 @@ export interface Batch {
   /** Days from today (IST) to exam_date; null when unknown or past. */
   days_to_exam: number | null;
   strategy_mode: StrategyMode | null;
+  /** Free-text faculty lead (no users table in the PoC); PATCH /api/batches/{id}. */
+  faculty_lead: string | null;
 }
 
 export interface Health {
@@ -84,6 +109,35 @@ export interface Health {
   max_upload_mb: number;
   /** e.g. ["pdf", "jpeg", "png", "webp", "docx"] */
   accepted_upload_types: string[];
+  /** VOICE_ANSWERS switch (OpenAI transcription - not residency-approved, PoC only). */
+  voice_enabled: boolean;
+  /** voice_enabled AND an OpenAI key is configured. */
+  voice_ready: boolean;
+  /** e.g. "gpt-transcribe" (stand-in for Whisper large-v3 / Sarvam Saarika). */
+  transcription_model: string;
+  /** ["mp3", "wav", "m4a", "ogg"] - reported separately from accepted_upload_types. */
+  accepted_voice_types: string[];
+  /** The fallback model name (e.g. "gpt-4o", announced shutdown 2027-01-14), or "off". */
+  llm_fallback: string;
+  lms_api_enabled: boolean;
+}
+
+/** One step of a per-question marking scheme (FR-3.8). Step marks add up to max_marks. */
+export interface MarkingStep {
+  criterion: string;
+  marks: number;
+  /** Required step: below 50% of its marks the whole question scores 0. */
+  required?: boolean;
+}
+
+/** Rubric-wide marking policy. Questions may override partial_credit / mark_step. */
+export interface MarkingPolicy {
+  partial_credit: PartialCreditMode;
+  /** 0.25 | 0.5 | 1 | 2 */
+  mark_step: number;
+  /** Marks deducted for a wrong / multi-marked MCQ (e.g. 1 for NEET +4/-1). */
+  negative_marks: number;
+  scheme_name?: string;
 }
 
 export interface RubricQuestion {
@@ -98,12 +152,30 @@ export interface RubricQuestion {
   effort_hours: number;
   /** Syllabus chapter (maps the topic onto the weightage matrix). */
   chapter?: string;
+  // --- wave 2 (absent on older rubrics) ---
+  question_type?: QuestionType;
+  /** MCQ option texts (2-6), lettered A-F. */
+  options?: string[];
+  /** MCQ correct option letter (A-F). */
+  correct_option?: string;
+  /** MCQ only: overrides marking_policy.negative_marks. */
+  negative_marks?: number;
+  bloom_level?: BloomLevel;
+  bloom_source?: BloomSource;
+  /** Concept group for memorisation-vs-transfer (else chapter, else topic). */
+  concept?: string;
+  /** Descriptive only: per-step marks, adding up to max_marks. */
+  marking_scheme?: MarkingStep[];
+  partial_credit?: PartialCreditMode;
+  mark_step?: number;
 }
 
 export interface RubricContent {
   name: string;
   subject: string;
   questions: RubricQuestion[];
+  /** Absent = the wave-1 rule (0.5-mark steps, no negative marking). */
+  marking_policy?: MarkingPolicy;
 }
 
 export interface Rubric {
@@ -163,6 +235,12 @@ export interface Submission {
   completed_at: string | null;
   release_status: ReleaseStatus | null;
   llm_cost_inr: number | null;
+  /** "voice" for audio answers (FR-2.8); older rows read as "document". */
+  input_kind: InputKind;
+  audio_seconds: number | null;
+  /** Per-question voice recording: the rubric question it answers. */
+  voice_question: number | null;
+  detected_languages: string[];
 }
 
 // --------------------------------------------------------------------------- //
@@ -232,6 +310,28 @@ export interface QuestionEvaluation {
   source_pages: number[];
   uncertain_words: UncertainWord[];
   corrected_by_faculty: boolean;
+  // --- wave 2 (filled at read time for older rows) ---
+  question_type: QuestionType;
+  bloom_level: BloomLevel | null;
+  bloom_source: BloomSource | null;
+  /** Level the answer actually showed (AI grader); null for MCQs and blanks. */
+  demonstrated_level: BloomLevel | null;
+  concept: string | null;
+  /** Marks deducted (MCQ negative marking); estimated_marks is already net of it. */
+  penalty: number;
+  /** MCQ: letter, "MULTI", "UNKNOWN" or null (blank). */
+  selected_option: string | null;
+  correct_option: string | null;
+  marking_breakdown: MarkingAward[];
+  marking_note: string | null;
+}
+
+/** Marks awarded for one marking-scheme step (recomputed server-side). */
+export interface MarkingAward {
+  criterion: string;
+  marks: number;
+  awarded: number;
+  required: boolean;
 }
 
 export interface ProcessingLogEntry {
@@ -555,6 +655,12 @@ export interface Result {
   versions: EvaluationVersion[];
   deliveries: Delivery[];
   study_plan: StudyPlan;
+  // --- wave 2 (guarded hooks: a failure falls back to the empty value) ---
+  llm_routes: LlmRoute[];
+  patterns: StudentPatterns;
+  interventions: InterventionRecord[];
+  /** Null for document uploads. */
+  voice: VoiceInfo | null;
 }
 
 /** Body of a 202 from GET /api/results/{id} (pending, processing, human review, failed). */
@@ -679,6 +785,8 @@ export interface Cohort {
   excluded: ExcludedStudents;
   operations: Operations;
   release_counts: ReleaseCounts;
+  /** Wave 2 exam-behaviour patterns (guarded; empty on failure). */
+  patterns: CohortPatterns;
 }
 
 // --------------------------------------------------------------------------- //
@@ -971,6 +1079,8 @@ export interface BatchPatchInput {
   exam?: string;
   /** null resets to the assumed default (NEET_EXAM_DATE). */
   exam_date?: string | null;
+  /** null (or blank) clears it; max 120 characters. */
+  faculty_lead?: string | null;
 }
 
 export interface ReleaseInput {
@@ -983,4 +1093,596 @@ export interface DeliveryInput {
   /** "whatsapp" only (simulated). */
   channel: string;
   recipient: string | null;
+}
+
+// =========================================================================== //
+// Wave 2 (contract v3) - see API_CONTRACT.md "Wave 2 (contract v3)"
+// =========================================================================== //
+
+// --- Voice answers (FR-2.8) -------------------------------------------------- //
+export interface VoiceInfo {
+  /** Relative /api/submissions/{id}/audio; null when no audio file is stored (sample rows). */
+  audio_url: string | null;
+  audio_seconds: number | null;
+  detected_languages: string[];
+  transcription_model: string | null;
+  voice_question: number | null;
+  transcript_chars: number;
+  synthetic: boolean;
+}
+
+export interface VoiceTranscript {
+  submission_id: number;
+  text: string;
+  model: string | null;
+  detected_languages: string[];
+  audio_seconds: number | null;
+  created_at: string | null;
+  synthetic: boolean;
+}
+
+// --- LLM chain (FR-3.10) and Bloom detection (FR-3.9) ------------------------ //
+export interface LlmRoute {
+  stage: InvocationPurpose;
+  primary_provider: string;
+  primary_model: string;
+  served_provider: string | null;
+  served_model: string | null;
+  fell_back: boolean;
+  cross_vendor: boolean;
+  reason: string | null;
+  attempts: number;
+}
+
+export interface LlmProvider {
+  provider: string;
+  model: string;
+  role: LlmRole;
+  configured: boolean;
+  stages: string[];
+  deprecation: string | null;
+  /** e.g. "Not residency-approved - PoC only (OpenAI, US-hosted)". */
+  residency_note: string;
+}
+
+export interface LlmChainStatus {
+  providers: LlmProvider[];
+  fallback_enabled: boolean;
+  simulate_outage: boolean;
+  trigger_codes: string[];
+  recent_fallbacks: ModelInvocation[];
+  note: string;
+}
+
+export interface LlmDrillInput {
+  simulate_outage: boolean;
+}
+
+export interface LlmDrillResult {
+  ok: boolean;
+  route: LlmRoute;
+  calls: ModelInvocation[];
+  sample_marks: number | null;
+  sample_max_marks: number;
+  latency_ms: number;
+  message: string;
+}
+
+export interface BloomTag {
+  question: number;
+  level: BloomLevel;
+  source: BloomSource;
+  rationale: string;
+  current_level: BloomLevel | null;
+}
+
+export interface BloomDetectInput {
+  mode: BloomDetectMode;
+}
+
+export interface BloomDetection {
+  rubric_id: number;
+  mode: BloomDetectMode;
+  levels: BloomTag[];
+  warnings: string[];
+}
+
+// --- Exam-behaviour patterns (FR-4.8, FR-4.10, FR-4.11) --------------------- //
+// Thresholds are defaults - confirm with the academic lead.
+export interface TopicRisk {
+  topic: string;
+  attempted: number;
+  correct: number;
+  wrong: number;
+  blank: number;
+  accuracy: number | null;
+  marks_lost: number;
+  risk: RiskLevel;
+  over_attempting: boolean;
+  /** Minimum self-rated confidence (0-1) before attempting a question on this topic. */
+  skip_threshold: number;
+  eliminate_options: number;
+  advice: string;
+}
+
+export interface NegativeMarkingProfile {
+  scheme: string;
+  /** neg / (max + neg): 0.2 for +4/-1. */
+  break_even: number;
+  attempted: number;
+  correct: number;
+  wrong: number;
+  blank: number;
+  accuracy: number | null;
+  marks_lost: number;
+  net_marks: number;
+  risk: RiskLevel;
+  topics: TopicRisk[];
+  recommendation: string;
+}
+
+export interface QuestionAccuracy {
+  question: number;
+  accuracy: number;
+  cohort_accuracy: number | null;
+  final_third: boolean;
+  blank: boolean;
+}
+
+export interface FatigueProfile {
+  questions: number;
+  final_third_from: number;
+  early_accuracy: number;
+  late_accuracy: number;
+  drop_pts: number;
+  adjusted_drop_pts: number | null;
+  cohort_size: number;
+  early_blank_rate: number;
+  late_blank_rate: number;
+  flagged: boolean;
+  severity: RiskLevel;
+  reasons: string[];
+  recommendation: string;
+  series: QuestionAccuracy[];
+}
+
+export interface ConceptTransfer {
+  concept: string;
+  recall_questions: number[];
+  transfer_questions: number[];
+  recall_accuracy: number;
+  transfer_accuracy: number;
+  gap_pts: number;
+  classification: TransferClass;
+  advice: string;
+}
+
+export interface TransferProfile {
+  concepts: ConceptTransfer[];
+  memorisation: number;
+  transferable: number;
+  summary: string;
+}
+
+export interface BloomBucket {
+  level: BloomLevel;
+  questions: number;
+  marks: number;
+  max_marks: number;
+  accuracy: number | null;
+}
+
+export interface StudentPatterns {
+  /** Null with a note when the test has no negatively-marked MCQs. */
+  negative_marking: NegativeMarkingProfile | null;
+  /** Null with a note when the test has fewer than 6 questions. */
+  fatigue: FatigueProfile | null;
+  /** Null with a note when no concept is tested at both recall and application levels. */
+  transfer: TransferProfile | null;
+  bloom_profile: BloomBucket[];
+  notes: string[];
+}
+
+export interface StudentRiskRow {
+  submission_id: number;
+  student_name: string;
+  value: number;
+  detail: string;
+  severity: RiskLevel;
+}
+
+export interface CohortTopicRisk {
+  topic: string;
+  students_profiled: number;
+  students_over_attempting: number;
+  mean_accuracy: number | null;
+  marks_lost: number;
+  skip_threshold: number;
+}
+
+export interface CohortNegativeMarking {
+  students_profiled: number;
+  marks_lost_total: number;
+  topics: CohortTopicRisk[];
+  students: StudentRiskRow[];
+}
+
+export interface CohortFatigue {
+  students_profiled: number;
+  flagged_count: number;
+  early_accuracy: number | null;
+  late_accuracy: number | null;
+  students: StudentRiskRow[];
+}
+
+export interface ConceptSummary {
+  concept: string;
+  students: number;
+  memorisation: number;
+  transferable: number;
+  foundational_gap: number;
+}
+
+export interface CohortTransfer {
+  students_profiled: number;
+  concepts: ConceptSummary[];
+  students: StudentRiskRow[];
+}
+
+export interface CohortPatterns {
+  negative_marking: CohortNegativeMarking | null;
+  fatigue: CohortFatigue | null;
+  transfer: CohortTransfer | null;
+  bloom_profile: BloomBucket[];
+  notes: string[];
+}
+
+// --- Interventions and outcomes (FR-4.13) ------------------------------------ //
+export interface InterventionOutcome {
+  follow_up_submission_id: number;
+  follow_up_date: string;
+  follow_up_test: string;
+  baseline_mastery: number;
+  follow_up_mastery: number;
+  mastery_change: number;
+  predicted_gain_pct: number | null;
+  roi_accuracy: number | null;
+  score_change_pct: number | null;
+}
+
+export interface InterventionRecord {
+  id: number;
+  institution_id: number;
+  batch_id: number;
+  /** The baseline result the action responds to. */
+  submission_id: number;
+  student_ref: string;
+  student_name: string;
+  topic: string;
+  kind: InterventionKind;
+  action: string;
+  source: ContentSource;
+  applied_by: string;
+  applied_at: string;
+  hours: number | null;
+  /** 0-1 */
+  compliance: number | null;
+  baseline_mastery: number | null;
+  predicted_gain_pct: number | null;
+  note: string | null;
+  is_demo: boolean;
+  created_at: string;
+  outcome_status: OutcomeStatus;
+  outcome: InterventionOutcome | null;
+}
+
+export interface InterventionInput {
+  submission_id: number;
+  topic: string;
+  kind: InterventionKind;
+  action: string;
+  source: ContentSource;
+  applied_by: string;
+  /** null = now */
+  applied_at: string | null;
+  hours: number | null;
+  compliance: number | null;
+  note: string | null;
+}
+
+export interface EffectRow {
+  key: string;
+  label: string;
+  n: number;
+  mean_change: number | null;
+  control_change: number | null;
+  uplift: number | null;
+  improved_share: number | null;
+}
+
+export interface InstitutionEffect {
+  institution_id: number;
+  institution_name: string;
+  records: number;
+  measured: number;
+  mean_change: number | null;
+  uplift: number | null;
+  calibration_factor: number | null;
+  calibration_n: number;
+}
+
+export interface InterventionEffectiveness {
+  institution_id: number | null;
+  batch_id: number | null;
+  records: number;
+  measured: number;
+  pending: number;
+  mean_change_treated: number | null;
+  mean_change_control: number | null;
+  uplift: number | null;
+  by_kind: EffectRow[];
+  by_topic: EffectRow[];
+  by_institution: InstitutionEffect[];
+  is_demo: boolean;
+  /** Observational - interventions are not assumed to cause the changes. */
+  caveat: string;
+  generated_at: string;
+}
+
+export interface InterventionSummary {
+  records: number;
+  measured: number;
+  uplift: number | null;
+  calibration_factor: number | null;
+}
+
+// --- What-if (FR-4.14) - illustrative effort-response model ----------------- //
+export interface WhatIfScenarioInput {
+  topic: string;
+  /** 0.5-40 */
+  extra_hours: number;
+}
+
+export interface WhatIfInput {
+  batch_id: number | null;
+  rubric_id: number | null;
+  institution_id: number | null;
+  /** 1-5 scenarios */
+  scenarios: WhatIfScenarioInput[];
+  use_calibration: boolean;
+}
+
+export interface WhatIfImpact {
+  exam_marks_avg: number;
+  exam_marks_low: number;
+  exam_marks_high: number;
+  test_pct_points_avg: number;
+  exam_scale_max: number;
+}
+
+export interface WhatIfStudentRow {
+  submission_id: number;
+  student_name: string;
+  student_ref: string;
+  mastery_before: number;
+  mastery_after: number;
+  exam_marks_gain: number;
+}
+
+export interface WhatIfScenarioResult {
+  topic: string;
+  subject: string | null;
+  chapter: string | null;
+  extra_hours: number;
+  hours_to_target: number | null;
+  students_assessed: number;
+  students_at_target: number;
+  mean_mastery_before: number | null;
+  mean_mastery_after: number | null;
+  impact: WhatIfImpact;
+  headline: string;
+  students: WhatIfStudentRow[];
+}
+
+export interface WhatIfResult {
+  batch_id: number | null;
+  batch_name: string | null;
+  rubric_id: number | null;
+  institution_id: number | null;
+  students_considered: number;
+  baseline_avg_pct: number | null;
+  projected_avg_pct: number | null;
+  scenarios: WhatIfScenarioResult[];
+  combined: WhatIfImpact;
+  calibration_factor: number;
+  calibrated: boolean;
+  /** e.g. "Illustrative - not a calibrated forecast". */
+  label: string;
+  assumptions: string[];
+  is_demo: boolean;
+}
+
+export interface WhatIfTopicOption {
+  topic: string;
+  subject: string | null;
+  students: number;
+  mean_mastery: number | null;
+  hours_to_target: number | null;
+}
+
+export interface WhatIfOptions {
+  batches: Batch[];
+  topics: WhatIfTopicOption[];
+  calibration_factor: number | null;
+}
+
+// --- Owner dashboard (FR-5.9) - no login in this PoC ------------------------- //
+export interface OwnerTotals {
+  students: number;
+  submissions: number;
+  completed: number;
+  human_review: number;
+  failed: number;
+  processing: number;
+  average_pct: number | null;
+  released: number;
+  provisional: number;
+  batches: number;
+  faculty: number;
+  tests: number;
+}
+
+export interface BatchSummary {
+  batch: Batch;
+  students: number;
+  completed: number;
+  average_pct: number | null;
+  previous_average_pct: number | null;
+  trend_delta_pct: number | null;
+  urgency_counts: UrgencyCounts;
+  latest_test: RubricRef | null;
+  latest_test_date: string | null;
+  released: number;
+  provisional: number;
+  review_backlog: number;
+  failed: number;
+  top_gap_topic: string | null;
+  cost_inr: number;
+  is_demo: boolean;
+}
+
+export interface FacultySummary {
+  name: string;
+  batches: string[];
+  students: number;
+  average_pct: number | null;
+  reports_released: number;
+  ocr_reviews: number;
+  interventions_logged: number;
+  avg_release_hours: number | null;
+}
+
+export interface TrendPoint {
+  date: string;
+  batch_id: number;
+  batch_name: string;
+  test_name: string;
+  average_pct: number;
+  students: number;
+}
+
+export interface OwnerDashboard {
+  institution: Institution;
+  institutions: Institution[];
+  generated_at: string;
+  totals: OwnerTotals;
+  urgency_counts: UrgencyCounts;
+  batches: BatchSummary[];
+  faculty: FacultySummary[];
+  trend: TrendPoint[];
+  weakest_topics: TopicPoint[];
+  operations: Operations;
+  interventions: InterventionSummary;
+  is_demo: boolean;
+  demo_count: number;
+  real_count: number;
+  /** "Owner view - no login in this PoC". */
+  role_note: string;
+}
+
+// --- LMS export (FR-5.10) - read-only, X-API-Key ----------------------------- //
+/** Never carries the secret (only its SHA-256 is stored). */
+export interface ApiKey {
+  id: number;
+  name: string;
+  /** First 8 characters of the secret, for display. */
+  prefix: string;
+  /** null = all institutions */
+  institution_id: number | null;
+  created_at: string;
+  last_used_at: string | null;
+  use_count: number;
+  revoked_at: string | null;
+  active: boolean;
+}
+
+export interface ApiKeyInput {
+  name: string;
+  institution_id: number | null;
+}
+
+/** POST /api/lms/keys: the secret is shown once. */
+export interface ApiKeyCreated {
+  key: ApiKey;
+  secret: string;
+}
+
+export interface LmsEndpoint {
+  method: string;
+  path: string;
+  format: string;
+  description: string;
+}
+
+export interface LmsInfo {
+  enabled: boolean;
+  /** "X-API-Key" */
+  header_name: string;
+  env_key_configured: boolean;
+  active_keys: number;
+  /** Released results only unless include_provisional=true. */
+  released_only_default: boolean;
+  endpoints: LmsEndpoint[];
+  docs_path: string;
+}
+
+export interface LmsTopic {
+  topic: string;
+  subject: string;
+  mastery: number;
+}
+
+export interface LmsResultRow {
+  submission_id: number;
+  student_ref: string;
+  student_name: string;
+  institution_id: number;
+  institution_name: string;
+  batch_id: number;
+  batch_name: string;
+  test_name: string;
+  test_version: string;
+  rubric_id: number;
+  evaluated_at: string;
+  score: number;
+  total_marks: number;
+  percentage: number;
+  urgency: Urgency;
+  release_status: ReleaseStatus;
+  input_kind: InputKind;
+  is_demo: boolean;
+  topics: LmsTopic[];
+  focus_topics: string[];
+  nudges: string[];
+}
+
+export interface LmsBatch {
+  batch_id: number;
+  name: string;
+  exam: string;
+  exam_date: string | null;
+  institution_id: number;
+  institution_name: string;
+  faculty_lead: string | null;
+  students: number;
+}
+
+export interface LmsStudent {
+  student_ref: string;
+  student_name: string;
+  batch_ids: number[];
+  assessments: number;
+  latest_submission_id: number | null;
+  latest_percentage: number | null;
+  latest_urgency: Urgency | null;
 }
