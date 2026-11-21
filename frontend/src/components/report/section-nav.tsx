@@ -9,8 +9,9 @@ export const REPORT_SECTIONS = [
   { id: "diagnostics", n: "02", label: "Subject & topic diagnostics", short: "Diagnostics" },
   { id: "action-plan", n: "03", label: "Teacher action plan", short: "Action plan" },
   { id: "behaviour", n: "04", label: "Exam behaviour", short: "Behaviour" },
-  { id: "evidence", n: "05", label: "Question evidence & controls", short: "Evidence" },
-  { id: "pages", n: "06", label: "Original pages", short: "Pages" },
+  { id: "interventions", n: "05", label: "Interventions", short: "Interventions" },
+  { id: "evidence", n: "06", label: "Question evidence & controls", short: "Evidence" },
+  { id: "pages", n: "07", label: "Original pages", short: "Pages" },
 ] as const;
 
 export type ReportSectionId = (typeof REPORT_SECTIONS)[number]["id"];

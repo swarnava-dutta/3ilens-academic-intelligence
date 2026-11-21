@@ -19,6 +19,7 @@ import { EvidenceTraceCard } from "./evidence-trace";
 import { ExecutiveSummaryCard } from "./executive-summary";
 import { ImmediateReadingCard } from "./immediate-reading";
 import { InsightsCard } from "./insights";
+import { InterventionsPanel } from "./interventions-panel";
 import { normalizeResult } from "./normalize";
 import { ExamBehaviour } from "./patterns/exam-behaviour";
 import { PrintFooter, ProvisionalBanner, releaseText } from "./provisional-banner";
@@ -115,6 +116,10 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
         description="Negative marking, fatigue, memorisation vs transfer and the Bloom profile."
       >
         <ExamBehaviour result={result} />
+      </ReportSection>
+
+      <ReportSection id="interventions" description="Recorded teaching actions and what happened next (observational).">
+        <InterventionsPanel result={result} />
       </ReportSection>
 
       <ReportSection id="evidence" description="Every mark traced to the answer, the rubric and the run.">
