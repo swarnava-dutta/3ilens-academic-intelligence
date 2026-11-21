@@ -1,4 +1,5 @@
-import { FileText, Sparkles } from "lucide-react";
+import { Calculator, FileText, Sparkles } from "lucide-react";
+import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
 import type { Result, TopicMastery } from "@/lib/types";
 import { formatConfidence } from "@/lib/utils";
 import { fmtNumber, fraction, safeNumber } from "./format";
@@ -38,9 +39,36 @@ function fallbackParagraphs(result: Result): string[] {
   return [coverage, resultLine, actions];
 }
 
+/**
+ * One-line computed summary (mirrors backend analytics.summary_line): the fallback when no AI
+ * narrative was stored (every demo row, and rows graded before narratives were recorded).
+ */
+export function summaryLine(result: Result): string {
+  const { strongest, weakest } = topicExtremes(result.topic_mastery);
+  const urgency = URGENCY_LABELS[result.urgency]?.toLowerCase();
+  let line = `Scored ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtNumber(result.percentage)}%${
+    urgency ? `, ${urgency}` : ""
+  })`;
+  if (strongest && weakest && strongest !== weakest) {
+    line += `; strongest ${strongest.topic} (${fraction(strongest.score, strongest.max_marks)}), weakest ${weakest.topic} (${fraction(weakest.score, weakest.max_marks)})`;
+  }
+  const top = [...result.roi_recommendations].sort(
+    (a, b) => (a.qualitative_rank ?? 99) - (b.qualitative_rank ?? 99) || b.roi - a.roi,
+  )[0];
+  if (top) line += `; top priority ${top.topic}`;
+  return `${line}.`;
+}
+
+/** The AI narrative when one was stored, else the computed summary line (labelled as such). */
+export function narrativeOrSummary(result: Result): { text: string; computed: boolean } {
+  const ai = (result.summary ?? "").trim();
+  return ai ? { text: ai, computed: false } : { text: summaryLine(result), computed: true };
+}
+
 export function ExecutiveSummaryCard({ result, className }: { result: Result; className?: string }) {
   const stored = result.executive_summary;
   const paragraphs = stored.length > 0 ? stored : fallbackParagraphs(result);
+  const narrative = narrativeOrSummary(result);
   return (
     <SectionCard
       id="executive-summary"
@@ -58,24 +86,33 @@ export function ExecutiveSummaryCard({ result, className }: { result: Result; cl
         <p className="mt-3 text-xs text-slate-400">No stored summary for this row: composed in the browser from the marks shown.</p>
       ) : null}
 
-      <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 [print-color-adjust:exact]">
-        <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <Pill className="bg-white text-violet-700 ring-violet-200">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            AI narrative
-          </Pill>
-          <span className="text-xs text-violet-700/80">Evaluator&apos;s reading - not educator-validated</span>
+      {narrative.computed ? (
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 [print-color-adjust:exact]">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <Pill className="bg-white text-slate-700 ring-slate-300">
+              <Calculator className="h-3.5 w-3.5" aria-hidden />
+              Summary line (computed)
+            </Pill>
+            <span className="text-xs text-slate-600">
+              {result.submission.is_demo
+                ? "Synthetic record - no AI call, so no AI narrative; built from the marks shown."
+                : "No AI narrative was stored for this evaluation; built from the marks shown."}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed text-slate-700">{narrative.text}</p>
         </div>
-        {result.summary ? (
-          <p className="text-sm leading-relaxed text-slate-700">{result.summary}</p>
-        ) : (
-          <p className="text-sm italic text-slate-500">
-            {result.submission.is_demo
-              ? "Synthetic record - no AI call, so there is no AI narrative."
-              : "No AI narrative was stored for this evaluation (graded before narratives were recorded)."}
-          </p>
-        )}
-      </div>
+      ) : (
+        <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 [print-color-adjust:exact]">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <Pill className="bg-white text-violet-700 ring-violet-200">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              AI narrative
+            </Pill>
+            <span className="text-xs text-violet-700">Evaluator&apos;s reading - not educator-validated</span>
+          </div>
+          <p className="text-sm leading-relaxed text-slate-700">{narrative.text}</p>
+        </div>
+      )}
     </SectionCard>
   );
 }
