@@ -332,7 +332,7 @@ export function ApiKeysCard() {
             No keys yet. Create one for each LMS or ERP that should read results.
           </p>
         ) : (
-          <div className="mt-4 -mx-5 overflow-x-auto sm:-mx-6">
+          <div className="relative mt-4 -mx-5 overflow-x-auto sm:-mx-6">
             <table className="w-full min-w-[820px] border-collapse text-sm">
               <caption className="sr-only">API keys</caption>
               <thead className="border-y border-slate-200 bg-slate-50">

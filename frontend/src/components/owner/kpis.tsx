@@ -118,15 +118,15 @@ export function OwnerKpis({ data }: { data: OwnerDashboard }) {
         icon={IndianRupee}
         value={inr(ops?.total_cost_inr)}
         hint={
-          <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="flex items-start gap-1">
             {perStudent === null ? (
               <>avg per student unknown · target {inr(target)}</>
             ) : (
               <>
                 {overTarget ? (
-                  <CircleAlert className="h-3.5 w-3.5 text-rose-600" aria-hidden />
+                  <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0 text-rose-600" aria-hidden />
                 ) : (
-                  <CircleCheck className="h-3.5 w-3.5 text-lime-700" aria-hidden />
+                  <CircleCheck className="mt-px h-3.5 w-3.5 shrink-0 text-lime-700" aria-hidden />
                 )}
                 <span className={overTarget ? "font-medium text-rose-700" : "font-medium text-lime-800"}>
                   {inr(perStudent)} per student {overTarget ? "- over" : "- within"} the {inr(target)} target

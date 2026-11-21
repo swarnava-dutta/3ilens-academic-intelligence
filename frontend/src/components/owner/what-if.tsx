@@ -111,7 +111,7 @@ function ScenarioResult({ s }: { s: WhatIfScenarioResult }) {
         </dl>
       </div>
       {top.length ? (
-        <div className="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200">
+        <div className="relative mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200">
           <table className="w-full min-w-[420px] border-collapse text-sm">
             <caption className="sr-only">Top {top.length} students by projected gain for {s.topic}</caption>
             <thead className="bg-slate-50">
@@ -147,7 +147,7 @@ function Results({ result }: { result: WhatIfResult }) {
   return (
     <div className="mt-5 space-y-4 border-t border-slate-100 pt-5" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
-        <IllustrativePill label={result.label || "Illustrative - not a calibrated forecast"} />
+        <IllustrativePill label={result.label || "Illustrative - not a calibrated forecast"} className="max-w-full whitespace-normal" />
         {result.is_demo ? <SamplePill /> : null}
         <span className="text-xs text-slate-600">
           {result.batch_name ?? "All batches"} · {result.students_considered} students considered · calibration ×

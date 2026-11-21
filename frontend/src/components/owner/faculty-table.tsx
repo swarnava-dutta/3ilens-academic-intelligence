@@ -21,7 +21,7 @@ export function FacultyTable({ faculty }: { faculty: FacultySummary[] }) {
           No faculty recorded yet. Set a faculty lead on a batch above.
         </p>
       ) : (
-        <div className="mt-4 -mx-5 overflow-x-auto sm:-mx-6">
+        <div className="relative mt-4 -mx-5 overflow-x-auto sm:-mx-6">
           <table className="min-w-[860px] w-full border-collapse">
             <caption className="sr-only">Faculty activity</caption>
             <thead className="border-y border-slate-200 bg-slate-50">

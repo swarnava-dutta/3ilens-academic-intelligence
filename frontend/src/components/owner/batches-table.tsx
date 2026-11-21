@@ -19,7 +19,7 @@ function TrendDelta({ value }: { value: number | null }) {
   const Icon = value > 0.05 ? TrendingUp : value < -0.05 ? TrendingDown : Minus;
   const tone = value > 0.05 ? "text-lime-800" : value < -0.05 ? "text-rose-700" : "text-slate-600";
   return (
-    <span className={cn("inline-flex items-center gap-1 font-medium tabular-nums", tone)} title={TREND_TOOLTIP}>
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap font-medium tabular-nums", tone)} title={TREND_TOOLTIP}>
       <Icon className="h-3.5 w-3.5" aria-hidden />
       {signed(value)} pts
       <span className="sr-only"> ({TREND_TOOLTIP})</span>
@@ -155,7 +155,7 @@ export function BatchesTable({
       {batches.length === 0 ? (
         <p className="mt-4 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-600">No batches yet.</p>
       ) : (
-        <div className="mt-4 -mx-5 overflow-x-auto sm:-mx-6">
+        <div className="relative mt-4 -mx-5 overflow-x-auto sm:-mx-6">
           <table className="min-w-[1100px] w-full border-collapse">
             <caption className="sr-only">Batches with faculty lead, latest test, results and cost</caption>
             <thead className="border-y border-slate-200 bg-slate-50">
@@ -243,7 +243,7 @@ export function BatchesTable({
                       <span className="text-slate-500"> / {s.completed}</span>
                     </td>
                     <td className={td}>{s.top_gap_topic ?? <span className="text-slate-500">—</span>}</td>
-                    <td className={cn(td, "pr-5 text-right tabular-nums sm:pr-6")}>{inr(s.cost_inr)}</td>
+                    <td className={cn(td, "pr-5 text-right whitespace-nowrap tabular-nums sm:pr-6")}>{inr(s.cost_inr)}</td>
                   </tr>
                 );
               })}

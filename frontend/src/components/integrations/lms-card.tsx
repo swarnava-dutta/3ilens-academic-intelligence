@@ -105,7 +105,7 @@ export function LmsCard() {
             </span>
           </p>
 
-          <div className="-mx-5 overflow-x-auto sm:-mx-6">
+          <div className="relative -mx-5 overflow-x-auto sm:-mx-6">
             <table className="w-full min-w-[1000px] border-collapse text-sm">
               <caption className="sr-only">LMS export endpoints</caption>
               <thead className="border-y border-slate-200 bg-slate-50">

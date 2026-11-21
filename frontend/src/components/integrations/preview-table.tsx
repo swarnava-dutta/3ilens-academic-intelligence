@@ -14,7 +14,7 @@ export function LmsPreviewTable({ rows }: { rows: LmsResultRow[] }) {
     );
   }
   return (
-    <div className="max-h-96 overflow-auto rounded-xl ring-1 ring-slate-200">
+    <div className="relative max-h-96 overflow-auto rounded-xl ring-1 ring-slate-200">
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <caption className="sr-only">First {rows.length} rows of the LMS results export</caption>
         <thead className="sticky top-0 bg-slate-50">

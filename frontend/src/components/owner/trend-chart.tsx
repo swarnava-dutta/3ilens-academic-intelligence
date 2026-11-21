@@ -109,7 +109,7 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
           The trend appears once a batch has completed results on at least one dated test.
         </p>
       ) : asTable ? (
-        <div className="mt-4 max-h-80 overflow-auto rounded-xl ring-1 ring-slate-200">
+        <div className="relative mt-4 max-h-80 overflow-auto rounded-xl ring-1 ring-slate-200">
           <table className="w-full min-w-[480px] border-collapse text-sm">
             <caption className="sr-only">Average % per batch and test date</caption>
             <thead className="sticky top-0 bg-slate-50">

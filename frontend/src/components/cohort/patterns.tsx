@@ -138,7 +138,7 @@ export function ExamBehaviourCard({ patterns }: { patterns: CohortPatterns | nul
             {nm ? (
               <>
                 {nm.topics.length ? (
-                  <div className="mt-2 overflow-x-auto rounded-xl ring-1 ring-slate-200">
+                  <div className="relative mt-2 overflow-x-auto rounded-xl ring-1 ring-slate-200">
                     <table className="w-full min-w-[640px] border-collapse">
                       <caption className="sr-only">Negative-marking risk per topic</caption>
                       <thead className="bg-slate-50">
@@ -216,7 +216,7 @@ export function ExamBehaviourCard({ patterns }: { patterns: CohortPatterns | nul
             {tr ? (
               <>
                 {tr.concepts.length ? (
-                  <div className="mt-2 overflow-x-auto rounded-xl ring-1 ring-slate-200">
+                  <div className="relative mt-2 overflow-x-auto rounded-xl ring-1 ring-slate-200">
                     <table className="w-full min-w-[560px] border-collapse">
                       <caption className="sr-only">Recall vs application per concept</caption>
                       <thead className="bg-slate-50">

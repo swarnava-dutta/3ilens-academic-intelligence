@@ -52,7 +52,7 @@ export function RouteChip({ route }: { route: LlmRoute }) {
 function CallsTable({ calls }: { calls: ModelInvocation[] }) {
   if (!calls.length) return null;
   return (
-    <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
+    <div className="relative overflow-x-auto rounded-xl ring-1 ring-slate-200">
       <table className="w-full min-w-[720px] border-collapse text-sm">
         <caption className="sr-only">Provider calls made by the drill</caption>
         <thead className="bg-slate-50">
@@ -178,7 +178,7 @@ export function AiProvidersCard() {
       {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} className="mt-4" /> : null}
       {data ? (
         <div className="mt-4 space-y-4">
-          <div className="-mx-5 overflow-x-auto sm:-mx-6">
+          <div className="relative -mx-5 overflow-x-auto sm:-mx-6">
             <table className="w-full min-w-[880px] border-collapse text-sm">
               <caption className="sr-only">AI providers</caption>
               <thead className="border-y border-slate-200 bg-slate-50">

@@ -118,6 +118,9 @@ export function OwnerDashboard() {
         <div className="space-y-4">
           <h1 className="text-2xl font-bold tracking-tight text-brand-navy">Owner dashboard</h1>
           <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Could not load the owner dashboard" />
+          {/* These two sections have their own endpoints, so they still work when the dashboard call fails. */}
+          <EffectivenessCard institutionId={institutionId} />
+          <WhatIfSimulator institutionId={institutionId} />
         </div>
       );
     }
@@ -125,6 +128,8 @@ export function OwnerDashboard() {
   }
 
   const empty = (data.totals?.submissions ?? 0) === 0;
+  // The badge already says it; drop the same sentence from the start of the API's role note.
+  const roleNote = (data.role_note ?? "").replace(/^owner view - no login in this poc[.\s]*/i, "");
   const instId = data.institution?.id ?? institutionId;
 
   return (
@@ -175,7 +180,7 @@ export function OwnerDashboard() {
           <LockOpen className="h-3.5 w-3.5" aria-hidden />
           Owner view - no login in this PoC
         </span>
-        <span>{data.role_note}</span>
+        <span>{roleNote}</span>
       </div>
 
       {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Refresh failed (showing the last data)" /> : null}
