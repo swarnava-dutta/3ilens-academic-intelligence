@@ -8,6 +8,7 @@ import { btnPrimary } from "@/components/cohort/dialog";
 import { fmtDateTime, inr } from "@/components/owner/format";
 import { CardSkeleton, ErrorNote } from "@/components/owner/states";
 import { useAsync } from "@/components/owner/use-async";
+import { stageLabel } from "@/components/report/llm-route";
 import { getLlmChain, runLlmDrill } from "@/lib/api";
 import type { LlmDrillResult, LlmRoute, ModelInvocation } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -160,6 +161,21 @@ function Drill({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** What happened to one call in the fallback log: served by the fallback, skipped (simulated outage) or failed. */
+function FallbackOutcome({ call }: { call: ModelInvocation }) {
+  const look =
+    call.status === "ok"
+      ? call.fell_back
+        ? { text: "served by fallback", cls: "bg-amber-50 text-amber-800 ring-amber-200" }
+        : { text: "ok", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200" }
+      : call.error_code === "simulated_outage"
+        ? { text: "primary skipped (simulated outage)", cls: "bg-slate-100 text-slate-700 ring-slate-200" }
+        : { text: `failed${call.error_code ? `: ${call.error_code}` : ""}`, cls: "bg-rose-50 text-rose-700 ring-rose-200" };
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", look.cls)}>{look.text}</span>
+  );
+}
+
 /** AI provider chain (FR-3.10): providers, fallback switches, trigger codes, drill and recent fallbacks. */
 export function AiProvidersCard() {
   const fetcher = useCallback(() => getLlmChain(), []);
@@ -268,11 +284,11 @@ export function AiProvidersCard() {
                 {data.recent_fallbacks.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                     <span className="whitespace-nowrap text-xs text-slate-600">{fmtDateTime(c.created_at)}</span>
-                    <span className="font-medium text-slate-800">{c.purpose}</span>
+                    <span className="font-medium text-slate-800">{stageLabel(c.purpose)}</span>
                     <span className="font-mono text-xs text-slate-700">
                       {c.provider} · {c.model_served ?? c.model_requested}
                     </span>
-                    {c.error_code ? <code className="font-mono text-xs text-rose-700">{c.error_code}</code> : null}
+                    <FallbackOutcome call={c} />
                     {c.submission_id ? (
                       <Link href={`/report/${c.submission_id}`} className="text-xs font-medium text-brand-navy hover:underline">
                         Submission #{c.submission_id}

@@ -16,6 +16,10 @@ const PURPOSE_LABEL: Record<string, string> = {
   evaluation: "Rubric grading",
   consistency: "Consistency re-grade",
   rubric_parse: "Rubric drafting",
+  transcription: "Voice transcription",
+  voice_mapping: "Voice mapping",
+  bloom_detect: "Bloom detection",
+  llm_drill: "Fallback drill",
 };
 
 function inr(value: number | null | undefined, digits = 2): string {

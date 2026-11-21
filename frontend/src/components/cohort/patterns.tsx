@@ -41,6 +41,9 @@ function Notes({ notes, fallback }: { notes: string[]; fallback: string }) {
 
 function StudentRows({ rows, unit, empty }: { rows: StudentRiskRow[]; unit: (r: StudentRiskRow) => string; empty: string }) {
   if (!rows.length) return <p className="mt-2 text-sm text-slate-600">{empty}</p>;
+  // A student with several tests in this view is listed once per test: show which report each row is.
+  const seen = new Map<string, number>();
+  rows.forEach((r) => seen.set(r.student_name, (seen.get(r.student_name) ?? 0) + 1));
   return (
     <ul className="mt-2 divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
       {rows.map((r) => (
@@ -50,6 +53,14 @@ function StudentRows({ rows, unit, empty }: { rows: StudentRiskRow[]; unit: (r: 
             className="font-medium text-brand-navy hover:underline focus-visible:outline-2 focus-visible:outline-brand-cyan"
           >
             {r.student_name}
+            {(seen.get(r.student_name) ?? 0) > 1 ? (
+              <span
+                className="ml-1 font-mono text-[11px] font-normal text-slate-500"
+                title="This student has more than one test in this view; filter by test to see one at a time"
+              >
+                #{r.submission_id}
+              </span>
+            ) : null}
           </Link>
           <RiskBadge risk={r.severity} size="sm" />
           <span className="font-semibold tabular-nums text-slate-800">{unit(r)}</span>
@@ -96,7 +107,7 @@ function BloomProfile({ buckets }: { buckets: BloomBucket[] }) {
 
 /**
  * "Exam behaviour (class)" (FR-4.8 negative marking, FR-4.10 fatigue, FR-4.11 memorisation vs transfer,
- * FR-3.9 Bloom profile) from Cohort.patterns. Thresholds are defaults pending the academic lead.
+ * FR-3.9 Bloom profile) from Cohort.patterns. Thresholds are defaults until the academic lead confirms them.
  */
 export function ExamBehaviourCard({ patterns }: { patterns: CohortPatterns | null | undefined }) {
   const p = patterns ?? { negative_marking: null, fatigue: null, transfer: null, bloom_profile: [], notes: [] };
@@ -147,7 +158,7 @@ export function ExamBehaviourCard({ patterns }: { patterns: CohortPatterns | nul
                           <th scope="col" className={cn(th, "text-right")}>Over-attempting / profiled</th>
                           <th scope="col" className={cn(th, "text-right")}>Mean accuracy</th>
                           <th scope="col" className={cn(th, "text-right")}>Marks lost</th>
-                          <th scope="col" className={th}>Recommended skip threshold</th>
+                          <th scope="col" className={th}>Skip threshold</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
