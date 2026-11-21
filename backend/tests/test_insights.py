@@ -511,3 +511,77 @@ def test_examiner_note_is_flagged_for_faculty_and_scores_unchanged():
     assert q1["estimated_marks"] == 2 and q1["marking_note"] == insights.EXAMINER_NOTE_FLAG
     assert note in q1["student_answer"]  # the stored transcript keeps the flagged text for faculty
     assert q2["marking_note"] is None
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: MCQ papers (FR-4.8) and marking schemes (FR-3.8)
+# --------------------------------------------------------------------------- #
+def _mcq(number: int, correct: str, topic: str = "Cell Biology") -> dict:
+    return {"question": number, "topic": topic, "subject": "Biology", "max_marks": 4, "effort_hours": 2,
+            "prompt": f"MCQ {number}", "question_type": "mcq", "options": ["w", "x", "y", "z"],
+            "correct_option": correct, "expected_answer": f"Option {correct}", "grading_criteria": ["4 marks"]}
+
+
+MCQ_PAPER = {
+    "name": "MCQ paper (test)",
+    "subject": "Biology",
+    "marking_policy": {"partial_credit": "steps", "mark_step": 0.5, "negative_marks": 1, "scheme_name": "NEET +4/-1"},
+    "questions": [_mcq(1, "B"), _mcq(2, "A"), _mcq(3, "C", "Ecology"), _mcq(4, "D", "Ecology")],
+}
+
+
+def test_all_mcq_paper_builds_a_valid_report_with_negative_totals():
+    from schemas import ReportPayload
+
+    answers = [OcrAnswer(question=1, answer="C", confidence=0.9), OcrAnswer(question=2, answer="B, D", confidence=0.9),
+               OcrAnswer(question=3, answer="b", confidence=0.9)]
+    empty = EvaluationOutput(evaluations=[], overall_strengths=[], overall_gaps=[])  # ai.run_evaluation: no call
+    report = build_evaluation_report(MCQ_PAPER, answers, empty)
+    ReportPayload.model_validate(report)
+
+    marks = [q["estimated_marks"] for q in report["question_evaluations"]]
+    assert marks == [-1.0, -1.0, -1.0, 0.0]
+    assert report["total_score"] == -3.0 and report["overall_mastery"] == 0.0
+    assert all(t["mastery"] == 0.0 for t in report["topic_mastery"])
+    gaps = [q["gaps"] for q in report["question_evaluations"]]
+    assert gaps == [["Chose C; correct B (-1)"], ["More than one option marked"], ["Chose B; correct C (-1)"],
+                    ["Not attempted"]]
+    assert report["question_evaluations"][1]["selected_option"] == "MULTI"
+    # No overall lists from the grader: falls back to the question-level items.
+    assert report["strengths_gaps"]["strengths"] == []
+    assert report["strengths_gaps"]["gaps"][:2] == [
+        "Q1 (Cell Biology): Chose C; correct B (-1)", "Q2 (Cell Biology): More than one option marked",
+    ]
+    assert len(report["teaching_nudges"]) >= 2  # topped up from the priorities
+
+
+def test_correct_and_unreadable_mcq_texts():
+    answers = [OcrAnswer(question=1, answer="(b)", confidence=0.9), OcrAnswer(question=2, answer="mitochondria", confidence=0.9)]
+    empty = EvaluationOutput(evaluations=[], overall_strengths=[], overall_gaps=[])
+    q1, q2, *_ = build_evaluation_report(MCQ_PAPER, answers, empty)["question_evaluations"]
+    assert (q1["estimated_marks"], q1["strengths"], q1["gaps"], q1["outcome"]) == (4.0, ["Correct option B"], [], "FULL")
+    assert q1["evidence"] == "Auto-scored MCQ: Correct option B (+4)"
+    assert (q2["estimated_marks"], q2["penalty"], q2["gaps"]) == (0.0, 0.0, ["Option not identifiable - check the sheet"])
+    assert q2["demonstrated_level"] is None and q2["question_type"] == "mcq"
+
+
+def test_scheme_all_or_nothing_and_required_steps():
+    steps = [{"criterion": "Cross", "marks": 2}, {"criterion": "Ratio", "marks": 2, "required": True}]
+    base = {**GENETICS["questions"][0], "max_marks": 4, "marking_scheme": steps}
+    award = [{"index": 0, "awarded": 2}, {"index": 1, "awarded": 1.5}]
+    grade = QuestionGrade(question=1, estimated_marks=3.5, evidence="e", strengths=[], gaps=[], criteria_awards=award)
+    answers = [OcrAnswer(question=1, answer="Tt x tt", confidence=0.9)]
+
+    rubric = {**GENETICS, "questions": [base]}
+    q = build_evaluation_report(rubric, answers, _evaluation([grade]))["question_evaluations"][0]
+    assert q["estimated_marks"] == 3.5 and q["marking_note"] is None
+
+    rubric = {**GENETICS, "questions": [{**base, "partial_credit": "all_or_nothing"}]}
+    q = build_evaluation_report(rubric, answers, _evaluation([grade]))["question_evaluations"][0]
+    assert q["estimated_marks"] == 0.0 and q["marking_note"] == "All-or-nothing: 3.5/4 -> 0"
+
+    low = QuestionGrade(question=1, estimated_marks=2.5, evidence="e", strengths=[], gaps=[],
+                        criteria_awards=[{"index": 0, "awarded": 2}, {"index": 1, "awarded": 0.5}])
+    rubric = {**GENETICS, "questions": [base]}
+    q = build_evaluation_report(rubric, answers, _evaluation([low]))["question_evaluations"][0]
+    assert q["estimated_marks"] == 0.0 and q["marking_note"] == "Required step 'Ratio' not met -> 0"

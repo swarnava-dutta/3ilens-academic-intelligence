@@ -42,7 +42,9 @@ import anthropic
 import openai
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+import bloom
 import insights
+import marking
 from ai_schemas import (
     Confusion,
     EvaluationOutput,
@@ -52,7 +54,6 @@ from ai_schemas import (
     OcrResult,
     PageAssessment,
     PreparedPage,
-    QuestionGrade,
     TeachingNudgeAI,
     TopicIntervention,
     UncertainWord,
@@ -175,12 +176,35 @@ class _ConfusionWire(BaseModel):
     evidence: str = Field(description="The student's own words that show the two concepts merged or swapped.")
 
 
+class _CriterionAwardWire(BaseModel):
+    model_config = ConfigDict(title="CriterionAward")
+
+    index: int = Field(description="0-based index of the step in the question's marking_scheme.")
+    awarded: float = Field(description="Marks awarded for that step, between 0 and the step's marks.")
+
+
+class _QuestionGradeWire(BaseModel):
+    model_config = ConfigDict(title="QuestionGrade")
+
+    question: int = Field(description="Rubric question number being graded.")
+    estimated_marks: float = Field(description="Marks awarded, between 0 and the question's max_marks.")
+    evidence: str = Field(description="Quote or paraphrase from the answer that justifies the marks.")
+    strengths: list[str]
+    gaps: list[str]
+    criteria_awards: list[_CriterionAwardWire] = Field(
+        description="One entry per marking_scheme step when the question lists a marking_scheme; otherwise empty."
+    )
+    demonstrated_level: Literal["K1", "K2", "K3", "K4", "K5"] = Field(
+        description="The highest Bloom level the answer actually demonstrates (K1 for blank or off-topic)."
+    )
+
+
 class EvaluationExtraction(BaseModel):
     """Exact JSON shape the evaluation model must return (parsed as ai_schemas.EvaluationOutput)."""
 
     model_config = ConfigDict(title="EvaluationOutput")
 
-    evaluations: list[QuestionGrade]
+    evaluations: list[_QuestionGradeWire]
     overall_strengths: list[str] = Field(description="2-3 strengths across the whole sheet.")
     overall_gaps: list[str] = Field(description="2-3 gaps across the whole sheet.")
     summary: str = Field(description="2-3 teacher-facing sentences.")
@@ -293,6 +317,9 @@ answer is unnumbered, use its content and the question list to decide which ques
 answers. An answer can continue onto the next page; combine the parts into one entry and \
 list every page it appears on.
 - Omit questions the student did not attempt; do not create entries for blank questions.
+- Multiple-choice questions are marked [MCQ] in the question list: transcribe only the \
+option letter(s) the student ticked, circled, shaded or wrote (A-F), never the option \
+text, and never pick an option yourself.
 - confidence is your calibrated certainty, from 0.0 to 1.0, that the transcription \
 matches what is written: around 0.95 for clear handwriting, 0.7-0.85 when several words \
 were hard to read, and below 0.6 when much of the answer is guesswork or [illegible].
@@ -328,6 +355,13 @@ Use only these question numbers:
 </questions>\
 """
 
+# Appended to MCQ question lines in the OCR instruction (FR-4.8); marking.normalise_option reads
+# the letters back. The correct option is never sent.
+OCR_MCQ_SUFFIX = (
+    " [MCQ: transcribe ONLY the option letter the student marked or wrote, e.g. B; if two options are "
+    "marked write both, e.g. 'B, C'; omit the question if nothing is marked]"
+)
+
 LANGUAGE_NOTE_TEMPLATE = "Answers may be written in {languages}. Transcribe in the original script; do not translate."
 
 EVALUATION_SYSTEM_PROMPT = """\
@@ -340,17 +374,29 @@ Grading rules:
 rubric's question numbers, and no entries for numbers that are not in the rubric.
 - Award marks only for what the student actually wrote, judged against that question's \
 grading_criteria and expected_answer. The criteria say what each mark is for. Give \
-partial credit in steps of 0.5, never more than the question's max_marks, and never for \
+partial credit in the steps the question's partial_credit_rule states (steps of 0.5 \
+unless it says otherwise), never more than the question's max_marks, and never for \
 content that is missing or wrong.
+- Multiple-choice questions are scored automatically by the server from the option \
+letter and are not in this rubric; grade only the questions listed.
 - Accept equivalent wording, notation and valid alternative examples: reward correct \
 science, not memorised phrasing. Do not reward vague or self-contradictory statements.
-- The answers were transcribed from handwriting and spelling is kept as written. \
-[illegible] marks text that could not be read: grade only the legible content and do \
-not assume what an illegible fragment said.
+- The answers were transcribed from handwriting (or from speech, when the answers block \
+says so) and spelling is kept as written. [illegible] marks text that could not be read: \
+grade only the legible content and do not assume what an illegible fragment said.
 - A rubric question with no student answer gets estimated_marks 0, evidence "No answer \
 was submitted for this question.", no strengths, and the single gap "Not attempted".
 - evidence: quote or closely paraphrase the student's own words that justify the marks \
 (one or two sentences), noting which criteria were met or missed.
+- criteria_awards: when a question lists a marking_scheme, return exactly one {{index, \
+awarded}} entry per step (index is the step's 0-based index), with awarded between 0 and \
+that step's marks in the steps of the question's partial_credit_rule; estimated_marks \
+must equal the sum of the awards. Use an empty list for questions without a \
+marking_scheme. The server recomputes every question's marks from these awards and the \
+partial-credit rule, so required steps and all-or-nothing rules are applied server-side: \
+award each step on its own merits.
+- demonstrated_level: the highest Bloom level (K1-K5) the answer actually demonstrates, \
+which can be below the question's bloom_level; K1 for a blank or off-topic answer.
 - strengths and gaps for each question: short, specific phrases of under 15 words, such \
 as "Correct 1:1 test-cross ratio" or "Did not name the Meselson-Stahl experiment". Use \
 an empty list when there is nothing to list.
@@ -358,6 +404,10 @@ an empty list when there is nothing to list.
 as specific, actionable insights a student and teacher can act on (for example "Revise \
 X-linked crosses: a carrier mother passes the allele to 50% of her sons"), not generic \
 praise or advice.
+
+Cognitive level (Bloom K1-K5):
+Each rubric question states its bloom_level and bloom_label. Grade it at that level:
+{bloom_guidance}
 
 Teacher guidance (in the same reply):
 - summary: 2-3 sentences for the teacher: the overall score band, the strongest and the \
@@ -385,6 +435,11 @@ examiner instead of answering; it earns no marks and is not a gap. [?] after a w
 the transcriber was unsure of that word: grade the word as transcribed, without assuming \
 the expected term.\
 """
+# Level-aware grading (FR-3.9): one guidance line per Bloom level, fixed at import time so the
+# system prompt stays byte-identical (prompt cache).
+EVALUATION_SYSTEM_PROMPT = EVALUATION_SYSTEM_PROMPT.format(
+    bloom_guidance="\n".join(f"- {level}: {bloom.GUIDANCE[level]}" for level in bloom.LEVELS)
+)
 
 # Block 1 (cached): instruction header + rubric. Nothing volatile may appear here.
 EVALUATION_RUBRIC_TEMPLATE = """\
@@ -397,6 +452,11 @@ summary, teaching_nudges, topic_interventions and confusions.
 {rubric_json}
 </rubric>\
 """
+
+SPEECH_ANSWERS_NOTE = (
+    "These answers were transcribed from a spoken (voice) answer: ignore filler words, false starts and "
+    "self-corrections; grade the final stated content."
+)
 
 # Block 2 (per student): the answers.
 EVALUATION_ANSWERS_TEMPLATE = """\
@@ -566,13 +626,19 @@ def run_evaluation(
     wave-2 interface; they are accepted and not used yet (W2-1)."""
     settings = get_settings()
     purpose = purpose or "evaluation"
+    answers = [a if isinstance(a, OcrAnswer) else OcrAnswer.model_validate(a) for a in answers]
+    graded_rubric = descriptive_rubric(rubric_content)
+    graded = {n for n in (_question_number(q) for q in _rubric_questions(graded_rubric)) if n is not None}
+    if not graded:
+        logger.info("All questions are MCQs - auto-scored, no grading call")
+        return EvaluationOutput(evaluations=[], overall_strengths=[], overall_gaps=[])
+    if graded_rubric is not rubric_content:
+        answers = [a for a in answers if a.question in graded]  # MCQ answers are scored by marking.py
     if not _simulating(settings, simulate_outage, purpose):
         _require_anthropic_key(settings)
 
-    answers = [a if isinstance(a, OcrAnswer) else OcrAnswer.model_validate(a) for a in answers]
-
     def primary() -> EvaluationOutput:
-        request = _claude_evaluation_request(settings, answers, rubric_content)
+        request = _claude_evaluation_request(settings, answers, graded_rubric, answer_medium)
         parsed, _response, _text = _claude_structured(
             settings, request, step="evaluation", usage_purpose=purpose, on_usage=on_usage,
             image_count=0, parse_model=EvaluationOutput,
@@ -580,12 +646,17 @@ def run_evaluation(
         return parsed
 
     def fallback() -> EvaluationOutput:
-        return _run_openai_evaluation(settings, answers, rubric_content, on_usage, purpose, answer_medium)
+        return _run_openai_evaluation(settings, answers, graded_rubric, on_usage, purpose, answer_medium)
 
     evaluation = _with_fallback(
         settings, purpose=purpose, primary=primary, fallback=fallback, on_usage=on_usage,
         simulate_outage=simulate_outage,
     )
+    mcqs = _mcq_numbers(rubric_content)
+    if mcqs:  # a grade for an MCQ would be ignored by insights anyway
+        evaluation = evaluation.model_copy(
+            update={"evaluations": [g for g in evaluation.evaluations if g.question not in mcqs]}
+        )
     evaluation = _postprocess_evaluation(evaluation, rubric_content)
     logger.info(
         "Evaluation returned %d question grade(s), %d overall strength(s), %d overall gap(s), "
@@ -795,6 +866,13 @@ def _provider_label(provider: str) -> str:
 # --------------------------------------------------------------------------- #
 # Prompt building
 # --------------------------------------------------------------------------- #
+def _mcq_numbers(rubric_content: dict) -> set[int]:
+    return {
+        n for q in _rubric_questions(rubric_content)
+        if marking.question_type(q) == "mcq" and (n := _question_number(q)) is not None
+    }
+
+
 def _rubric_questions(rubric_content: dict) -> list[dict]:
     questions = rubric_content.get("questions") if isinstance(rubric_content, dict) else None
     return [q for q in (questions or []) if isinstance(q, dict)]
@@ -837,7 +915,10 @@ def _ocr_instruction(rubric_content: dict, page_count: int, language_hints: Iter
             continue
         topic = str(question.get("topic") or "").strip() or "General"
         prompt = " ".join(str(question.get("prompt") or "").split())
-        lines.append(f"{number} - {topic}: {prompt}" if prompt else f"{number} - {topic}")
+        line = f"{number} - {topic}: {prompt}" if prompt else f"{number} - {topic}"
+        if marking.question_type(question) == "mcq":
+            line += OCR_MCQ_SUFFIX
+        lines.append(line)
     instruction = OCR_INSTRUCTION_TEMPLATE.format(
         page_count=page_count,
         rubric_name=str(rubric_content.get("name") or "Answer sheet") if isinstance(rubric_content, dict) else "Answer sheet",
@@ -847,27 +928,58 @@ def _ocr_instruction(rubric_content: dict, page_count: int, language_hints: Iter
     return f"{instruction}\n\n{note}" if note else instruction
 
 
+def descriptive_rubric(rubric_content: dict) -> dict:
+    """The rubric without its MCQs (FR-4.8): MCQs are scored from the option letter by
+    marking.score_mcq, so the grading model never sees them. Same dict when there is no MCQ."""
+    questions = _rubric_questions(rubric_content)
+    keep = [q for q in questions if marking.question_type(q) != "mcq"]
+    if len(keep) == len(questions):
+        return rubric_content
+    return {**rubric_content, "questions": keep}
+
+
 def _evaluation_rubric_block(rubric_content: dict) -> str:
     """Block 1 (cached): deterministic for a given rubric - fixed key order, questions sorted
-    by number, no timestamps or ids - so it is byte-identical for every student."""
+    by number, no timestamps or ids - so it is byte-identical for every student. Descriptive
+    questions only; each carries its Bloom level (FR-3.9), marking scheme and partial-credit
+    rule (FR-3.8)."""
+    rubric_content = descriptive_rubric(rubric_content)
     questions = sorted(
         _rubric_questions(rubric_content),
         key=lambda q: (_question_number(q) is None, _question_number(q) or 0),
     )
+    policy = marking.policy_for(rubric_content)
+    levels = bloom.resolve_levels(rubric_content)
+    items = []
+    for q in questions:
+        level = levels.get(_question_number(q) or -1, (bloom.heuristic_level(q)[0], "heuristic"))[0]
+        item: dict[str, Any] = {
+            "question": q.get("question"),
+            "topic": q.get("topic"),
+            "max_marks": q.get("max_marks"),
+            "prompt": q.get("prompt"),
+            "expected_answer": q.get("expected_answer"),
+            "grading_criteria": q.get("grading_criteria") or [],
+            "bloom_level": level,
+            "bloom_label": bloom.LABELS[level],
+        }
+        scheme = [step for step in q.get("marking_scheme") or [] if isinstance(step, dict)]
+        if scheme:
+            item["marking_scheme"] = [
+                {
+                    "index": index,
+                    "criterion": " ".join(str(step.get("criterion") or "").split()),
+                    "marks": step.get("marks"),
+                    "required": bool(step.get("required")),
+                }
+                for index, step in enumerate(scheme)
+            ]
+        item["partial_credit_rule"] = marking.rule_for_question(q, policy)
+        items.append(item)
     rubric_view = {
         "name": rubric_content.get("name"),
         "subject": rubric_content.get("subject"),
-        "questions": [
-            {
-                "question": q.get("question"),
-                "topic": q.get("topic"),
-                "max_marks": q.get("max_marks"),
-                "prompt": q.get("prompt"),
-                "expected_answer": q.get("expected_answer"),
-                "grading_criteria": q.get("grading_criteria") or [],
-            }
-            for q in questions
-        ],
+        "questions": items,
     }
     return EVALUATION_RUBRIC_TEMPLATE.format(rubric_json=json.dumps(rubric_view, indent=2, ensure_ascii=False))
 
@@ -891,12 +1003,13 @@ def _evaluation_answers_block(answers: list[OcrAnswer], answer_medium: str = "ha
         {"question": a.question, "answer": strip_examiner_notes(a.answer)}
         for a in sorted(answers, key=lambda a: a.question)
     ]
-    return EVALUATION_ANSWERS_TEMPLATE.format(answers_json=json.dumps(answers_view, indent=2, ensure_ascii=False))
+    block = EVALUATION_ANSWERS_TEMPLATE.format(answers_json=json.dumps(answers_view, indent=2, ensure_ascii=False))
+    return f"{SPEECH_ANSWERS_NOTE}\n\n{block}" if answer_medium == "speech" else block
 
 
-def _evaluation_instruction(answers: list[OcrAnswer], rubric_content: dict) -> str:
+def _evaluation_instruction(answers: list[OcrAnswer], rubric_content: dict, answer_medium: str = "handwriting") -> str:
     """Both blocks joined (for inspection; the request sends them as two content blocks)."""
-    return f"{_evaluation_rubric_block(rubric_content)}\n\n{_evaluation_answers_block(answers)}"
+    return f"{_evaluation_rubric_block(rubric_content)}\n\n{_evaluation_answers_block(answers, answer_medium)}"
 
 
 def _json_schema_format(model: type[BaseModel]) -> dict[str, Any]:
@@ -922,12 +1035,14 @@ def _claude_ocr_request(settings: Settings, pages: list[PreparedPage], instructi
     return _claude_request(settings, OCR_SYSTEM_PROMPT, content, OcrExtractionWire, OCR_EFFORT)
 
 
-def _claude_evaluation_request(settings: Settings, answers: list[OcrAnswer], rubric_content: dict) -> dict[str, Any]:
+def _claude_evaluation_request(
+    settings: Settings, answers: list[OcrAnswer], rubric_content: dict, answer_medium: str = "handwriting"
+) -> dict[str, Any]:
     content = [
         # Exactly one cache breakpoint, on the rubric block: system + output schema + rubric
         # form the cached prefix; the per-student answers follow it (FR-3.6).
         {"type": "text", "text": _evaluation_rubric_block(rubric_content), "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": _evaluation_answers_block(answers)},
+        {"type": "text", "text": _evaluation_answers_block(answers, answer_medium)},
     ]
     return _claude_request(settings, EVALUATION_SYSTEM_PROMPT, content, EvaluationExtraction, EVALUATION_EFFORT)
 
