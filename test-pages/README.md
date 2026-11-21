@@ -13,6 +13,8 @@
 
 Every file is PDF, JPEG, PNG or WEBP and under 8 MB, so all of them fit the upload limit (20 MB).
 
+> **Note on these results.** Both live runs used the earlier 0.80 sheet-level threshold and the earlier OCR prompt. The app now gates at **0.70** on the whole sheet and on every page, and the OCR prompt keeps the student's literal answer, transcribes diagrams (including pedigrees) and wraps notes to the examiner in `[note to examiner: ...]`. The findings below are kept as recorded; `STATUS.md` tracks which are addressed and which still need a live re-run.
+
 ---
 
 ## 1. How to use them
