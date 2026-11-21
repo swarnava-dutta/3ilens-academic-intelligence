@@ -14,14 +14,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 import ai
+import bloom
 import llm_route
 import marking
 import provenance
 from ai_schemas import ModelUsage, OcrAnswer
 from config import get_settings
-from database import get_db
+from database import Rubric, get_db
 from errors import ApiError
-from schemas import LlmChainStatus, LlmDrillInput, LlmDrillResult
+from schemas import BloomDetection, BloomDetectInput, LlmChainStatus, LlmDrillInput, LlmDrillResult
 
 logger = logging.getLogger("3ilens.ai_ops")
 
@@ -159,3 +160,68 @@ def run_llm_drill(body: LlmDrillInput, db: DbSession) -> LlmDrillResult:
         "latency_ms": latency_ms,
         "message": _drill_message(route, latency_ms / 1000),
     })
+
+
+# --------------------------------------------------------------------------- #
+# Bloom level detection (FR-3.9) - suggestions only, the rubric is never modified here
+# --------------------------------------------------------------------------- #
+@router.post("/api/rubrics/{rubric_id}/bloom-levels", response_model=BloomDetection)
+def detect_bloom_levels(rubric_id: int, body: BloomDetectInput, db: DbSession) -> BloomDetection:
+    """Suggest a K1-K5 level per question: mode 'heuristic' (verb rules, no AI, no key needed) or
+    'ai' (one Claude call). The UI applies accepted levels by saving a new rubric version."""
+    rubric = db.get(Rubric, rubric_id)
+    if rubric is None:
+        raise ApiError(404, f"Rubric {rubric_id} not found.", "unknown_rubric")
+    questions = [q for q in (rubric.content or {}).get("questions") or [] if isinstance(q, dict)]
+    current = {}
+    for q in questions:
+        try:
+            current[int(q.get("question"))] = bloom.parse_level(q.get("bloom_level"))
+        except (TypeError, ValueError):
+            continue
+    warnings: list[str] = []
+    if body.mode == "heuristic":
+        items = []
+        for q in questions:
+            if (number := _int_or_none(q.get("question"))) is None:
+                continue
+            level, rationale = bloom.heuristic_level(q)
+            items.append({"question": number, "level": level, "rationale": rationale, "source": "heuristic"})
+    else:
+        if not get_settings().anthropic_api_key:
+            raise ApiError(
+                503,
+                "AI Bloom detection needs ANTHROPIC_API_KEY. Add it to the .env file in the project root and restart "
+                "the backend, or use mode 'heuristic'.",
+                "ai_not_configured",
+            )
+        usages: list[ModelUsage] = []
+        try:
+            items = ai.detect_bloom_levels(questions, on_usage=usages.append)
+        except ai.AIConfigurationError as exc:
+            raise ApiError(503, str(exc), "ai_not_configured") from exc
+        except ai.AIServiceError as exc:
+            raise _ai_failure(exc) from exc
+        finally:
+            _record(db, usages)
+        warnings = [item["warning"] for item in items if item.get("warning")]
+    levels = [
+        {
+            "question": item["question"],
+            "level": item["level"],
+            "source": item.get("source") or "ai",
+            "rationale": item["rationale"],
+            "current_level": current.get(item["question"]),
+        }
+        for item in sorted(items, key=lambda i: i["question"])
+    ]
+    return BloomDetection.model_validate(
+        {"rubric_id": rubric.id, "mode": body.mode, "levels": levels, "warnings": warnings}
+    )
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

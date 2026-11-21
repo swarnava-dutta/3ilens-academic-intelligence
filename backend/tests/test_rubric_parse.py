@@ -270,3 +270,67 @@ def test_create_rubric_validation(client):
     assert response.status_code == 404 and response.json()["code"] == "unknown_rubric"
     bad = {**GENETICS, "questions": [{**GENETICS["questions"][0], "max_marks": 0}]}
     assert client.post("/api/rubrics", json={"content": bad}).status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# Wave 2: MCQ, Bloom and marking-scheme fields in AI drafts (FR-3.8, FR-3.9, FR-4.8)
+# --------------------------------------------------------------------------- #
+MCQ_DRAFT_REPLY = {
+    "name": "NEET Mock 10",
+    "subject": "Biology",
+    "questions": [
+        {"question": 1, "topic": "Cell Organelles", "subject": "Biology", "chapter": "Cell: The Unit of Life",
+         "max_marks": 4, "prompt": "Site of aerobic respiration? (a) Nucleus (b) Mitochondria (c) Ribosome (d) Golgi",
+         "expected_answer": "", "grading_criteria": [], "effort_hours": 1, "ai_drafted_answer": False,
+         "question_type": "mcq", "options": ["Nucleus", "Mitochondria", "Ribosome", "Golgi"],
+         "correct_option": "(b)", "bloom_level": "K1"},
+        {"question": 2, "topic": "Cell Cycle", "subject": "Biology", "chapter": "Cell Cycle and Cell Division",
+         "max_marks": 4, "prompt": "Crossing over occurs in (a) leptotene (b) zygotene (c) pachytene (d) diplotene",
+         "expected_answer": "", "grading_criteria": [], "effort_hours": 1, "ai_drafted_answer": False,
+         "question_type": "mcq", "options": ["leptotene", "zygotene", "pachytene", "diplotene"],
+         "correct_option": None, "bloom_level": "K9"},
+        {"question": 3, "topic": "Mendelian Inheritance", "subject": "Biology", "chapter": "Genetics",
+         "max_marks": 4, "prompt": "Show a test cross.", "expected_answer": "Tt x tt gives 1 Tt : 1 tt.",
+         "grading_criteria": ["1 mark: cross", "1 mark: gametes", "2 marks: 1:1 ratio"], "effort_hours": 2,
+         "ai_drafted_answer": False, "question_type": "descriptive", "options": [], "correct_option": None,
+         "bloom_level": "K3"},
+    ],
+}
+
+
+def test_draft_keeps_mcq_bloom_and_scheme_fields():
+    result = ai.finalise_rubric_draft(MCQ_DRAFT_REPLY)
+    q1, q2, q3 = result["draft"]["questions"]
+    assert (q1["question_type"], q1["options"], q1["correct_option"]) == (
+        "mcq", ["Nucleus", "Mitochondria", "Ribosome", "Golgi"], "B"
+    )
+    assert (q1["bloom_level"], q1["bloom_source"]) == ("K1", "ai")
+    assert "bloom_level" not in q2  # 'K9' is not a level: left for faculty (heuristic at read time)
+    assert [(st["criterion"], st["marks"]) for st in q3["marking_scheme"]] == [
+        ("cross", 1), ("gametes", 1), ("1:1 ratio", 2),
+    ]
+    assert (q3["bloom_level"], q3["bloom_source"], "question_type" in q3) == ("K3", "ai", False)
+    assert result["draft"]["marking_policy"]["negative_marks"] == 1
+    warnings = "\n".join(result["warnings"])
+    assert "Q2 is an MCQ without an answer key - set correct_option." in warnings
+    assert warnings.startswith("Fix before saving:")  # Q2 cannot be saved until the key is set
+    assert ai.MCQ_POLICY_WARNING in warnings and "confirm with the academic lead" in warnings
+
+
+def test_complete_mcq_draft_validates_and_saves(client, monkeypatch):
+    reply = {**MCQ_DRAFT_REPLY, "questions": [MCQ_DRAFT_REPLY["questions"][0], MCQ_DRAFT_REPLY["questions"][2]]}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", TEST_KEY)
+    fake = FakeAnthropic(reply)
+    monkeypatch.setattr(ai, "_anthropic_client", lambda settings: fake)
+    body = _parse(client, text="Q1. Site of aerobic respiration? (a) ... Answer key: 1-b").json()
+    check_interface(body, "RubricDraft")
+    assert not any(w.startswith("Fix before saving") for w in body["warnings"])
+    draft = body["draft"]
+    assert draft["questions"][0]["expected_answer"] == "Option B"  # filled by the rubric validator
+    schema = fake.calls[0]["output_config"]["format"]["schema"]
+    wire = schema["$defs"]["_RubricQuestionWire"]
+    assert {"question_type", "options", "correct_option", "bloom_level"} <= set(wire["required"])
+    assert "do not solve it yourself" in fake.calls[0]["system"]
+    saved = client.post("/api/rubrics", json={"content": draft, "approved": False})
+    assert saved.status_code == 201, saved.text
+    assert ai.RUBRIC_PARSE_PROMPT_VERSION == "rubric-v2"

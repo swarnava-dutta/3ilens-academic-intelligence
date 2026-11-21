@@ -988,7 +988,11 @@ def test_parse_rubric_from_text_with_a_fake_client(monkeypatch):
     assert q2["effort_hours"] == 2.5  # the model's estimate is kept
     assert q3["effort_hours"] == ai.DEFAULT_EFFORT_HOURS and "chapter" not in q3
     assert set(q1) <= {"question", "topic", "subject", "max_marks", "prompt", "expected_answer",
-                       "grading_criteria", "effort_hours", "chapter"}  # RubricContent fields only
+                       "grading_criteria", "effort_hours", "chapter", "marking_scheme", "question_type",
+                       "options", "correct_option", "bloom_level", "bloom_source"}  # RubricContent fields only
+    # Every criterion has an "N marks:" prefix and they add up to max_marks -> scheme steps (FR-3.8).
+    assert [(st["criterion"], st["marks"]) for st in q1["marking_scheme"]] == [("correct cross", 2), ("1:1 ratio", 2)]
+    assert "marking_scheme" not in q2  # 1 + 1 != 3 marks
     assert result["ai_drafted_questions"] == [1]
     warnings = "\n".join(result["warnings"])
     assert "Q2: grading criteria add up to 2 mark(s) but max_marks is 3." in warnings
