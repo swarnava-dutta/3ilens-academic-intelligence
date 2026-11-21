@@ -115,6 +115,26 @@ def test_latency_and_stages_are_reported(upload, fake_ai, client):
     assert submission["completed_at"] >= submission["started_at"]
 
 
+def test_stage_durations_ignore_entries_logged_after_completion(upload, fake_ai, client, db_session):
+    """Faculty sign-off / delivery lines come after the run: they are not pipeline stages, even
+    when written within seconds of completion, and must not stretch the Persistence stage."""
+    from datetime import timedelta
+
+    from database import StudentSubmission, utc_iso
+
+    sid = completed(client, upload)["submission"]["id"]
+    assert client.post(f"/api/results/{sid}/release", json={"reviewer_name": "Dr. Rao"}).status_code == 200
+    row = db_session.get(StudentSubmission, sid)
+    later = utc_iso(row.completed_at + timedelta(hours=3))
+    row.processing_log = [*row.processing_log, {"step": "Delivery", "message": "Simulated.", "timestamp": later},
+                          {"step": "Persistence", "message": "Late line.", "timestamp": later}]
+    db_session.commit()
+    stages = {s["step"]: s["seconds"] for s in client.get(f"/api/results/{sid}").json()["latency"]["stages"]}
+    assert "Faculty sign-off" not in stages and "Delivery" not in stages
+    assert {"Custody", "Pre-processing", "OCR & Parse", "Rubric Evaluation", "Persistence"} <= set(stages)
+    assert stages["Persistence"] < 60  # the 3 h gap to the late lines is not counted
+
+
 # --------------------------------------------------------------------------- #
 # Roll-ups
 # --------------------------------------------------------------------------- #

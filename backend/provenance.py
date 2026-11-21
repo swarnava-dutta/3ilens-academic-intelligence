@@ -40,6 +40,8 @@ RUN_START_STEPS = ("Ingestion", "Queue")
 # Log lines written up to this long after completed_at still belong to the run (final Persistence
 # lines); later ones (faculty sign-off, release, delivery) are not pipeline stages.
 STAGE_GRACE_SECONDS = 5.0
+# The only pipeline step that writes log lines after completed_at is set (the final save lines).
+POST_COMPLETION_STAGE_STEPS = ("Persistence",)
 
 
 def record_invocation(
@@ -270,10 +272,21 @@ def latency_seconds(sub: StudentSubmission) -> float | None:
     return round(max(0.0, (sub.completed_at - start).total_seconds()), 1)
 
 
+def _after(ts: datetime, moment: datetime | None) -> bool:
+    """ts > moment; False when moment is None or the two cannot be compared (naive vs aware
+    timestamps from legacy rows keep the entry)."""
+    if moment is None:
+        return False
+    try:
+        return ts > moment
+    except TypeError:
+        return False
+
+
 def _stages(sub: StudentSubmission, start: datetime | None) -> list[dict[str, Any]]:
-    """Seconds spent per pipeline step in the latest run. Log entries written after the run
-    completed (faculty sign-off, release, delivery) are not pipeline stages and are ignored, and
-    entries within a few seconds of completed_at (the final Persistence lines) still count."""
+    """Seconds spent per pipeline step in the latest run. Only pipeline steps count: anything
+    logged after completed_at (faculty sign-off, release, delivery, interventions) is ignored,
+    except the run's own final Persistence lines written within a few seconds of completed_at."""
     end = sub.completed_at
     cutoff = end + timedelta(seconds=STAGE_GRACE_SECONDS) if end is not None else None
     entries = []
@@ -283,12 +296,10 @@ def _stages(sub: StudentSubmission, start: datetime | None) -> list[dict[str, An
         ts = _parse_ts(entry.get("timestamp"))
         if ts is None or (start is not None and ts < start):
             continue
-        try:
-            if cutoff is not None and ts > cutoff:
-                continue
-        except TypeError:  # naive vs aware timestamps from legacy rows: keep the entry
-            pass
-        entries.append((str(entry.get("step") or "Step"), ts))
+        step = str(entry.get("step") or "Step")
+        if _after(ts, end) and (step not in POST_COMPLETION_STAGE_STEPS or _after(ts, cutoff)):
+            continue
+        entries.append((step, ts))
     totals: dict[str, float] = {}
     for index, (step, ts) in enumerate(entries):
         nxt = entries[index + 1][1] if index + 1 < len(entries) else ts
