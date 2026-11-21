@@ -16,3 +16,30 @@ Regenerate the sheets from the repo root. The output is deterministic, and the s
 ```
 backend\.venv\Scripts\python.exe samples\generate_samples.py
 ```
+
+## Voice answers (FR-2.8, synthetic TTS samples)
+
+| File | Content | What it demonstrates |
+| --- | --- | --- |
+| `voice_answer_genetics_en.mp3` | English answer to Genetics **Q1** (test cross), about 30 s | One recording per question: the whole transcript becomes the Q1 answer, with no mapping call. |
+| `voice_answer_genetics_hinglish.mp3` | Hindi-English answer to Genetics **Q3** (semi-conservative replication, Meselson-Stahl), Devanagari plus English scientific terms, about 30 s | Mixed-language speech. The transcription reports the detected language(s). |
+| `generate_voice_samples.py` | Generator | Re-creates both clips with OpenAI text-to-speech. |
+
+Both clips are **synthetic**: computer-generated speech (OpenAI `gpt-4o-mini-tts`, announced shutdown 2027-01-06) reading answers written for this demo. They are not recordings of real students.
+
+To upload one, open the Faculty Workspace, pick the Genetics rubric and drop the MP3. In the "Answers question" select, choose **Q1** for the English clip or **Q3** for the Hinglish clip. For the Hinglish clip, also tick the `hi` and `en` language chips. The same upload with curl:
+
+```
+curl -F file=@samples/voice_answer_genetics_hinglish.mp3 -F student_name="Voice Sample (synthetic)" ^
+     -F voice_question=3 -F language_hints=hi,en http://localhost:8000/api/upload
+```
+
+If you leave out `voice_question`, the recording is treated as a whole paper and Claude maps the transcript onto the rubric questions. This makes one extra AI call.
+
+- Transcription uses OpenAI `gpt-transcribe` (`OPENAI_TRANSCRIBE_MODEL`). It is a PoC stand-in for Whisper large-v3 / Sarvam Saarika, is **not residency-approved**, and needs `OPENAI_API_KEY`. Set `VOICE_ANSWERS=0` to switch voice intake off.
+- Cost: the transcription price is not in the price table, so the report shows the transcription cost as **unknown**. The grading call is costed as usual. Generating both clips once cost a few US cents.
+- Regenerate the clips (this needs `OPENAI_API_KEY` in `.env`; without it the script prints `skipped: no OPENAI_API_KEY` and exits 0):
+
+```
+backend\.venv\Scripts\python.exe samples\generate_voice_samples.py --force
+```
