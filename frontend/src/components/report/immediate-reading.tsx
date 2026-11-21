@@ -1,11 +1,10 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, BadgeCheck, Hourglass, Lightbulb } from "lucide-react";
 import type { Priority, Result, TeachingNudge, TopicMastery } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { topicExtremes } from "./executive-summary";
 import { NUDGE_LOOK, SOURCE_LABEL, fmtIST, fmtNumber, fraction, safeNumber } from "./format";
-import { Eyebrow, Pill, SectionCard } from "./primitives";
+import { Pill, SectionCard } from "./primitives";
 import { focusQuestion, scrollToId } from "./report-events";
 
 /** Clickable "Q3" chip: scrolls to the question card and flashes it. */
@@ -15,7 +14,7 @@ export function QRefChip({ q, className }: { q: number; className?: string }) {
       type="button"
       onClick={() => focusQuestion(q)}
       className={cn(
-        "inline-flex items-center rounded-md bg-brand-cyan-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-cyan-800 ring-1 ring-inset ring-brand-cyan/30 transition hover:bg-brand-cyan hover:text-white focus-visible:outline-2 focus-visible:outline-brand-cyan print:ring-slate-300",
+        "inline-flex items-center rounded-sm border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-cyan-600 transition-colors duration-150 hover:border-brand-cyan hover:bg-brand-cyan-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
         className,
       )}
       title={`Go to question ${q}`}
@@ -42,11 +41,11 @@ export function topicRow(result: Result, topic: string): TopicMastery | undefine
 function NudgeItem({ nudge }: { nudge: TeachingNudge }) {
   const look = NUDGE_LOOK[nudge.priority];
   return (
-    <li className="rounded-xl border border-slate-200 p-3 print:break-inside-avoid">
+    <li className="py-3 first:pt-0 last:pb-0 print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-1.5">
         <Pill className={cn("text-[11px]", look.pill)}>{look.label}</Pill>
         <span className="font-semibold text-brand-navy">{nudge.label || "Teaching nudge"}</span>
-        <span className="ml-auto text-[11px] text-slate-400">{SOURCE_LABEL[nudge.source]}</span>
+        <span className="ml-auto text-xs text-slate-500">{SOURCE_LABEL[nudge.source]}</span>
       </div>
       <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{nudge.text}</p>
       {nudge.question_refs.length > 0 || nudge.topic ? (
@@ -71,16 +70,13 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
     <SectionCard
       id="immediate-reading"
       title="Teacher's immediate reading"
-      description="From observation to action. Every action links back to a question."
-      icon={Lightbulb}
+      description="Every action links back to a question."
     >
       <div className="grid gap-6 lg:grid-cols-5 print:grid-cols-5">
         <div className="space-y-4 lg:col-span-3 print:col-span-3">
-          <dl className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-lime-200 bg-brand-lime-50 p-3 [print-color-adjust:exact]">
-              <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-lime-800">
-                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden /> Strongest observed topic
-              </dt>
+          <dl className="grid gap-x-6 gap-y-4 border-b border-slate-200 pb-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-slate-500">Strongest observed topic</dt>
               <dd className="mt-1 text-sm text-slate-700">
                 {strongest ? (
                   <>
@@ -93,10 +89,8 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
                 )}
               </dd>
             </div>
-            <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 [print-color-adjust:exact]">
-              <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-rose-700">
-                <ArrowDownRight className="h-3.5 w-3.5" aria-hidden /> Weakest observed topic
-              </dt>
+            <div>
+              <dt className="text-xs text-slate-500">Weakest observed topic</dt>
               <dd className="mt-1 text-sm text-slate-700">
                 {weakest && weakest !== strongest ? (
                   <>
@@ -118,13 +112,13 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
           </dl>
 
           <div>
-            <Eyebrow className="mb-2">Teaching nudges</Eyebrow>
+            <h3 className="mb-2 text-sm font-semibold text-brand-navy">Teaching nudges</h3>
             {result.teaching_nudges.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+              <p className="text-sm text-slate-500">
                 No teaching nudges were recorded for this evaluation.
               </p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="divide-y divide-slate-200">
                 {result.teaching_nudges.map((n, i) => (
                   <NudgeItem key={`${n.label}-${i}`} nudge={n} />
                 ))}
@@ -133,9 +127,9 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
           </div>
         </div>
 
-        <div className="space-y-3 lg:col-span-2 print:col-span-2">
+        <div className="space-y-3 lg:col-span-2 lg:border-l lg:border-slate-200 lg:pl-6 print:col-span-2">
           {priorities.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-lime-300 bg-brand-lime-50 p-4 text-sm text-slate-600">
+            <p className="text-sm text-slate-600">
               No observed priority: every assessed topic is at or near full marks.
             </p>
           ) : (
@@ -144,12 +138,12 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
               return (
                 <div
                   key={p.topic}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 [print-color-adjust:exact] print:break-inside-avoid"
+                  className="border-b border-slate-200 pb-3 print:break-inside-avoid"
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <p className="text-xs text-slate-500">
                     Observed priority {String(i + 1).padStart(2, "0")} · {p.subject}
                   </p>
-                  <p className="mt-1 text-2xl font-semibold tabular-nums text-brand-navy">
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-brand-navy">
                     {row ? fraction(row.score, row.max_marks) : `${fmtNumber(p.mastery, 0)}%`}
                   </p>
                   <p className="text-sm text-slate-700">
@@ -166,15 +160,12 @@ export function ImmediateReadingCard({ result }: { result: Result }) {
             type="button"
             onClick={() => scrollToId("release-gate")}
             className={cn(
-              "w-full rounded-xl border p-3 text-left transition hover:shadow-sm focus-visible:outline-2 focus-visible:outline-brand-cyan [print-color-adjust:exact]",
-              released ? "border-lime-300 bg-brand-lime-50" : "border-amber-300 bg-amber-50",
+              "w-full rounded-md border border-l-[3px] border-slate-200 bg-white p-3 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan [print-color-adjust:exact]",
+              released ? "border-l-brand-lime-600" : "border-l-amber-500",
             )}
           >
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-              {released ? <BadgeCheck className="h-3.5 w-3.5 text-lime-700" aria-hidden /> : <Hourglass className="h-3.5 w-3.5 text-amber-700" aria-hidden />}
-              Academic release gate
-            </span>
-            <span className={cn("mt-1 block text-lg font-semibold", released ? "text-lime-800" : "text-amber-900")}>
+            <span className="block text-xs text-slate-500">Academic release gate</span>
+            <span className={cn("mt-0.5 block text-base font-semibold", released ? "text-lime-800" : "text-amber-800")}>
               {released ? "Released" : "Pending"}
             </span>
             <span className="block text-xs text-slate-600">

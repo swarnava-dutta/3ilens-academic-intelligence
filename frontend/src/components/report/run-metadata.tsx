@@ -7,11 +7,11 @@ import { rubricLabel } from "./use-rubric";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <tr className="even:bg-slate-50/80 [print-color-adjust:exact]">
-      <th scope="row" className="w-[38%] border-t border-slate-200 px-3 py-2 text-left align-top font-medium text-slate-600">
+    <tr>
+      <th scope="row" className="w-[38%] border-t border-slate-200 px-4 py-2 text-left align-top font-normal text-slate-500">
         {label}
       </th>
-      <td className="min-w-0 break-words border-t border-slate-200 px-3 py-2 align-top text-slate-800">{children}</td>
+      <td className="min-w-0 break-words border-t border-slate-200 px-4 py-2 align-top text-slate-800">{children}</td>
     </tr>
   );
 }
@@ -28,15 +28,15 @@ export function RunMetadataTable({ result }: { result: Result }) {
   const { report_meta: meta, rubric, extraction, release, submission } = result;
   const batch = meta.batch;
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white text-sm print:break-inside-avoid">
+    <div className="overflow-hidden rounded-md border border-slate-200 bg-white text-sm print:break-inside-avoid">
       <table className="w-full table-fixed border-collapse">
         <caption className="sr-only">Run metadata for this report</caption>
         <thead>
-          <tr className="bg-brand-navy text-left text-white [print-color-adjust:exact]">
-            <th scope="col" className="w-[38%] px-3 py-2 font-semibold">
+          <tr className="text-left">
+            <th scope="col" className="w-[38%] px-4 py-3 text-[15px] font-semibold text-brand-navy">
               Run metadata
             </th>
-            <th scope="col" className="px-3 py-2 font-semibold">
+            <th scope="col" className="px-4 py-3 text-xs font-normal text-slate-500">
               Recorded value
             </th>
           </tr>
@@ -66,7 +66,7 @@ export function RunMetadataTable({ result }: { result: Result }) {
           <Row label="Transcription">
             {result.voice ? (
               result.voice.synthetic || meta.is_demo ? (
-                "Synthetic voice transcript - no transcription call"
+                "Synthetic voice transcript, no transcription call"
               ) : (
                 <>
                   Voice answer · OpenAI {result.voice.transcription_model || "gpt-transcribe"} (stand-in for Whisper
@@ -74,11 +74,11 @@ export function RunMetadataTable({ result }: { result: Result }) {
                 </>
               )
             ) : meta.is_demo ? (
-              "Synthetic record - no OCR was run"
+              "Synthetic record, no OCR was run"
             ) : (
               <>
                 Mean OCR {formatConfidence(extraction.mean_confidence)} · {extraction.ocr_adapter}
-                {extraction.ocr_cache_hit ? " · OCR cache hit - no vision call (Rs 0.00)" : ""}
+                {extraction.ocr_cache_hit ? " · OCR cache hit, no vision call (Rs 0.00)" : ""}
               </>
             )}
           </Row>
@@ -92,7 +92,7 @@ export function RunMetadataTable({ result }: { result: Result }) {
                 {release.reviewed_at ? `, ${fmtIST(release.reviewed_at)}` : ""}
               </span>
             ) : (
-              <span className="font-medium text-rose-700">
+              <span className="font-medium text-amber-800">
                 {/* V5 wording; zero-width spaces let the code wrap at underscores, not mid-word. */}
                 PROVISIONAL —{" "}
                 {(rubric.status === "AUTHOR_DRAFT" ? "AUTHOR_DRAFT_TEACHER_REVIEW_PENDING" : "TEACHER_REVIEW_PENDING").replaceAll(

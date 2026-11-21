@@ -1,9 +1,8 @@
-import { Calculator, FileText, Sparkles } from "lucide-react";
 import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
 import type { Result, TopicMastery } from "@/lib/types";
 import { formatConfidence } from "@/lib/utils";
 import { fmtNumber, fraction, safeNumber } from "./format";
-import { Pill, SectionCard } from "./primitives";
+import { SectionCard } from "./primitives";
 
 /** Strongest and weakest topic by observed percentage (ties: more marks at stake first). */
 export function topicExtremes(topics: TopicMastery[]): { strongest: TopicMastery | null; weakest: TopicMastery | null } {
@@ -73,46 +72,36 @@ export function ExecutiveSummaryCard({ result, className }: { result: Result; cl
     <SectionCard
       id="executive-summary"
       title="Executive teaching summary"
-      description="Deterministic paragraphs built only from the computed numbers."
-      icon={FileText}
+      description="Built only from the computed numbers."
       className={className}
     >
-      <div className="space-y-3 text-[15px] leading-relaxed text-slate-700">
+      <div className="max-w-[70ch] space-y-3 text-[15px] leading-relaxed text-slate-800">
         {paragraphs.map((p, i) => (
           <p key={i}>{p}</p>
         ))}
       </div>
       {stored.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-400">No stored summary for this row: composed in the browser from the marks shown.</p>
+        <p className="mt-3 text-xs text-slate-500">No stored summary for this row: composed in the browser from the marks shown.</p>
       ) : null}
 
-      {narrative.computed ? (
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 [print-color-adjust:exact]">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <Pill className="bg-white text-slate-700 ring-slate-300">
-              <Calculator className="h-3.5 w-3.5" aria-hidden />
-              Summary line (computed)
-            </Pill>
-            <span className="text-xs text-slate-600">
+      <div className="mt-5 max-w-[70ch] border-t border-slate-200 pt-4">
+        <p className="text-xs text-slate-500">
+          {narrative.computed ? (
+            <>
+              <span className="font-medium text-slate-700">Summary line (computed)</span> ·{" "}
               {result.submission.is_demo
-                ? "Synthetic record - no AI call, so no AI narrative; built from the marks shown."
-                : "No AI narrative was stored for this evaluation; built from the marks shown."}
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed text-slate-700">{narrative.text}</p>
-        </div>
-      ) : (
-        <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 [print-color-adjust:exact]">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <Pill className="bg-white text-violet-700 ring-violet-200">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden />
-              AI narrative
-            </Pill>
-            <span className="text-xs text-violet-700">Evaluator&apos;s reading - not educator-validated</span>
-          </div>
-          <p className="text-sm leading-relaxed text-slate-700">{narrative.text}</p>
-        </div>
-      )}
+                ? "synthetic record, no AI call, so no AI narrative; built from the marks shown."
+                : "no AI narrative was stored for this evaluation; built from the marks shown."}
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-slate-700">AI narrative</span> · evaluator&apos;s reading, not
+              educator-validated
+            </>
+          )}
+        </p>
+        <p className="mt-1 text-sm leading-relaxed text-slate-700">{narrative.text}</p>
+      </div>
     </SectionCard>
   );
 }

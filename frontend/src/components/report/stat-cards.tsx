@@ -1,43 +1,23 @@
 "use client";
 
-import { Award, Clock3, Gauge, IndianRupee, ListChecks, ScanText } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Priority, Result } from "@/lib/types";
 import { cn, formatConfidence, formatMastery } from "@/lib/utils";
 import { NET_TOTAL_TITLE, OUTCOME_LOOK, TONE, clampPct, fmtInr, fmtNumber, fmtSeconds, safeNumber, toneFor } from "./format";
-import { MeterBar, Pill, RadialGauge } from "./primitives";
+import { MeterBar, Pill } from "./primitives";
 
-function Tile({
-  label,
-  icon: Icon,
-  accent,
-  title,
-  children,
-  caption,
-}: {
-  label: string;
-  icon: LucideIcon;
-  accent: string;
-  title?: string;
-  children: ReactNode;
-  caption?: ReactNode;
-}) {
+/** One figure in the KPI strip: label, value, one detail line. */
+function Figure({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
   return (
-    <div
-      title={title}
-      className="relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 print:break-inside-avoid print:shadow-none"
-    >
-      <div aria-hidden className={cn("absolute inset-x-0 top-0 h-1 [print-color-adjust:exact]", accent)} />
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-slate-500">{label}</h3>
-        <Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-      </div>
-      <div className="mt-3 flex flex-1 flex-col justify-center">{children}</div>
-      {caption ? <p className="mt-3 text-xs leading-snug text-slate-500">{caption}</p> : null}
+    <div title={title} className="min-w-0 bg-white px-4 py-3">
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-1 space-y-1">{children}</dd>
     </div>
   );
 }
+
+const value = "text-xl font-semibold leading-tight tabular-nums text-brand-navy";
+const detail = "text-xs leading-snug text-slate-500";
 
 /** Marks deducted by negative marking across the paper (MCQ penalties). */
 export function totalPenalty(result: Result): number {
@@ -63,22 +43,15 @@ function OutcomeSplit({ result }: { result: Result }) {
   ];
   return (
     <>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-        <div>
-          <dt className="text-xs text-slate-500">Full / partial</dt>
-          <dd className="text-xl font-semibold tabular-nums text-brand-navy">
-            {o.full} <span className="text-slate-300">/</span> {o.partial}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-500">Zero / not attempted</dt>
-          <dd className="text-xl font-semibold tabular-nums text-brand-navy">
-            {o.zero} <span className="text-slate-300">/</span> {o.blank}
-          </dd>
-        </div>
-      </dl>
+      <p className={value}>
+        {o.full} <span className="text-sm font-normal text-slate-500">full</span> · {o.partial}{" "}
+        <span className="text-sm font-normal text-slate-500">partial</span>
+      </p>
+      <p className={cn(detail, "tabular-nums")}>
+        {o.zero} zero · {o.blank} not attempted
+      </p>
       <div
-        className="mt-3 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100 [print-color-adjust:exact]"
+        className="flex h-1.5 w-full gap-px overflow-hidden rounded-sm bg-slate-100 [print-color-adjust:exact]"
         role="img"
         aria-label={`Outcomes: ${o.full} full, ${o.partial} partial, ${o.zero} zero, ${o.blank} not attempted`}
       >
@@ -93,7 +66,7 @@ function OutcomeSplit({ result }: { result: Result }) {
 }
 
 /**
- * KPI tiles: observed score, outcome split, extraction coverage, processing cost and
+ * KPI strip: score, observed %, outcome split, extraction coverage, processing cost and
  * end-to-end latency against the BRD acceptance targets (Rs 5 / learner, 5 minutes / learner).
  */
 export function StatCards({ result }: { result: Result }) {
@@ -114,160 +87,112 @@ export function StatCards({ result }: { result: Result }) {
   const markingRule = result.scoring_controls?.marking_rule || "Partial credit in 0.5 steps; totals summed server-side.";
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-3">
-      <Tile label="Score" icon={Award} accent="bg-brand-cyan" caption={markingRule}>
-        <div className="flex items-center gap-4">
-          <RadialGauge percent={pct} label={`Score ${fmtNumber(score)} out of ${fmtNumber(total)} marks`} size={88} strokeWidth={8}>
-            <span className="leading-none">
-              <span className="block text-xl font-semibold tabular-nums text-brand-navy">{fmtNumber(score)}</span>
-              <span className="text-[11px] text-slate-500">of {fmtNumber(total)}</span>
-            </span>
-          </RadialGauge>
-          <div className="min-w-0">
-            <p
-              className={cn("text-3xl font-semibold tabular-nums tracking-tight", score < 0 ? "text-rose-700" : "text-brand-navy")}
-              title={score < 0 || penalty > 0 ? NET_TOTAL_TITLE : undefined}
-            >
-              {fmtNumber(score)} / {fmtNumber(total)}
-            </p>
-            <p className="mt-0.5 text-sm tabular-nums text-slate-500">({fmtNumber(pct)}%)</p>
-            {penalty > 0 ? (
-              <p className="mt-1 text-xs font-medium text-rose-700" title={NET_TOTAL_TITLE}>
-                {fmtNumber(-penalty)} from negative marking
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </Tile>
+    <div className="space-y-2 print:break-inside-avoid">
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 md:grid-cols-3 xl:grid-cols-6 print:grid-cols-6">
+        <Figure label="Score" title={score < 0 || penalty > 0 ? NET_TOTAL_TITLE : undefined}>
+          <p className={cn(value, score < 0 && "text-rose-700")}>
+            {fmtNumber(score)} <span className="text-sm font-normal text-slate-500">/ {fmtNumber(total)}</span>
+          </p>
+          {penalty > 0 ? (
+            <p className="text-xs font-medium tabular-nums text-rose-700">{fmtNumber(-penalty)} from negative marking</p>
+          ) : (
+            <p className={detail}>Marks, provisional</p>
+          )}
+        </Figure>
 
-      <Tile
-        label="Observed score %"
-        icon={Gauge}
-        accent={tone.fill}
-        title="Screening result, not certified competency"
-        caption="Screening result, not certified competency."
-      >
-        <div className="flex items-center gap-4">
-          <RadialGauge
-            percent={pct}
-            label={`Observed score ${formatMastery(pct)}, ${tone.label}`}
-            size={88}
-            strokeWidth={8}
-            colorClass={tone.stroke}
-            trackClass={tone.trackStroke}
-          >
-            <span className="text-lg font-semibold tabular-nums text-brand-navy">{formatMastery(pct)}</span>
-          </RadialGauge>
-          <div className="min-w-0 space-y-2">
-            <Pill className={tone.pill}>{tone.label}</Pill>
-            <p className="text-sm text-slate-500">
-              Across {topicCount} {topicCount === 1 ? "topic" : "topics"}
-            </p>
-          </div>
-        </div>
-      </Tile>
+        <Figure label="Observed score" title="Screening result, not certified competency">
+          <p className={value}>{formatMastery(pct)}</p>
+          <p className={detail}>
+            <Pill className={tone.pill}>{tone.label}</Pill> across {topicCount} {topicCount === 1 ? "topic" : "topics"}
+          </p>
+          <MeterBar size="sm" percent={pct} label={`Observed score ${formatMastery(pct)}, ${tone.label}`} fillClass={tone.fill} />
+        </Figure>
 
-      <Tile label="Question outcomes" icon={ListChecks} accent="bg-brand-lime" caption="Blank answers count in the denominator.">
-        <OutcomeSplit result={result} />
-      </Tile>
+        <Figure label="Question outcomes">
+          <OutcomeSplit result={result} />
+        </Figure>
 
-      <Tile
-        label="Extraction coverage"
-        icon={ScanText}
-        accent={ex.below_threshold > 0 ? "bg-amber-400" : "bg-brand-cyan"}
-        caption="Mapping is not approval."
-      >
-        <p className="text-2xl font-semibold tabular-nums text-brand-navy">
-          Mapped {ex.mapped}/{ex.total_questions}
-        </p>
-        <p className="mt-1 text-sm text-slate-600">
-          {isDemo ? (
-            "Synthetic transcript - no OCR run"
+        <Figure label="Extraction coverage">
+          <p className={value}>
+            {ex.mapped} <span className="text-sm font-normal text-slate-500">/ {ex.total_questions} mapped</span>
+          </p>
+          <p className={detail}>
+            {isDemo ? (
+              "Synthetic transcript, no OCR run"
+            ) : (
+              <>
+                Mean OCR <span className="tabular-nums text-slate-700">{formatConfidence(ex.mean_confidence)}</span> ·{" "}
+                <span className={cn("tabular-nums", ex.below_threshold > 0 ? "font-medium text-amber-700" : "text-slate-700")}>
+                  {ex.below_threshold}
+                </span>{" "}
+                below {thresholdPct}%
+              </>
+            )}
+          </p>
+          {ex.ocr_cache_hit ? <p className={detail}>OCR cache hit, no vision call (Rs 0.00)</p> : null}
+        </Figure>
+
+        <Figure label="Processing cost">
+          {isDemo || cost.synthetic ? (
+            <>
+              <p className={cn(value, "text-slate-500")}>Rs 0.00</p>
+              <p className={detail}>Synthetic, no AI call</p>
+            </>
+          ) : costValue === null ? (
+            <>
+              <p className={cn(value, "text-slate-400")}>—</p>
+              <p className={detail}>No per-call cost recorded</p>
+            </>
           ) : (
             <>
-              Mean OCR <span className="font-semibold tabular-nums">{formatConfidence(ex.mean_confidence)}</span> ·{" "}
-              <span className={cn("font-semibold tabular-nums", ex.below_threshold > 0 ? "text-amber-700" : "")}>
-                {ex.below_threshold}
-              </span>{" "}
-              below the {thresholdPct}% threshold
+              <p className={value}>{fmtInr(costValue)}</p>
+              <p className={cn("text-xs font-medium tabular-nums", costOk ? "text-lime-700" : "text-amber-700")}>
+                {costOk ? "Within" : "Above"} {fmtInr(cost.target_inr)} target · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
+              </p>
+              <MeterBar
+                size="sm"
+                percent={(costValue / Math.max(cost.target_inr, 0.01)) * 100}
+                label="Cost against the target"
+                valueText={`${fmtInr(costValue)} of ${fmtInr(cost.target_inr)}`}
+                fillClass={costOk ? "bg-brand-lime-600" : "bg-amber-500"}
+              />
             </>
           )}
-        </p>
-        {ex.ocr_cache_hit ? (
-          <p className="mt-1 text-xs font-medium text-cyan-800">OCR cache hit - no vision call (Rs 0.00)</p>
-        ) : null}
-      </Tile>
+        </Figure>
 
-      <Tile
-        label="Processing cost"
-        icon={IndianRupee}
-        accent={isDemo || costOk === null ? "bg-slate-300" : costOk ? "bg-brand-lime" : "bg-amber-400"}
-        caption={`BRD target: under ${fmtInr(cost.target_inr)} per learner.`}
-      >
-        {isDemo || cost.synthetic ? (
-          <>
-            <p className="text-2xl font-semibold text-slate-500">Rs 0.00</p>
-            <p className="mt-1 text-sm text-slate-500">Synthetic - no AI call</p>
-          </>
-        ) : costValue === null ? (
-          <>
-            <p className="text-2xl font-semibold text-slate-400">—</p>
-            <p className="mt-1 text-sm text-slate-500">No per-call cost recorded for this run</p>
-          </>
-        ) : (
-          <>
-            <p className="text-2xl font-semibold tabular-nums text-brand-navy">{fmtInr(costValue)}</p>
-            <p className={cn("mt-1 text-sm font-medium", costOk ? "text-lime-700" : "text-amber-700")}>
-              {costOk ? "Within" : "Above"} the {fmtInr(cost.target_inr)} target · {cost.calls}{" "}
-              {cost.calls === 1 ? "call" : "calls"}
-            </p>
-            <MeterBar
-              className="mt-2"
-              size="sm"
-              percent={(costValue / Math.max(cost.target_inr, 0.01)) * 100}
-              label="Cost against the target"
-              valueText={`${fmtInr(costValue)} of ${fmtInr(cost.target_inr)}`}
-              fillClass={costOk ? "bg-brand-lime" : "bg-amber-400"}
-              trackClass="bg-slate-100"
-            />
-          </>
-        )}
-      </Tile>
-
-      <Tile
-        label="End-to-end latency"
-        icon={Clock3}
-        accent={isDemo || latOk === null ? "bg-slate-300" : latOk ? "bg-brand-lime" : "bg-amber-400"}
-        caption={`BRD target: under ${fmtSeconds(lat.target_seconds)} per learner.`}
-      >
-        {isDemo ? (
-          <>
-            <p className="text-2xl font-semibold text-slate-500">—</p>
-            <p className="mt-1 text-sm text-slate-500">Synthetic - no pipeline run</p>
-          </>
-        ) : lat.seconds === null ? (
-          <>
-            <p className="text-2xl font-semibold text-slate-400">—</p>
-            <p className="mt-1 text-sm text-slate-500">Start/finish times not recorded for this run</p>
-          </>
-        ) : (
-          <>
-            <p className="text-2xl font-semibold tabular-nums text-brand-navy">{fmtSeconds(lat.seconds)}</p>
-            <p className={cn("mt-1 text-sm font-medium", latOk ? "text-lime-700" : "text-amber-700")}>
-              {latOk ? "Within" : "Over"} the {fmtSeconds(lat.target_seconds)} target
-            </p>
-            <MeterBar
-              className="mt-2"
-              size="sm"
-              percent={(lat.seconds / Math.max(lat.target_seconds, 1)) * 100}
-              label="Latency against the target"
-              valueText={`${fmtSeconds(lat.seconds)} of ${fmtSeconds(lat.target_seconds)}`}
-              fillClass={latOk ? "bg-brand-lime" : "bg-amber-400"}
-              trackClass="bg-slate-100"
-            />
-          </>
-        )}
-      </Tile>
+        <Figure label="End-to-end latency">
+          {isDemo ? (
+            <>
+              <p className={cn(value, "text-slate-500")}>—</p>
+              <p className={detail}>Synthetic, no pipeline run</p>
+            </>
+          ) : lat.seconds === null ? (
+            <>
+              <p className={cn(value, "text-slate-400")}>—</p>
+              <p className={detail}>Start/finish times not recorded</p>
+            </>
+          ) : (
+            <>
+              <p className={value}>{fmtSeconds(lat.seconds)}</p>
+              <p className={cn("text-xs font-medium tabular-nums", latOk ? "text-lime-700" : "text-amber-700")}>
+                {latOk ? "Within" : "Over"} {fmtSeconds(lat.target_seconds)} target
+              </p>
+              <MeterBar
+                size="sm"
+                percent={(lat.seconds / Math.max(lat.target_seconds, 1)) * 100}
+                label="Latency against the target"
+                valueText={`${fmtSeconds(lat.seconds)} of ${fmtSeconds(lat.target_seconds)}`}
+                fillClass={latOk ? "bg-brand-lime-600" : "bg-amber-500"}
+              />
+            </>
+          )}
+        </Figure>
+      </dl>
+      <p className="text-xs leading-snug text-slate-500">
+        {markingRule} Observed score is a screening result, not certified competency. Blank answers count in the
+        denominator; mapping is not approval. BRD targets: under {fmtInr(cost.target_inr)} and{" "}
+        {fmtSeconds(lat.target_seconds)} per learner.
+      </p>
     </div>
   );
 }
