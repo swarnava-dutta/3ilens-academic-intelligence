@@ -260,6 +260,7 @@ def test_version_endpoints_list_and_serve_archived_snapshots(client, forbid_ai):
     assert [(v["version"], v["rubric_version"], v["current"]) for v in rows] == [(1, "v1", False), (2, "v2", True)]
     old = client.get(f"/api/results/{demo['id']}/versions/1").json()
     assert old["superseded"] is True and old["superseded_by"] == 2
+    assert [(v["version"], v["current"]) for v in old["versions"]] == [(1, False), (2, True)]
     assert old["total_marks"] == before["total_marks"] and old["rubric"]["version"] == "v1"
     current = client.get(f"/api/results/{demo['id']}/versions/2").json()
     assert current["superseded"] is False and current["total_marks"] == 24

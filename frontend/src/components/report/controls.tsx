@@ -54,7 +54,7 @@ export function DocumentCustodyCard({ result }: { result: Result }) {
             </Fact>
           </dl>
           <p className="mt-3 text-xs text-slate-500">
-            File: <span className="font-mono">{result.submission.original_filename}</span>
+            File: <span className="break-all font-mono">{result.submission.original_filename}</span>
           </p>
         </>
       ) : (

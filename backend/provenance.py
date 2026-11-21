@@ -402,7 +402,8 @@ def result_extras(
         "extraction": _extraction(sub, result, db),
         "cost": _cost(db, sub, result),
         "latency": _latency(sub),
-        "versions": version_rows(db, sub, result, rubric),
+        # Always the live list: an archived snapshot is built with its own transient `result`.
+        "versions": version_rows(db, sub, sub.result or result, rubric),
     }
 
 
