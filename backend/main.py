@@ -145,6 +145,7 @@ app.add_middleware(  # added last = outermost, so even error responses carry COR
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d{1,5})?",
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count", "Content-Disposition"],  # LMS export paging + CSV file names
 )
 
 
