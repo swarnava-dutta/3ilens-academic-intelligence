@@ -119,7 +119,7 @@ function Drill({ onDone }: { onDone: () => void }) {
     <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
       <h3 className="text-sm font-semibold text-brand-navy">Fallback drill</h3>
       <p className="mt-0.5 text-xs text-slate-600">
-        Grades one built-in sample answer through the chain. Makes real provider calls (about Rs 0.5).
+        Grades one built-in sample answer through the chain. Makes real provider calls (about Rs 1-2 per run).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="inline-flex items-center gap-2 text-sm text-slate-800">

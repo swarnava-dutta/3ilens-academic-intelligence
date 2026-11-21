@@ -322,7 +322,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
   },
   {
     id: "feedback",
-    title: "Intervention impact & learning loop (later)",
+    title: "Intervention impact & learning loop",
     person: "Faculty / academic head",
     summary:
       "Compare future test scores and recommended actions to see whether learning interventions worked.",

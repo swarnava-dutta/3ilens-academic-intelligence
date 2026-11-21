@@ -45,6 +45,8 @@ function HumanReviewPanel({
   const confidence = s.ocr_confidence;
   const threshold = Math.round(useOcrThreshold() * 100);
   const flagged = s.flagged_pages ?? [];
+  const voice = s.input_kind === "voice";
+  const confidenceLabel = voice ? "Transcript confidence" : "OCR confidence";
   return (
     <section
       aria-labelledby="review-title"
@@ -60,8 +62,9 @@ function HumanReviewPanel({
             Human review required
           </h2>
           <p className="mt-2 max-w-3xl leading-relaxed text-amber-900">
-            OCR confidence for this answer sheet is <strong>{formatConfidence(confidence)}</strong>
-            {flagged.length ? (
+            {voice ? "Transcript confidence for this voice answer" : "OCR confidence for this answer sheet"} is{" "}
+            <strong>{formatConfidence(confidence)}</strong>
+            {!voice && flagged.length ? (
               <>
                 {" "}
                 with page{flagged.length === 1 ? "" : "s"} <strong>{flagged.join(", ")}</strong> below
@@ -69,22 +72,23 @@ function HumanReviewPanel({
             ) : (
               ", below"
             )}{" "}
-            the <strong>{threshold}%</strong> threshold required for automated grading (any page below it routes the sheet
-            here). To protect grading accuracy, AI rubric evaluation was skipped and no AI marks were published. Review the
-            transcript below, then approve or correct it to grade, or request a rescan.
+            the <strong>{threshold}%</strong> threshold required for automated grading
+            {voice ? "" : " (any page below it routes the sheet here)"}. To protect grading accuracy, AI rubric evaluation
+            was skipped and no AI marks were published. Review the transcript below, then approve or correct it to grade,
+            or request a {voice ? "new recording" : "rescan"}.
           </p>
           {pending.detail ? <p className="mt-2 text-sm text-amber-800">System note: {pending.detail}</p> : null}
         </div>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <FactTile label="OCR confidence">
+        <FactTile label={confidenceLabel}>
           <span className="text-2xl tabular-nums">{formatConfidence(confidence)}</span>
           <MeterBar
             className="mt-2"
             size="sm"
             percent={confidence === null ? 0 : confidence * 100}
-            label="OCR confidence against the auto-grade threshold"
+            label={`${confidenceLabel} against the auto-grade threshold`}
             valueText={`${formatConfidence(confidence)}; threshold ${threshold}%`}
             fillClass="bg-amber-500"
             trackClass="bg-amber-100"
@@ -94,7 +98,7 @@ function HumanReviewPanel({
         </FactTile>
         <FactTile label="Auto-grade threshold">
           <span className="text-2xl tabular-nums">{threshold}%</span>
-          <p className="mt-1 text-xs font-normal text-amber-800">Minimum OCR confidence</p>
+          <p className="mt-1 text-xs font-normal text-amber-800">Minimum {confidenceLabel.toLowerCase()}</p>
         </FactTile>
         <FactTile label="AI evaluation">
           <span className="inline-flex items-center gap-1.5">

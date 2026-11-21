@@ -89,7 +89,7 @@ export function blankQuestion(existing: RubricQuestion[], subject: string): Rubr
   };
 }
 
-/** Deep copy (edits never mutate a rubric that is still shown elsewhere). Keeps the wave-2 fields. */
+/** Deep copy (edits never mutate a rubric that is still shown elsewhere). Keeps the MCQ, marking-scheme and Bloom fields. */
 export function cloneContent(content: RubricContent): RubricContent {
   const out: RubricContent = {
     name: content.name ?? "",
@@ -143,7 +143,7 @@ export function normalizeContent(content: RubricContent): RubricContent {
         const chapter = squash(q.chapter);
         if (prompt) out.prompt = prompt;
         if (chapter) out.chapter = chapter;
-        // --- wave 2: only the fields that apply to the question type (the API rejects the rest) ---
+        // --- only the fields that apply to the question type (the API rejects the rest) ---
         if (isMcq(q)) {
           out.question_type = "mcq";
           const options = (q.options ?? []).map((o) => squash(o));
@@ -298,9 +298,13 @@ export function compareContents(before: RubricContent, after: RubricContent): Ru
   const next = new Map(after.questions.map((q) => [q.question, q]));
   const added = [...next.keys()].filter((n) => !old.has(n)).sort((a, b) => a - b);
   const removed = [...old.keys()].filter((n) => !next.has(n)).sort((a, b) => a - b);
+  // A changed rubric-wide marking policy re-scores every question present in both versions.
+  const policyChanged = policyKey(before) !== policyKey(after);
   const changed = [...next.keys()]
     .filter((n) => old.has(n))
-    .filter((n) => COMPARED.some((key) => comparable(old.get(n)!, key) !== comparable(next.get(n)!, key)))
+    .filter(
+      (n) => policyChanged || COMPARED.some((key) => comparable(old.get(n)!, key) !== comparable(next.get(n)!, key)),
+    )
     .sort((a, b) => a - b);
   return { reusable: added.length === 0 && removed.length === 0, added, removed, changed };
 }
