@@ -91,12 +91,16 @@ function useHealthPolling(): HealthState {
 /* Shell                                                               */
 /* ------------------------------------------------------------------ */
 
-/** Faculty console navigation (V5 wireframe parity): Students · Intake · Cohort · How it works. */
+/**
+ * Console navigation (V5 wireframe parity): Students · Intake · Cohort · Owner · Integrations ·
+ * How it works. `short` is the label below the sm breakpoint (the list also scrolls sideways).
+ */
 const NAV_ITEMS = [
-  { href: "/students", label: "Students", Icon: Users },
-  { href: "/", label: "Intake", Icon: Upload },
-  { href: "/cohort", label: "Cohort", Icon: LayoutDashboard },
-  { href: "/journey", label: "How it works", Icon: Route },
+  { href: "/students", label: "Students", short: "Students", Icon: Users },
+  { href: "/", label: "Intake", short: "Intake", Icon: Upload },
+  { href: "/cohort", label: "Cohort", short: "Cohort", Icon: LayoutDashboard },
+  { href: "/owner", label: "Owner", short: "Owner", Icon: Building2 },
+  { href: "/journey", label: "How it works", short: "Journey", Icon: Route },
 ] as const;
 
 function isActive(href: string, pathname: string | null): boolean {
@@ -107,11 +111,11 @@ function isActive(href: string, pathname: string | null): boolean {
 
 function NavList({ pathname }: { pathname: string | null }) {
   return (
-    <ul className="flex w-full items-center gap-0.5 rounded-xl bg-slate-100/80 p-1 sm:gap-1 md:w-auto md:bg-transparent md:p-0">
-      {NAV_ITEMS.map(({ href, label, Icon }) => {
+    <ul className="flex w-full items-center gap-0.5 overflow-x-auto rounded-xl bg-slate-100/80 p-1 [scrollbar-width:none] sm:gap-1 md:w-auto md:bg-transparent md:p-0">
+      {NAV_ITEMS.map(({ href, label, short, Icon }) => {
         const active = isActive(href, pathname);
         return (
-          <li key={href} className="flex-1 md:flex-none">
+          <li key={href} className="flex-1 shrink-0 md:flex-none">
             <Link
               href={href}
               aria-current={active ? "page" : undefined}
@@ -127,7 +131,8 @@ function NavList({ pathname }: { pathname: string | null }) {
                 className={cn("hidden h-4 w-4 sm:block", active ? "text-brand-cyan" : "text-slate-400")}
                 aria-hidden
               />
-              {label}
+              <span className="sm:hidden">{short}</span>
+              <span className="hidden sm:inline">{label}</span>
             </Link>
           </li>
         );
