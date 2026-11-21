@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 import costing
 import results_store
+import voice
 from ai_schemas import ModelUsage
 from config import get_settings, ocr_adapter_label
 from database import (
@@ -42,6 +43,9 @@ RUN_START_STEPS = ("Ingestion", "Queue")
 STAGE_GRACE_SECONDS = 5.0
 # The only pipeline step that writes log lines after completed_at is set (the final save lines).
 POST_COMPLETION_STAGE_STEPS = ("Persistence",)
+# Cost buckets: speech-to-text and transcript mapping are the voice answer's "extraction" (OCR).
+OCR_BUCKET_PURPOSES = ("ocr", "transcription", "voice_mapping")
+VOICE_ADAPTER = "OpenAI {model} speech-to-text (PoC stand-in for Whisper large-v3 / Sarvam Saarika)"
 
 
 def record_invocation(
@@ -117,7 +121,10 @@ def summarise_costs(rows: list[ModelInvocation]) -> dict[str, Any]:
         if row.cost_inr is None:
             continue
         known = True
-        key = row.purpose if row.purpose in ("ocr", "evaluation") else "other"
+        if row.purpose in OCR_BUCKET_PURPOSES:
+            key = "ocr"
+        else:
+            key = "evaluation" if row.purpose == "evaluation" else "other"
         buckets[key] += float(row.cost_inr)
     total = sum(buckets.values()) if known or not calls else None
     return {
@@ -188,7 +195,22 @@ def _custody(sub: StudentSubmission) -> dict[str, Any] | None:
     }
 
 
-def _extraction(sub: StudentSubmission, result: EvaluationResult) -> dict[str, Any]:
+def _voice_adapter(db: Session | None, sub: StudentSubmission) -> str:
+    """'OpenAI gpt-transcribe speech-to-text (PoC stand-in ...) + Claude transcript mapping'."""
+    transcript = None if sub.is_demo else voice.read_transcript(sub.id)
+    model = (transcript or {}).get("model") or get_settings().openai_transcribe_model
+    label = VOICE_ADAPTER.format(model=model)
+    mapped = False
+    if db is not None and not sub.is_demo:
+        mapped = db.scalar(
+            select(ModelInvocation.id).where(
+                ModelInvocation.submission_id == sub.id, ModelInvocation.purpose == "voice_mapping"
+            ).limit(1)
+        ) is not None
+    return label + (" + Claude transcript mapping" if mapped else "")
+
+
+def _extraction(sub: StudentSubmission, result: EvaluationResult, db: Session | None = None) -> dict[str, Any]:
     settings = get_settings()
     threshold = settings.ocr_confidence_threshold
     questions = [q for q in result.question_evaluations or [] if isinstance(q, dict)]
@@ -201,6 +223,7 @@ def _extraction(sub: StudentSubmission, result: EvaluationResult) -> dict[str, A
             continue
     ocr = None if sub.is_demo else ocr_artifact(sub)
     dropped = _int_list((ocr or {}).get("dropped_questions"))
+    is_voice = voice.is_voice(sub)
     return {
         "mapped": len(answered),
         "total_questions": len(questions),
@@ -210,9 +233,10 @@ def _extraction(sub: StudentSubmission, result: EvaluationResult) -> dict[str, A
         "min_confidence": round(min(confidences), 3) if confidences else None,
         "below_threshold": sum(1 for c in confidences if c < threshold),
         "threshold": threshold,
-        "flagged_pages": _int_list(sub.flagged_pages),
-        "page_confidences": _page_confidences(sub.page_confidences),
-        "ocr_adapter": ocr_adapter_label(settings),
+        # A voice answer has no pages (FR-2.8).
+        "flagged_pages": [] if is_voice else _int_list(sub.flagged_pages),
+        "page_confidences": [] if is_voice else _page_confidences(sub.page_confidences),
+        "ocr_adapter": _voice_adapter(db, sub) if is_voice else ocr_adapter_label(settings),
         "ocr_cache_hit": bool(sub.ocr_cache_hit),
         "language_hints": [h for h in (sub.language_hints or []) if h in LANGUAGE_CODES] or ["en"],
         "corrected_by_faculty": any(bool(q.get("corrected_by_faculty")) for q in questions),
@@ -371,7 +395,7 @@ def result_extras(
     """Keys: custody, extraction, cost, latency, versions."""
     return {
         "custody": _custody(sub),
-        "extraction": _extraction(sub, result),
+        "extraction": _extraction(sub, result, db),
         "cost": _cost(db, sub, result),
         "latency": _latency(sub),
         "versions": _versions(db, sub, result, rubric),

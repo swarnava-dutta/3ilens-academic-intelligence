@@ -222,3 +222,27 @@ def test_intake_batch_progress(upload, fake_ai, client):
     missing = client.get("/api/intake-batches/nope")
     assert missing.status_code == 404 and missing.json()["code"] == "unknown_intake_batch"
     assert client.get("/api/intake-batches/bad id!").status_code == 404
+
+
+def test_all_mcq_paper_logs_no_grading_call(upload, fake_ai, client, monkeypatch):
+    """FR-4.8: an all-MCQ paper is scored deterministically; when the AI layer makes no grading
+    call, the log says so instead of a token line."""
+    import json
+
+    import ai
+    from ai_schemas import EvaluationOutput, OcrAnswer, OcrResult
+    from tests.test_wave2_contract import MCQ_LETTERS, MCQ_RUBRIC
+
+    monkeypatch.setattr(ai, "run_ocr", lambda pages, content, **kwargs: OcrResult(
+        answers=[OcrAnswer(question=n, answer=letter, confidence=0.95) for n, letter in MCQ_LETTERS.items()],
+        overall_confidence=0.95, provider="anthropic", model="fake-vision-model",
+    ))
+    monkeypatch.setattr(ai, "run_evaluation", lambda answers, content, **kwargs: EvaluationOutput(
+        evaluations=[], overall_strengths=[], overall_gaps=[],
+    ))
+    sub = upload(rubric_json=json.dumps(MCQ_RUBRIC)).json()
+    result = client.get(f"/api/results/{sub['id']}").json()
+    assert result["submission"]["status"] == "COMPLETED" and result["total_score"] == 3
+    log = [(e["step"], e["message"]) for e in result["processing_log"]]
+    assert ("Rubric Evaluation", "All questions are MCQs - auto-scored deterministically (no grading call).") in log
+    assert not any("AI call 2" in message for _step, message in log)

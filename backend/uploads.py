@@ -1,9 +1,11 @@
 """Upload intake helpers shared by POST /api/upload (main.py) and the rescan endpoint
 (routers/pipeline_ops.py): content sniffing, streaming storage with SHA-256, and decoding
-checks. BRD FR-1.1 (PDF / images / typed DOCX), FR-1.4 (custody hash), FR-1.6, FR-1.8.
+checks. BRD FR-1.1 (PDF / images / typed DOCX), FR-1.4 (custody hash), FR-1.6, FR-1.8,
+FR-2.8 (voice answers).
 
-The file's bytes decide its type, never the extension. Voice notes are recognised and
-rejected as Phase 2; other ZIP files (xlsx, plain archives) are rejected as unsupported.
+The file's bytes decide its type, never the extension. Voice answers (MP3 / WAV / M4A / OGG)
+are accepted when VOICE_ANSWERS is on; AMR and FLAC are recognised and rejected as unsupported
+audio. Other ZIP files (xlsx, plain archives) are rejected as unsupported.
 """
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ import docx_reader
 import hashing
 import pipeline
 import preprocessing
-from config import DOCX_MIME, Settings, get_settings
+import voice
+from config import AUDIO_MIME_TYPES, DOCX_MIME, Settings, get_settings
 from database import StudentSubmission
 from errors import ApiError
 
@@ -36,11 +39,15 @@ MIME_EXTENSIONS = {
     "image/png": ".png",
     "image/webp": ".webp",
     DOCX_MIME: ".docx",
+    **voice.AUDIO_EXTENSIONS,
 }
 PIL_FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
 ACCEPTED_LABEL = "PDF, JPEG, PNG, WEBP or DOCX"
 UNSUPPORTED_DETAIL = f"Unsupported file type. Upload a {ACCEPTED_LABEL} answer sheet."
-VOICE_DETAIL = "Voice answers (MP3/WAV/M4A) are Phase 2 - not processed in this PoC."
+VOICE_DISABLED_DETAIL = "Voice answers are switched off on this server (VOICE_ANSWERS=0)."
+UNSUPPORTED_AUDIO_DETAIL = "Unsupported audio format. Upload an MP3, WAV, M4A or OGG voice answer."
+CORRUPT_AUDIO_DETAIL = "The WAV file could not be read - it may be corrupt."
+UNSUPPORTED_AUDIO = "unsupported_audio"
 ZIP_SIGNATURE = b"PK\x03\x04"
 # ISO base-media brands used by audio-only files (M4A / AAC / Apple lossless / 3GPP audio).
 AUDIO_FTYP_BRANDS = {b"M4A ", b"M4B ", b"M4P ", b"F4A ", b"F4B ", b"3gp4", b"3gp5", b"3g2a"}
@@ -66,6 +73,27 @@ def is_voice_note(head: bytes) -> bool:
     if len(head) >= 12 and head[4:8] == b"ftyp" and head[8:12] in AUDIO_FTYP_BRANDS:
         return True
     return head.startswith((b"OggS", b"#!AMR", b"fLaC"))
+
+
+def sniff_audio(head: bytes) -> str | None:
+    """'audio/mpeg' | 'audio/wav' | 'audio/mp4' | 'audio/ogg' for a supported voice answer,
+    'unsupported_audio' for AMR / FLAC, None when the bytes are not audio (same signatures as
+    is_voice_note)."""
+    if not is_voice_note(head):
+        return None
+    if head.startswith((b"#!AMR", b"fLaC")):
+        return UNSUPPORTED_AUDIO
+    if head.startswith(b"OggS"):
+        return "audio/ogg"
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "audio/wav"
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        return "audio/mp4"
+    return "audio/mpeg"  # ID3 tag or MPEG frame sync
+
+
+def is_audio_mime(mime_type: str | None) -> bool:
+    return mime_type in AUDIO_MIME_TYPES
 
 
 def sniff_mime(head: bytes) -> str | None:
@@ -108,11 +136,17 @@ def store_upload(file: UploadFile, display_name: str, settings: Settings) -> tup
     head = file.file.read(8192)
     if not head:
         raise unprocessable("The uploaded file is empty.", "empty_file")
-    if is_voice_note(head):
-        raise ApiError(415, VOICE_DETAIL, "voice_phase2")
-    mime_type = sniff_mime(head)
-    if mime_type is None or mime_type not in settings.allowed_mime_types or mime_type not in MIME_EXTENSIONS:
-        raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature")
+    audio = sniff_audio(head)
+    if audio is not None:
+        if not settings.voice_answers_enabled:
+            raise ApiError(415, VOICE_DISABLED_DETAIL, "voice_disabled")
+        if audio == UNSUPPORTED_AUDIO or audio not in settings.allowed_audio_mime_types:
+            raise ApiError(415, UNSUPPORTED_AUDIO_DETAIL, UNSUPPORTED_AUDIO)
+        mime_type: str | None = audio
+    else:
+        mime_type = sniff_mime(head)
+        if mime_type is None or mime_type not in settings.allowed_mime_types or mime_type not in MIME_EXTENSIONS:
+            raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature")
     if file.size is not None and file.size > settings.max_upload_bytes:
         raise ApiError(413, f"File is larger than the {limit_mb} MB limit.", "too_large")
 
@@ -146,8 +180,11 @@ def discard(path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # Decoding checks
 # --------------------------------------------------------------------------- #
-def inspect_document(path: Path, mime_type: str, settings: Settings) -> tuple[str, int]:
-    """Confirms the file can be decoded and enforces the page limit. Returns (description, pages)."""
+def inspect_document(path: Path, mime_type: str, settings: Settings) -> tuple[str, int | None]:
+    """Confirms the file can be decoded and enforces the page limit. Returns (description, pages);
+    pages is None for a voice answer."""
+    if is_audio_mime(mime_type):
+        return _inspect_audio(path, mime_type), None
     if mime_type == "application/pdf":
         try:
             # Opened from memory so a corrupt file never leaves a Windows file lock behind.
@@ -179,6 +216,31 @@ def inspect_document(path: Path, mime_type: str, settings: Settings) -> tuple[st
     except Exception as exc:  # noqa: BLE001
         raise unprocessable("The image could not be read - it may be corrupt or truncated.", "corrupt_image") from exc
     return f"{PIL_FORMATS[mime_type]} image, {width}x{height}px", 1
+
+
+def audio_seconds(path: Path, mime_type: str) -> float | None:
+    """Duration of a WAV voice answer (stdlib wave); None for other formats (no decoder here -
+    the transcription call reports the duration)."""
+    return voice.wav_seconds(path) if mime_type == "audio/wav" else None
+
+
+def format_duration(seconds: float) -> str:
+    """12.4 -> '0:12'; 75 -> '1:15'."""
+    total = int(round(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _inspect_audio(path: Path, mime_type: str) -> str:
+    """'WAV audio, 0:12, 400 KB' / 'M4A audio, 1.2 MB'. A WAV that the stdlib cannot read is
+    rejected (422 corrupt_audio); other formats are checked by the transcription call."""
+    name = voice.AUDIO_FORMAT_NAMES.get(mime_type, "Audio")
+    size = human_size(path.stat().st_size)
+    if mime_type == "audio/wav":
+        seconds = voice.wav_seconds(path)
+        if seconds is None:
+            raise unprocessable(CORRUPT_AUDIO_DETAIL, "corrupt_audio")
+        return f"{name} audio, {format_duration(seconds)}, {size}"
+    return f"{name} audio, {size}"
 
 
 def _inspect_docx(path: Path, settings: Settings) -> tuple[str, int]:

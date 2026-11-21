@@ -1,5 +1,6 @@
 """Typed Word answer sheets (BRD FR-1.1: same PDF -> vision route, no text path), corrupt or
-macro-enabled packages, other ZIPs, and voice notes (Phase 2)."""
+macro-enabled packages, other ZIPs, and voice answers (FR-2.8: accepted unless VOICE_ANSWERS=0;
+AMR / FLAC rejected as unsupported audio)."""
 from __future__ import annotations
 
 import io
@@ -16,7 +17,8 @@ PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
 WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 DOCX_MAIN = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
 DOCM_MAIN = "application/vnd.ms-word.document.macroEnabled.main+xml"
-VOICE_DETAIL = "Voice answers (MP3/WAV/M4A) are Phase 2 - not processed in this PoC."
+VOICE_DISABLED_DETAIL = "Voice answers are switched off on this server (VOICE_ANSWERS=0)."
+UNSUPPORTED_AUDIO_DETAIL = "Unsupported audio format. Upload an MP3, WAV, M4A or OGG voice answer."
 
 
 def _png(size=(120, 80), color="navy") -> bytes:
@@ -244,19 +246,56 @@ def test_other_zip_files_are_unsupported(upload, forbid_ai, tmp_path):
     assert uploaded_files(tmp_path) == []
 
 
-@pytest.mark.parametrize(
-    ("name", "content"),
-    [
-        ("answer.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64),
-        ("answer_raw.mp3", b"\xff\xfb\x90\x64" + b"\x00" * 64),
-        ("answer.wav", b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 64),
-        ("answer.m4a", b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00" + b"\x00" * 64),
-    ],
-)
-def test_voice_answers_are_phase_2(upload, forbid_ai, tmp_path, name, content):
+def _wav() -> bytes:
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(8000)
+        handle.writeframes(b"\x00\x00" * 8000)
+    return buffer.getvalue()
+
+
+VOICE_FILES = [
+    ("answer.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64, "audio/mpeg"),
+    ("answer_raw.mp3", b"\xff\xfb\x90\x64" + b"\x00" * 64, "audio/mpeg"),
+    ("answer.wav", _wav(), "audio/wav"),
+    ("answer.m4a", b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00" + b"\x00" * 64, "audio/mp4"),
+    ("answer.ogg", b"OggS\x00\x02" + b"\x00" * 64, "audio/ogg"),
+]
+
+
+@pytest.mark.parametrize(("name", "content", "mime"), VOICE_FILES)
+def test_voice_answers_are_accepted(upload, fake_ai, fake_transcriber, client, name, content, mime):
+    response = upload(filename=name, content=content, voice_question="1")
+    assert response.status_code == 202, response.text
+    sub = response.json()
+    assert sub["input_kind"] == "voice" and sub["page_count"] is None and sub["voice_question"] == 1
+    result = client.get(f"/api/results/{sub['id']}")
+    assert result.status_code == 200, result.text
+    assert result.json()["submission"]["status"] == "COMPLETED"
+    assert fake_transcriber.kwargs[0]["mime_type"] == mime and fake_ai.calls["ocr"] == 0
+
+
+@pytest.mark.parametrize(("name", "content", "mime"), VOICE_FILES)
+def test_voice_answers_can_be_switched_off(upload, forbid_ai, tmp_path, monkeypatch, name, content, mime):
+    monkeypatch.setenv("VOICE_ANSWERS", "0")
     response = upload(filename=name, content=content)
     assert response.status_code == 415
-    assert response.json() == {"detail": VOICE_DETAIL, "code": "voice_phase2"}
+    assert response.json() == {"detail": VOICE_DISABLED_DETAIL, "code": "voice_disabled"}
+    assert uploaded_files(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [("answer.amr", b"#!AMR\n" + b"\x00" * 64), ("answer.flac", b"fLaC\x00\x00\x00\x22" + b"\x00" * 64)],
+)
+def test_amr_and_flac_are_unsupported_audio(upload, forbid_ai, tmp_path, name, content):
+    response = upload(filename=name, content=content)
+    assert response.status_code == 415
+    assert response.json() == {"detail": UNSUPPORTED_AUDIO_DETAIL, "code": "unsupported_audio"}
     assert uploaded_files(tmp_path) == []
 
 
@@ -266,3 +305,6 @@ def test_jpeg_and_png_are_not_mistaken_for_audio():
     assert not uploads.is_voice_note(b"\xff\xd8\xff\xe0" + b"\x00" * 16)
     assert not uploads.is_voice_note(b"\x89PNG\r\n\x1a\n")
     assert uploads.sniff_mime(b"\xff\xd8\xff\xe0") == "image/jpeg"
+    assert uploads.sniff_audio(b"\xff\xd8\xff\xe0" + b"\x00" * 16) is None
+    assert uploads.sniff_audio(b"RIFF\x24\x00\x00\x00WEBPVP8 ") is None
+    assert uploads.sniff_audio(b"RIFF\x24\x00\x00\x00WAVEfmt ") == "audio/wav"

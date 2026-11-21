@@ -12,7 +12,7 @@ import math
 import re
 from pathlib import Path
 from statistics import fmean
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -29,9 +29,12 @@ import result_view
 import results_store
 import rubric_store
 import uploads
+import voice
 from ai_schemas import OcrAnswer, OcrResult
 from config import get_settings
 from database import (
+    INPUT_DOCUMENT,
+    INPUT_VOICE,
     Batch,
     Institution,
     ModelInvocation,
@@ -46,6 +49,7 @@ from database import (
 from errors import ApiError
 from schemas import (
     IntakeBatchStatus,
+    InvocationPurposeLit,
     ModelInvocationOut,
     OcrReviewData,
     OcrReviewOut,
@@ -68,13 +72,14 @@ DbSession = Annotated[Session, Depends(get_db)]
 INTAKE_BATCH_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 PAGE_NUMBER_RE = re.compile(r"^\d{1,4}$")
 PAGE_MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg"}
-INVOCATION_PURPOSES = ("ocr", "evaluation", "consistency", "rubric_parse")
+INVOCATION_PURPOSES: tuple[str, ...] = get_args(InvocationPurposeLit)
 INVOCATION_STATUSES = ("ok", "error", "refusal", "cache_hit")
 # Artifacts that belong to one scan of the sheet (removed when a rescan replaces the file).
 SCAN_ARTIFACTS = (
     pipeline.OCR_FILE, pipeline.REVIEWED_OCR_FILE, pipeline.EVALUATION_FILE, pipeline.REPORT_FILE,
-    pipeline.RUN_FILE, pipeline.DEAD_LETTER_FILE,
+    pipeline.RUN_FILE, pipeline.DEAD_LETTER_FILE, voice.TRANSCRIPT_FILE,
 )
+KIND_MISMATCH_DETAIL = "Upload the same kind of answer (voice or document) to replace this one."
 DEFAULT_RESCAN_REVIEWER = "Faculty reviewer"
 ACTIVE_STATUSES = (SubmissionStatus.PENDING, SubmissionStatus.PROCESSING)
 
@@ -431,7 +436,8 @@ def rescan_submission(
     file: Annotated[UploadFile | None, File()] = None,
     reviewer: Annotated[str | None, Form()] = None,
 ) -> SubmissionOut:
-    """Replace the stored scan (same validation as upload) and run the full pipeline again."""
+    """Replace the stored scan (same validation as upload) and run the full pipeline again. The kind
+    is kept: a voice answer is replaced by audio, a document by a document (422 input_kind_mismatch)."""
     sub = _submission(db, submission_id)
     if sub.status not in (SubmissionStatus.HUMAN_REVIEW_REQUIRED, SubmissionStatus.FAILED):
         raise _invalid_state(sub, "HUMAN_REVIEW_REQUIRED or FAILED")
@@ -442,6 +448,9 @@ def rescan_submission(
     path, mime_type, size, sha256 = uploads.store_upload(file, display, settings)
     old_path = sub.file_path
     try:
+        kind = INPUT_VOICE if uploads.is_audio_mime(mime_type) else INPUT_DOCUMENT
+        if kind != (sub.input_kind or INPUT_DOCUMENT):
+            raise uploads.unprocessable(KIND_MISMATCH_DETAIL, "input_kind_mismatch")
         description, page_count = uploads.inspect_document(path, mime_type, settings)
         name = " ".join((reviewer or "").split())[:120] or DEFAULT_RESCAN_REVIEWER
         db.add(OcrReview(
@@ -466,10 +475,14 @@ def rescan_submission(
         sub.error_message = None
         sub.last_error_code = None
         sub.completed_at = None
+        if kind == INPUT_VOICE:
+            sub.audio_seconds = uploads.audio_seconds(path, mime_type)
+            sub.detected_languages = []
         replaced = f" (replaces SHA-256 {hashing.short_hash(old_hash)})" if old_hash else ""
+        what = f"voice answer, {description}" if kind == INPUT_VOICE else f"{description}, {uploads.human_size(size)}"
         pipeline.append_log(
             sub, "Ingestion",
-            f"Rescan received - full re-run: {display} ({description}, {uploads.human_size(size)}) by {name}; "
+            f"Rescan received - full re-run: {display} ({what}) by {name}; "
             f"SHA-256 {sha256[:12]}... recorded for chain of custody{replaced}.",
         )
         uploads.duplicate_notice(db, sub)
@@ -532,7 +545,9 @@ def _image_size(path: Path) -> tuple[int | None, int | None]:
 def page_refs(sub: StudentSubmission) -> list[PageRef]:
     """Processed (+ original) page images. Sheets that never reached pre-processing (the blurry
     mock, held or failed sheets) are rendered lazily from the stored upload, unenhanced. Demo
-    rows have no scan: []."""
+    rows have no scan: []. A voice answer has no pages: []."""
+    if voice.is_voice(sub):
+        return []
     job_dir = _job_dir(sub)
     found = _page_files(job_dir)
     if not found and _upload_exists(sub) and sub.status not in ACTIVE_STATUSES:

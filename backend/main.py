@@ -34,6 +34,8 @@ import uploads
 from ai_schemas import ModelUsage
 from config import accepted_upload_types, accepted_voice_types, get_settings, llm_fallback_label, ocr_adapter_label
 from database import (
+    INPUT_DOCUMENT,
+    INPUT_VOICE,
     Batch,
     Institution,
     ModelInvocation,
@@ -291,6 +293,32 @@ def _resolve_rubric(
     return rubric, None
 
 
+def _validate_voice_question(
+    raw: str | None, rubric: Rubric | None, custom_rubric: RubricContentIn | None
+) -> int | None:
+    """FR-2.8 one recording per question: voice_question must be one of the rubric's question
+    numbers; empty means a whole-paper recording (the transcript is mapped by the AI)."""
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if custom_rubric is not None:
+        numbers = {q.question for q in custom_rubric.questions}
+    else:
+        numbers = set()
+        for q in ((rubric.content if rubric is not None else None) or {}).get("questions") or []:
+            try:
+                numbers.add(int(q["question"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    try:
+        number = int(value)
+    except ValueError:
+        number = None
+    if number is None or number not in numbers:
+        raise _unprocessable("voice_question must be one of the rubric's question numbers.", "invalid_question")
+    return number
+
+
 def _create_custom_rubric(db: Session, content: RubricContentIn) -> Rubric:
     return rubric_store.create_rubric(db, content)
 
@@ -398,7 +426,11 @@ def upload_answer_sheet(
     language_hints: Annotated[str | None, Form()] = None,
     batch_id: Annotated[str | None, Form()] = None,
     intake_batch_id: Annotated[str | None, Form()] = None,
+    voice_question: Annotated[str | None, Form()] = None,
 ) -> SubmissionOut:
+    """A scanned / typed answer sheet or a voice answer (FR-2.8: MP3 / WAV / M4A / OGG, sniffed
+    from the bytes). voice_question = the rubric question one recording answers; omit it for a
+    whole-paper recording. It is ignored for documents."""
     settings = get_settings()
     name = _validate_student_name(student_name)
     rubric, custom_rubric = _resolve_rubric(db, rubric_id, rubric_json)  # validated before saving the upload
@@ -407,12 +439,17 @@ def upload_answer_sheet(
     chosen_batch = _resolve_batch(db, batch_id)
     intake_id = _validate_intake_batch_id(intake_batch_id)
     if file is None or not file.filename:
-        raise _unprocessable(f"Attach an answer sheet ({uploads.ACCEPTED_LABEL}).", "missing_file")
+        raise _unprocessable(
+            f"Attach an answer sheet ({uploads.ACCEPTED_LABEL}) or a voice answer (MP3, WAV, M4A or OGG).",
+            "missing_file",
+        )
 
     original_filename = _display_filename(file.filename)
     path, mime_type, size, sha256 = _store_upload(file, original_filename, settings)
+    is_voice = uploads.is_audio_mime(mime_type)
     try:
         description, page_count = _inspect_document(path, mime_type, settings)
+        question = _validate_voice_question(voice_question, rubric, custom_rubric) if is_voice else None
         if custom_rubric is not None:
             rubric = _create_custom_rubric(db, custom_rubric)
         assert rubric is not None
@@ -435,12 +472,26 @@ def upload_answer_sheet(
             student_ref=student_ref_for(name, roll),
             intake_batch_id=intake_id,
             attempts=0,
+            input_kind=INPUT_VOICE if is_voice else INPUT_DOCUMENT,
+            audio_seconds=uploads.audio_seconds(path, mime_type) if is_voice else None,
+            voice_question=question,
+            detected_languages=[],
         )
-        pipeline.append_log(
-            sub, "Ingestion",
-            f"Received {original_filename} ({description}, {_human_size(size)}) and stored it in the "
-            f"local S3 mock (uploads/). SHA-256 {sha256[:12]}... recorded for chain of custody.",
-        )
+        if is_voice:
+            answers = (
+                f"Answers Q{question} (one recording per question)." if question is not None
+                else "Whole recording - the transcript will be mapped to the rubric questions."
+            )
+            received = (
+                f"Received {original_filename} (voice answer, {description}) and stored it in the local S3 "
+                f"mock (uploads/). SHA-256 {sha256[:12]}... recorded for chain of custody. {answers}"
+            )
+        else:
+            received = (
+                f"Received {original_filename} ({description}, {_human_size(size)}) and stored it in the "
+                f"local S3 mock (uploads/). SHA-256 {sha256[:12]}... recorded for chain of custody."
+            )
+        pipeline.append_log(sub, "Ingestion", received)
         uploads.duplicate_notice(db, sub)
         pipeline.append_log(
             sub, "Queue",

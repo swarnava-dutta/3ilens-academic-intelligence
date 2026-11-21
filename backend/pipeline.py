@@ -11,6 +11,9 @@ What a run does (mode "full"):
   -> OCR (AI call 1) or an OCR-cache hit (FR-2.5: same bytes + rubric questions + model)
   -> per-page confidence gate (FR-2.4: any page or the sheet below the threshold -> faculty review)
   -> grading (AI call 2) -> deterministic insights -> persistence (results_store).
+A voice answer (FR-2.8, input_kind "voice") replaces pre-processing + OCR with speech-to-text
+(OpenAI, a PoC stand-in) and maps the transcript onto the rubric questions - with no AI call when
+the recording answers one question (voice_question) - then joins the same gate and grading.
 Mode "evaluation_only" re-uses the stored transcript (faculty-reviewed first) and skips
 pre-processing, OCR and the gate: faculty corrections and rubric re-evaluations.
 
@@ -41,11 +44,14 @@ import ai
 import hashing
 import insights
 import preprocessing
+import marking
 import provenance
 import results_store
+import voice
 from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, OcrResult, QuestionGrade
 from config import Settings, get_settings
 from database import (
+    INPUT_VOICE,
     EvaluationResult,
     OcrCache,
     Rubric,
@@ -67,6 +73,7 @@ NO_FALLBACK_NOTE = "No approved fallback model configured - held (FR-3.10 fallba
 OCR_REUSED_MESSAGE = "OCR reused - no vision call, Rs 0.00"
 DEMO_REGRADE_MESSAGE = "Synthetic demo re-run - no AI call"
 DEMO_NEW_QUESTION_GAP = "Not graded - new in this rubric version (demo)"
+ALL_MCQ_MESSAGE = "All questions are MCQs - auto-scored deterministically (no grading call)"
 MAX_ERROR_CHARS = 500
 
 # current_step while a re-evaluation is queued / running: GET /api/results/{id} answers 202
@@ -316,9 +323,13 @@ def _log_call(job: _Job, step: str, label: str, seconds: float) -> None:
     )
 
 
-def _ai_call(job: _Job, step: str, label: str, call: Callable[[Callable[[ModelUsage], None]], Any]) -> Any:
+def _ai_call(
+    job: _Job, step: str, label: str, call: Callable[[Callable[[ModelUsage], None]], Any], *,
+    quiet_without_usage: bool = False,
+) -> Any:
     """Run one AI stage. Transient AIServiceErrors are retried (exponential backoff + jitter)
-    while the run has attempts left; anything else propagates to the DLQ handler."""
+    while the run has attempts left; anything else propagates to the DLQ handler.
+    quiet_without_usage: no token line when the stage made no provider call (all-MCQ papers)."""
     while True:
         job.call_log = []
         started = time.monotonic()
@@ -329,7 +340,8 @@ def _ai_call(job: _Job, step: str, label: str, call: Callable[[Callable[[ModelUs
                 raise
             _schedule_retry(job, step, exc)
             continue
-        _log_call(job, step, label, time.monotonic() - started)
+        if job.call_log or not quiet_without_usage:
+            _log_call(job, step, label, time.monotonic() - started)
         return result
 
 
@@ -436,42 +448,53 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
     sub.attempts = int(sub.attempts or 0) + 1
     sub.started_at = utcnow()
     sub.completed_at = None
+    is_voice = (sub.input_kind or "document") == INPUT_VOICE
     step = "Pre-processing" if mode == MODE_FULL else "OCR & Parse"
     try:
         # Phase 4 mock: a "blurry" sheet pauses before ANY pre-processing or AI call, so its
         # log has no Pre-processing entry - only the worker pickup and the human-review hand-off.
-        if mode == MODE_FULL and "blurry" in (sub.original_filename or "").lower():
+        if mode == MODE_FULL and not is_voice and "blurry" in (sub.original_filename or "").lower():
             _blurry_mock(job)
             return
 
         if mode == MODE_FULL:
+            # A voice answer has no pre-processing: its pickup is logged as a Queue step.
             _record(
-                db, sub, step, PICKUP_MESSAGE,
-                current_step=step, error_message=None, last_error_code=None, ocr_cache_hit=False,
-                flagged_pages=[], page_confidences=[],
+                db, sub, "Queue" if is_voice else step, PICKUP_MESSAGE,
+                current_step="Transcription" if is_voice else step, error_message=None, last_error_code=None,
+                ocr_cache_hit=False, flagged_pages=[], page_confidences=[],
             )
             _write_artifact(job.job_dir, RUN_FILE, _run_info(job))
             step = "Custody"
             _verify_custody(job)
 
-            # ---- Step 3: pre-processing ------------------------------------------- #
-            step = "Pre-processing"
+            if is_voice:
+                # ---- Steps 3-4 for a voice answer: speech-to-text + transcript mapping -- #
+                step = "Transcription"
+                ocr = _voice_stage(job)
+                step = "OCR & Parse"
+                if _gate(job, ocr, 0):
+                    return  # held for faculty review (FR-2.4); no pages to gate
+                answers = list(ocr.answers)
+            else:
+                # ---- Step 3: pre-processing --------------------------------------- #
+                step = "Pre-processing"
 
-            def log_preprocessing(message: str) -> None:
-                _record(db, sub, "Pre-processing", str(message))
+                def log_preprocessing(message: str) -> None:
+                    _record(db, sub, "Pre-processing", str(message))
 
-            pages = preprocessing.preprocess_document(
-                Path(sub.file_path), sub.mime_type, job.job_dir, log=log_preprocessing
-            )
-            _record(db, sub, step, f"Prepared {len(pages)} page image(s) for the vision model.")
+                pages = preprocessing.preprocess_document(
+                    Path(sub.file_path), sub.mime_type, job.job_dir, log=log_preprocessing
+                )
+                _record(db, sub, step, f"Prepared {len(pages)} page image(s) for the vision model.")
 
-            # ---- Step 4: OCR (AI call 1) or OCR-cache hit ------------------------- #
-            step = "OCR & Parse"
-            ocr, cache_key = _ocr_stage(job, pages)
-            if _gate(job, ocr, len(pages)):
-                return  # held for faculty review (FR-2.4)
-            _cache_store(job, cache_key, ocr)
-            answers = list(ocr.answers)
+                # ---- Step 4: OCR (AI call 1) or OCR-cache hit --------------------- #
+                step = "OCR & Parse"
+                ocr, cache_key = _ocr_stage(job, pages)
+                if _gate(job, ocr, len(pages)):
+                    return  # held for faculty review (FR-2.4)
+                _cache_store(job, cache_key, ocr)
+                answers = list(ocr.answers)
         else:
             _record(
                 db, sub, "Queue",
@@ -485,15 +508,19 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
         # ---- Step 5: rubric evaluation (AI call 2) ---------------------------------- #
         step = "Rubric Evaluation"
         rubric = sub.rubric
+        all_mcq = _all_mcq(rubric.content)
+        medium = "speech" if is_voice else "handwriting"
         _record(
             db, sub, step,
+            f"{ALL_MCQ_MESSAGE}." if all_mcq else
             f"Grading {len(answers)} answer(s) against rubric '{rubric.name}' ({rubric.version}) "
-            f"with {settings.anthropic_model} (AI call 2).",
+            f"with {settings.anthropic_model} (AI call 2" + ("; transcribed voice answer" if is_voice else "") + ").",
             current_step=REGRADE_STEP if job.reason == "reevaluate" else "Rubric evaluation",
         )
         evaluation = _ai_call(
             job, step, "AI call 2 (evaluation)",
-            lambda on_usage: ai.run_evaluation(answers, rubric.content, on_usage=on_usage),
+            lambda on_usage: ai.run_evaluation(answers, rubric.content, on_usage=on_usage, answer_medium=medium),
+            quiet_without_usage=all_mcq,
         )
         _write_artifact(job.job_dir, EVALUATION_FILE, evaluation.model_dump(mode="json"))
         _record(db, sub, step, f"Received grades for {len(evaluation.evaluations)} question(s).")
@@ -579,6 +606,88 @@ def _verify_custody(job: _Job) -> None:
         f"Custody verified: SHA-256 matches ingestion ({hashing.short_hash(sub.file_hash)}).",
         custody_verified=True,
     )
+
+
+def _all_mcq(content: dict[str, Any] | None) -> bool:
+    """Every rubric question is an MCQ: scored deterministically, no grading call (FR-4.8)."""
+    questions = [q for q in (content or {}).get("questions") or [] if isinstance(q, dict)]
+    return bool(questions) and all(marking.question_type(q) == "mcq" for q in questions)
+
+
+# --------------------------------------------------------------------------- #
+# Voice answers (FR-2.8)
+# --------------------------------------------------------------------------- #
+def _voice_stage(job: _Job) -> OcrResult:
+    """Speech-to-text (OpenAI, a labelled stand-in), transcript.json, then the transcript mapped
+    onto rubric questions: the whole transcript for voice_question (no AI call), else the
+    mapping call. Returns an OcrResult so the gate, review and grading are unchanged."""
+    db, sub = job.db, job.sub
+    settings = get_settings()
+    rubric = sub.rubric
+    hints = _language_hints(sub)
+    model = settings.openai_transcribe_model
+    _record(
+        db, sub, "Transcription",
+        f"Transcribing the voice answer with OpenAI {model} (languages {', '.join(hints)}) - PoC stand-in "
+        "for Whisper large-v3 / Sarvam Saarika.",
+        current_step="Transcription",
+    )
+    keywords = voice.rubric_keywords(rubric.content)
+    transcript = _ai_call(
+        job, "Transcription", "Speech-to-text",
+        lambda on_usage: voice.transcribe(
+            Path(sub.file_path), sub.mime_type, language_hints=hints, keywords=keywords, on_usage=on_usage,
+        ),
+    )
+    languages = [c for c in dict.fromkeys(transcript.languages or []) if isinstance(c, str) and c]
+    _write_artifact(job.job_dir, voice.TRANSCRIPT_FILE, {
+        "text": transcript.text,
+        "model": transcript.model,
+        "languages": languages,
+        "seconds": transcript.seconds,
+        "request_id": transcript.request_id,
+        "created_at": utc_iso(),
+    })
+    changes: dict[str, Any] = {"detected_languages": languages}
+    if sub.audio_seconds is None and transcript.seconds is not None:
+        changes["audio_seconds"] = round(float(transcript.seconds), 2)
+    _record(
+        db, sub, "Transcription",
+        f"Transcribed {len(transcript.text):,} characters"
+        + (f" from {transcript.seconds:.1f} s of audio" if transcript.seconds else "")
+        + "; the transcript is stored as an artifact (never written to the log).",
+        **changes,
+    )
+
+    question = sub.voice_question
+    if question is not None:
+        _record(
+            db, sub, "OCR & Parse",
+            f"One recording per question: the whole transcript is the answer to Q{question} - no mapping call.",
+            current_step="OCR & answer structuring",
+        )
+        ocr = ai.structure_transcript(transcript.text, rubric.content, language_hints=hints, question_hint=question)
+    else:
+        _record(
+            db, sub, "OCR & Parse",
+            f"Mapping the whole-recording transcript to rubric questions with {settings.anthropic_model} "
+            "(transcript mapping call).",
+            current_step="OCR & answer structuring",
+        )
+        ocr = _ai_call(
+            job, "OCR & Parse", "Transcript mapping",
+            lambda on_usage: ai.structure_transcript(
+                transcript.text, rubric.content, language_hints=hints, on_usage=on_usage,
+            ),
+        )
+    mapped = sorted({a.question for a in ocr.answers})
+    _record(
+        db, sub, "OCR & Parse",
+        f"Mapped the transcript to {_qlist(mapped) or 'no rubric question'} ({len(ocr.answers)} answer(s)); "
+        f"detected language(s) {', '.join(languages) or 'not reported'}.",
+    )
+    _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, rubric, source="voice"))
+    return ocr
 
 
 # --------------------------------------------------------------------------- #
