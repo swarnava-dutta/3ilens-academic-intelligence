@@ -519,8 +519,22 @@ def topic_intervention(
     lost = trigger_questions(topic, questions)
     if not lost:
         return None
-    first = next(q for q in questions if _as_int(q.get("question")) == lost[0])
-    return template_intervention(topic, missed_criterion(first, criteria_by_q.get(lost[0])))
+    by_number = {_as_int(q.get("question")): q for q in questions}
+    descriptive = [n for n in lost if by_number[n].get("question_type") != "mcq"]
+    if not descriptive:
+        # An MCQ's "criteria" are its scoring rule, not a teaching point.
+        return mcq_template_intervention(topic, lost)
+    return template_intervention(topic, missed_criterion(by_number[descriptive[0]], criteria_by_q.get(descriptive[0])))
+
+
+def mcq_template_intervention(topic: str, questions: list[int]) -> dict[str, Any]:
+    refs = ", ".join(f"Q{n}" for n in questions)
+    return {
+        "teach": f"Re-teach {topic} from the missed MCQs ({refs}): why the right option is right and each distractor is wrong",
+        "practice": f"5 unseen {topic} MCQs under exam timing; skip any you cannot narrow down (-1 per wrong answer)",
+        "check_criterion": CHECK_TEMPLATE.format(topic=topic),
+        "source": "template",
+    }
 
 
 def clean_interventions(raw: Iterable[Any] | None, topics: Iterable[str]) -> dict[str, dict[str, Any]]:

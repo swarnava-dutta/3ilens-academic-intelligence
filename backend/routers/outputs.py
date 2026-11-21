@@ -65,7 +65,7 @@ router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
 UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
 
-RENDER_VERSION = "sair-pdf-v1"   # bump to invalidate every cached student PDF
+RENDER_VERSION = "sair-pdf-v2"   # bump to invalidate every cached student PDF
 TOPIC_GAP_MASTERY = 60.0         # topic filter: mastery below this, or the topic is in the stored top 5
 PDF_MEDIA_TYPE = "application/pdf"
 

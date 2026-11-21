@@ -1243,7 +1243,9 @@ def _priority_items(
         row = by_topic.get(topic)
         if not isinstance(item.get("trigger_questions"), list):
             item["trigger_questions"] = insights.trigger_questions(topic, questions)
-        if not isinstance(item.get("intervention"), dict):
+        stored_intervention = item.get("intervention")
+        if not isinstance(stored_intervention, dict) or stored_intervention.get("source") == "template":
+            # Templates are deterministic, so they are rebuilt at read time with the current rules.
             item["intervention"] = insights.topic_intervention(topic, questions, criteria)
         item["projected_gain_marks"] = row["gain_marks"] if row else None
         item["target_mastery"] = row["target_mastery"] if row else None

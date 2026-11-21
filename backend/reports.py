@@ -542,8 +542,12 @@ def _student_meta(result: ResultOut, superseded_by: str | None) -> list[Block]:
     rubric = result.rubric
     extraction = result.extraction
     student = _e(sub.student_name) + (' <span class="muted">(synthetic demo record)</span>' if meta.is_demo else "")
+    is_voice = getattr(sub, "input_kind", "document") == "voice"
     if meta.is_demo:
-        ocr = "Synthetic demo transcription - no OCR or AI call was made"
+        ocr = (
+            "Synthetic sample voice answer - no audio stored, no transcription or AI call was made" if is_voice
+            else "Synthetic demo transcription - no OCR or AI call was made"
+        )
     else:
         conf = f"confidence {result.ocr_confidence:.2f}" if result.ocr_confidence is not None else "confidence n/a"
         ocr = f"{conf} (review gate {extraction.threshold:.2f}) · {extraction.ocr_adapter}"
@@ -561,7 +565,7 @@ def _student_meta(result: ResultOut, superseded_by: str | None) -> list[Block]:
             _e(f"{rubric.name} {rubric.version} · sha256 {(rubric.rubric_hash or '-')[:12]} · {rubric.status}"),
         ),
         ("Evaluated at", _e(f"{_ist(meta.executed_at)} ({meta.timezone})")),
-        ("OCR", _e(ocr)),
+        ("Speech-to-text" if is_voice else "OCR", _e(ocr)),
     ]
     if superseded_by or len(result.versions) > 1:
         version = current.version if current else 1

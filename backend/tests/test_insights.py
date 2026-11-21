@@ -585,3 +585,14 @@ def test_scheme_all_or_nothing_and_required_steps():
     rubric = {**GENETICS, "questions": [base]}
     q = build_evaluation_report(rubric, answers, _evaluation([low]))["question_evaluations"][0]
     assert q["estimated_marks"] == 0.0 and q["marking_note"] == "Required step 'Ratio' not met -> 0"
+
+
+def test_mcq_topics_get_an_mcq_intervention_not_the_scoring_rule():
+    answers = [OcrAnswer(question=n, answer="C", confidence=0.9) for n in (1, 2, 3, 4)]
+    empty = EvaluationOutput(evaluations=[], overall_strengths=[], overall_gaps=[])
+    report = build_evaluation_report(MCQ_PAPER, answers, empty)
+    by_topic = {p["topic"]: p["intervention"] for p in report["roi_recommendations"]}
+    cell = by_topic["Cell Biology"]
+    assert cell["source"] == "template" and "4 marks" not in cell["teach"]
+    assert cell["teach"].startswith("Re-teach Cell Biology from the missed MCQs (Q1, Q2)")
+    assert "-1 per wrong answer" in cell["practice"]
