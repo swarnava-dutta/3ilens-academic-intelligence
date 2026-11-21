@@ -80,7 +80,12 @@ export function RunMetadataTable({ result }: { result: Result }) {
               </span>
             ) : (
               <span className="font-medium text-rose-700">
-                PROVISIONAL — {rubric.status === "AUTHOR_DRAFT" ? "AUTHOR_DRAFT_TEACHER_REVIEW_PENDING" : "TEACHER_REVIEW_PENDING"}
+                {/* V5 wording; zero-width spaces let the code wrap at underscores, not mid-word. */}
+                PROVISIONAL —{" "}
+                {(rubric.status === "AUTHOR_DRAFT" ? "AUTHOR_DRAFT_TEACHER_REVIEW_PENDING" : "TEACHER_REVIEW_PENDING").replaceAll(
+                  "_",
+                  "_\u200b",
+                )}
               </span>
             )}
           </Row>

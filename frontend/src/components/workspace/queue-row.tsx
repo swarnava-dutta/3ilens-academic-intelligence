@@ -278,7 +278,8 @@ export function QueueRow({
         </td>
 
         <td className="whitespace-nowrap py-3.5 pl-2 pr-4 text-right sm:pr-6 md:pl-4">
-          <div className="inline-flex items-center justify-end gap-1.5">
+          {/* Stacked on phones so the three visible columns fit 360-390 px screens. */}
+          <div className="inline-flex flex-col items-end justify-end gap-1.5 sm:flex-row sm:items-center">
             {completed ? (
               <>
                 <a
@@ -314,7 +315,7 @@ export function QueueRow({
                     ) : (
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden />
                     )}
-                    Retry
+                    <span className="hidden sm:inline">Retry</span>
                   </button>
                 ) : null}
                 <Link

@@ -478,8 +478,9 @@ function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
     <>
     {unplacedHours > 0 ? (
       <p className="mb-2 text-xs text-slate-500">
-        Topic blocks total {fmtNumber(plannedMinutes / 60)} h of the {fmtNumber(windowHours)} h budget; the other{" "}
-        {fmtNumber(unplacedHours)} h is mixed timed practice across all topics (no more than 2 topics a day, heavy topics on alternate days).
+        The blocks below total {fmtNumber(plannedMinutes / 60)} h of the {fmtNumber(windowHours)} h budget (at most 2 topics a
+        day, heavy topics on alternate days); spend the rest on mixed timed practice across all topics, as in the allocation
+        above.
       </p>
     ) : null}
     <ol className="grid grid-cols-1 gap-2 md:grid-cols-7 print:grid-cols-7">
