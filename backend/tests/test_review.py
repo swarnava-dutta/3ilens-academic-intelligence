@@ -99,6 +99,25 @@ def test_dropped_and_unattempted_questions_are_logged(upload, fake_ai, client, m
     assert "Mapped 4/5 rubric questions; Q5 not attempted; model returned Q7 (not in rubric) - discarded." in log
 
 
+def test_mostly_blank_sheet_is_held_for_confirmation(upload, fake_ai, client, monkeypatch):
+    """Clean OCR, but only 2 of 5 rubric questions answered -> held before grading."""
+    import ai
+
+    original = fake_ai.run_ocr
+
+    def run_ocr(pages, rubric_content, **kwargs):
+        result = original(pages, rubric_content, **kwargs)
+        for answer in result.answers[2:]:
+            answer.answer = ""
+        return result
+
+    monkeypatch.setattr(ai, "run_ocr", run_ocr)
+    body = pending(client, upload().json()["id"])
+    assert body["status"] == "HUMAN_REVIEW_REQUIRED" and fake_ai.calls["evaluation"] == 0
+    assert body["detail"].startswith("Mostly blank sheet - confirm before grading: only 2/5 rubric questions")
+    assert body["submission"]["flagged_pages"] == []
+
+
 # --------------------------------------------------------------------------- #
 # GET /ocr
 # --------------------------------------------------------------------------- #

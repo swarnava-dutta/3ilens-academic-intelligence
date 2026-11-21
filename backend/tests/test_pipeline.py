@@ -15,7 +15,7 @@ RESULT_KEYS = {
     "outcome_counts", "subject_rollup", "scoring_controls", "roi_basis", "report_meta", "release", "custody",
     "extraction", "cost", "latency", "history", "versions", "deliveries", "study_plan",
     # contract v3 (guarded extension hooks)
-    "llm_routes", "patterns", "interventions", "voice",
+    "llm_routes", "patterns", "interventions", "voice", "superseded", "superseded_by",
 }
 TOPIC_KEYS = {
     "topic", "subject", "score", "max_marks", "mastery", "weightage", "effort_hours",

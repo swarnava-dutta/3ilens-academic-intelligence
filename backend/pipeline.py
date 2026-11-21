@@ -48,7 +48,7 @@ import marking
 import provenance
 import results_store
 import voice
-from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, OcrResult, QuestionGrade
+from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, OcrResult, QuestionGrade, Transcript
 from config import Settings, get_settings
 from database import (
     INPUT_VOICE,
@@ -71,6 +71,8 @@ INTERRUPTED_MESSAGE = "Interrupted by server restart - use Retry to re-run."
 GENERIC_FAILURE = "Unexpected processing error - see the backend logs for details."
 NO_FALLBACK_NOTE = "No approved fallback model configured - held (FR-3.10 fallback needs residency approval)."
 OCR_REUSED_MESSAGE = "OCR reused - no vision call, Rs 0.00"
+TRANSCRIPT_CACHE_HIT_LABEL = "Transcript cache hit - no transcription call (Rs 0.00)"
+TRANSCRIPT_CACHE_VERSION = "transcript-v1"  # OCR-cache rows holding a voice transcript
 DEMO_REGRADE_MESSAGE = "Synthetic demo re-run - no AI call"
 DEMO_NEW_QUESTION_GAP = "Not graded - new in this rubric version (demo)"
 ALL_MCQ_MESSAGE = "All questions are MCQs - auto-scored deterministically (no grading call)"
@@ -626,19 +628,34 @@ def _voice_stage(job: _Job) -> OcrResult:
     rubric = sub.rubric
     hints = _language_hints(sub)
     model = settings.openai_transcribe_model
-    _record(
-        db, sub, "Transcription",
-        f"Transcribing the voice answer with OpenAI {model} (languages {', '.join(hints)}) - PoC stand-in "
-        "for Whisper large-v3 / Sarvam Saarika.",
-        current_step="Transcription",
-    )
     keywords = voice.rubric_keywords(rubric.content)
-    transcript = _ai_call(
-        job, "Transcription", "Speech-to-text",
-        lambda on_usage: voice.transcribe(
-            Path(sub.file_path), sub.mime_type, language_hints=hints, keywords=keywords, on_usage=on_usage,
-        ),
-    )
+    cache_key = None
+    if settings.ocr_cache_enabled and sub.file_hash:
+        cache_key = hashing.sha256_json({
+            "file_hash": sub.file_hash, "institution_id": sub.batch.institution_id if sub.batch else None,
+            "provider": "openai", "model": model, "prompt_version": TRANSCRIPT_CACHE_VERSION,
+            "language_hints": sorted(hints), "keywords": keywords,
+        })
+    transcript = _transcript_cache_hit(job, cache_key, model) if cache_key else None
+    if transcript is None:
+        _record(
+            db, sub, "Transcription",
+            f"Transcribing the voice answer with OpenAI {model} (languages {', '.join(hints)}) - PoC stand-in "
+            "for Whisper large-v3 / Sarvam Saarika.",
+            current_step="Transcription",
+        )
+        transcript = _ai_call(
+            job, "Transcription", "Speech-to-text",
+            lambda on_usage: voice.transcribe(
+                Path(sub.file_path), sub.mime_type, language_hints=hints, keywords=keywords, on_usage=on_usage,
+            ),
+        )
+        if cache_key:
+            _store_cache_row(job, OcrCache(
+                cache_key=cache_key, file_hash=sub.file_hash,
+                institution_id=sub.batch.institution_id if sub.batch else None, provider="openai", model=model,
+                prompt_version=TRANSCRIPT_CACHE_VERSION, language_hints=hints, ocr_result=transcript.model_dump(mode="json"),
+            ))
     languages = [c for c in dict.fromkeys(transcript.languages or []) if isinstance(c, str) and c]
     _write_artifact(job.job_dir, voice.TRANSCRIPT_FILE, {
         "text": transcript.text,
@@ -735,6 +752,47 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
     return ocr, cache_key
 
 
+def _transcript_cache_hit(job: _Job, cache_key: str, model: str) -> Transcript | None:
+    """Same audio bytes (SHA-256) + model + hints + keywords: reuse the stored transcript, no call."""
+    db, sub = job.db, job.sub
+    row = db.scalar(select(OcrCache).where(OcrCache.cache_key == cache_key))
+    if row is None:
+        return None
+    try:
+        transcript = Transcript.model_validate(row.ocr_result)
+    except ValidationError:
+        logger.warning("Ignoring unreadable transcript cache row %s", row.id)
+        return None
+    row.hit_count = int(row.hit_count or 0) + 1
+    row.last_hit_at = utcnow()
+    provenance.record_invocation(
+        db,
+        usage=ModelUsage(purpose="transcription", provider="cache", model_requested=model,
+                         model_served=row.model or model, status="cache_hit"),
+        submission=sub,
+    )
+    logger.info("Transcript cache hit for submission %s - no transcription call", sub.id)
+    _record(
+        db, sub, "Transcription",
+        f"{TRANSCRIPT_CACHE_HIT_LABEL}: SHA-256 {hashing.short_hash(sub.file_hash)} matched a stored "
+        f"{row.model or model} transcript (reused {row.hit_count}x).",
+        current_step="Transcription", ocr_cache_hit=True,
+    )
+    return transcript
+
+
+def _store_cache_row(job: _Job, row: OcrCache) -> None:
+    """Insert a cache row once (never errors: e.g. a concurrent insert of the same key)."""
+    db = job.db
+    try:
+        if db.scalar(select(OcrCache.id).where(OcrCache.cache_key == row.cache_key)) is None:
+            db.add(row)
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Could not store the cache entry for submission %s", job.sub.id, exc_info=True)
+
+
 def _cache_hit(job: _Job, cache_key: str, provider: str, model: str) -> OcrResult | None:
     db, sub = job.db, job.sub
     row = db.scalar(select(OcrCache).where(OcrCache.cache_key == cache_key))
@@ -775,25 +833,18 @@ def _cache_store(job: _Job, cache_key: str | None, ocr: OcrResult) -> None:
         # Served by the fallback model (FR-3.10): never stored under the primary model's cache key.
         logger.info("OCR for submission %s came from %s - not cached", sub.id, ocr.provider)
         return
-    try:
-        if db.scalar(select(OcrCache.id).where(OcrCache.cache_key == cache_key)) is not None:
-            return
-        batch = sub.batch
-        db.add(OcrCache(
-            cache_key=cache_key,
-            file_hash=sub.file_hash,
-            institution_id=batch.institution_id if batch is not None else None,
-            rubric_questions_hash=hashing.rubric_questions_hash(sub.rubric.content or {}),
-            provider=ocr.provider or provider,
-            model=ocr.model or model,
-            prompt_version=getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
-            language_hints=_language_hints(sub),
-            ocr_result=ocr.model_dump(mode="json"),
-        ))
-        db.commit()
-    except Exception:  # noqa: BLE001 - e.g. a concurrent insert of the same key
-        db.rollback()
-        logger.warning("Could not store the OCR cache entry for submission %s", sub.id, exc_info=True)
+    batch = sub.batch
+    _store_cache_row(job, OcrCache(
+        cache_key=cache_key,
+        file_hash=sub.file_hash,
+        institution_id=batch.institution_id if batch is not None else None,
+        rubric_questions_hash=hashing.rubric_questions_hash(sub.rubric.content or {}),
+        provider=ocr.provider or provider,
+        model=ocr.model or model,
+        prompt_version=getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
+        language_hints=_language_hints(sub),
+        ocr_result=ocr.model_dump(mode="json"),
+    ))
 
 
 # --------------------------------------------------------------------------- #
@@ -840,7 +891,7 @@ def coverage_message(ocr: OcrResult, rubric_content: dict[str, Any]) -> str:
 
 def _gate(job: _Job, ocr: OcrResult, page_total: int) -> bool:
     """Record confidences; True (and HUMAN_REVIEW_REQUIRED) when the sheet or any page is below
-    the threshold."""
+    the threshold, or a document sheet has an answer for fewer than half of the rubric questions."""
     db, sub = job.db, job.sub
     threshold = get_settings().ocr_confidence_threshold
     confidence = round(float(ocr.overall_confidence), 3)
@@ -854,7 +905,10 @@ def _gate(job: _Job, ocr: OcrResult, page_total: int) -> bool:
         ocr_confidence=confidence, page_confidences=pages, flagged_pages=flagged,
     )
     _record(db, sub, "OCR & Parse", coverage_message(ocr, sub.rubric.content or {}))
-    if confidence >= threshold and not flagged:
+    numbers = set(_rubric_numbers(sub.rubric.content or {}))
+    answered = len(numbers & {a.question for a in ocr.answers if (a.answer or "").strip()})
+    mostly_blank = page_total > 0 and answered * 2 < len(numbers)  # voice rows (no pages) answer one question
+    if confidence >= threshold and not flagged and not mostly_blank:
         return False
 
     for page in pages:
@@ -870,10 +924,15 @@ def _gate(job: _Job, ocr: OcrResult, page_total: int) -> bool:
         )
         if flagged:
             message += f" Low-confidence page(s): {', '.join(map(str, flagged))}."
-    else:
+    elif flagged:
         message = (
             f"Page {', '.join(map(str, flagged))} below the {threshold:.2f} threshold "
             f"(overall {confidence:.2f}) - routed to faculty review; AI evaluation skipped."
+        )
+    else:
+        message = (
+            f"Mostly blank sheet - confirm before grading: only {answered}/{len(numbers)} rubric questions have "
+            "a transcribed answer - routed to faculty review; AI evaluation skipped."
         )
     _record(
         db, sub, "Human review", message,

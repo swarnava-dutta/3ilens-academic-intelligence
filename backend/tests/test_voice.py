@@ -369,3 +369,18 @@ def test_script_languages_cover_code_switched_transcripts():
     assert voice.script_languages("DNA replication semi-conservative होता है") == ["hi", "en"]
     assert voice.script_languages("ok") == [] and voice.script_languages("") == []
     assert voice.script_languages("இது ஒரு பதில்") == ["ta"]
+
+
+def test_repeated_recording_reuses_the_cached_transcript(upload, fake_ai, fake_transcriber, client, monkeypatch):
+    monkeypatch.setenv("OCR_CACHE", "1")
+    first = voice_upload(upload, voice_question="1").json()
+    second = voice_upload(upload, voice_question="1", student_name="Second Copy").json()
+    assert fake_transcriber.calls == 1  # same audio SHA-256: no second transcription call
+    two = result_of(client, second["id"])
+    assert two["submission"]["status"] == "COMPLETED" and two["submission"]["ocr_cache_hit"] is True
+    assert any(m.startswith("Transcript cache hit - no transcription call (Rs 0.00)") for m in
+               (e["message"] for e in two["processing_log"]))
+    assert [(i["purpose"], i["status"]) for i in invocations(client, second["id"])][0] == ("transcription", "cache_hit")
+    assert two["question_evaluations"] == result_of(client, first["id"])["question_evaluations"]
+    voice_upload(upload, content=_wav(2.0), voice_question="1", student_name="Other Clip")
+    assert fake_transcriber.calls == 2
