@@ -743,7 +743,10 @@ export function RoiLab({ result }: { result: Result }) {
           </p>
           <p className="mt-1 text-xs leading-relaxed text-violet-900/80">
             Chapter weightage ({basis.matrix_version}) and effort hours are sample values: {basis.weightage_source}.
-            Effort: {basis.effort_source}. No negative marking in this rubric.
+            Effort: {basis.effort_source}.{" "}
+            {result.question_evaluations.some((q) => q.question_type === "mcq")
+              ? "MCQ negative marking is already netted into the observed mastery (floored at 0%)."
+              : "No negative marking in this rubric."}
           </p>
         </div>
 

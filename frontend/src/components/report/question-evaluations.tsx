@@ -74,7 +74,7 @@ function MarkingBreakdown({ q }: { q: QuestionEvaluation }) {
       <Eyebrow icon={ListChecks} className="mb-1.5">
         Marking scheme
       </Eyebrow>
-      <div className="overflow-x-auto rounded-lg ring-1 ring-inset ring-slate-200">
+      <div className="relative overflow-x-auto rounded-lg ring-1 ring-inset ring-slate-200">
         <table className="w-full text-left text-xs">
           <caption className="sr-only">Marks awarded per marking-scheme step for question {q.question}</caption>
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
@@ -233,7 +233,8 @@ function QuestionCard({
 
       {!isMcq && q.marking_breakdown.length > 0 ? <MarkingBreakdown q={q} /> : null}
 
-      {q.marking_note ? (
+      {/* An MCQ's note restates the outcome line above; keep it only when it flags something else. */}
+      {q.marking_note && (!isMcq || /examiner/i.test(q.marking_note)) ? (
         <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
           <Info className="mt-px h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden />
           {q.marking_note}

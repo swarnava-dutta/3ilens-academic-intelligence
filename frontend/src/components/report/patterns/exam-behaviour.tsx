@@ -25,7 +25,7 @@ export function ExamBehaviour({ result }: { result: Result }) {
         <span>{thresholdNote}.</span>
         <span>Deterministic, computed from the marks on this paper - no AI call.</span>
       </div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 print:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start print:grid-cols-2">
         <NegativeMarkingCard
           profile={p.negative_marking ?? null}
           note={noteFor(notes, /negative/i, "No negatively-marked MCQs in this test")}

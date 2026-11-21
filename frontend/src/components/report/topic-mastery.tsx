@@ -2,7 +2,7 @@
 
 import { ChevronDown, ListFilter } from "lucide-react";
 import { useState } from "react";
-import type { TopicMastery } from "@/lib/types";
+import type { Priority, TopicMastery } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { clampPct, fmtNumber, fraction, priorityGroup, safeNumber } from "./format";
 import { SectionCard } from "./primitives";
@@ -29,13 +29,25 @@ export function weakestFirst(topics: TopicMastery[]): TopicMastery[] {
 /**
  * Topic screening (SAIR "Topic screening, not proven mastery"): observed score per topic,
  * weakest first, coloured by priority group, with the full/partial/zero/blank counts.
+ * P1..P5 follow `observed` (the observed-gap order of "Choose an intervention") when given,
+ * else the stored priority_rank.
  */
-export function TopicScreeningCard({ topics, className }: { topics: TopicMastery[]; className?: string }) {
+export function TopicScreeningCard({
+  topics,
+  observed,
+  className,
+}: {
+  topics: TopicMastery[];
+  observed?: Priority[];
+  className?: string;
+}) {
   const [filter, setFilter] = useState<Filter>("all");
   const [tableOpen, setTableOpen] = useState(false);
+  const observedRank = new Map((observed ?? []).map((p, i) => [p.topic, i + 1]));
+  const rankOf = (t: TopicMastery): number | null => (observed ? (observedRank.get(t.topic) ?? null) : t.priority_rank);
   const sorted = weakestFirst(topics);
-  const priorities = sorted.filter((t) => t.priority_rank !== null);
-  const shown = filter === "all" ? sorted : filter === "priorities" ? priorities : sorted.filter((t) => t.priority_rank === null);
+  const priorities = sorted.filter((t) => rankOf(t) !== null);
+  const shown = filter === "all" ? sorted : filter === "priorities" ? priorities : sorted.filter((t) => rankOf(t) === null);
   const chips: { key: Filter; label: string; n: number }[] = [
     { key: "all", label: `All ${sorted.length}`, n: sorted.length },
     { key: "priorities", label: "Priorities", n: priorities.length },
@@ -92,13 +104,13 @@ export function TopicScreeningCard({ topics, className }: { topics: TopicMastery
           ) : (
             <ul className="space-y-3">
               {shown.map((t) => {
-                const group = priorityGroup(t.priority_rank);
+                const group = priorityGroup(rankOf(t));
                 const pct = clampPct(t.mastery);
                 return (
                   <li key={t.topic} className="print:break-inside-avoid">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                       <p className="min-w-0 text-sm font-medium text-slate-800">
-                        {t.priority_rank !== null ? (
+                        {rankOf(t) !== null ? (
                           <span className="mr-1.5 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-700">
                             {group.label}
                           </span>

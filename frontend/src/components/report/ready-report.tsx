@@ -17,7 +17,7 @@ import {
 import { Notice } from "./dialog";
 import { EvidenceTraceCard } from "./evidence-trace";
 import { ExecutiveSummaryCard } from "./executive-summary";
-import { ImmediateReadingCard } from "./immediate-reading";
+import { ImmediateReadingCard, observedPriorities } from "./immediate-reading";
 import { InsightsCard } from "./insights";
 import { InterventionsPanel } from "./interventions-panel";
 import { normalizeResult } from "./normalize";
@@ -94,7 +94,11 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
       <ReportSection id="diagnostics" description="Screening results, not certified competencies.">
         <SubjectRollupCard rows={result.subject_rollup} />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 print:grid-cols-5">
-          <TopicScreeningCard topics={result.topic_mastery} className="lg:col-span-3 print:col-span-3" />
+          <TopicScreeningCard
+            topics={result.topic_mastery}
+            observed={observedPriorities(result)}
+            className="lg:col-span-3 print:col-span-3"
+          />
           <InsightsCard
             strengths={result.strengths_gaps.strengths}
             gaps={result.strengths_gaps.gaps}

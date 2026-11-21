@@ -305,7 +305,10 @@ export function SairHeader({
             <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
               {submission.student_name || "Unnamed student"}
             </h1>
-            <p className="mt-1 text-sm text-slate-300">Question-linked academic diagnostic from the uploaded answer sheet</p>
+            <p className="mt-1 text-sm text-slate-300">
+              Question-linked academic diagnostic from the uploaded{" "}
+              {submission.input_kind === "voice" ? "voice answer" : "answer sheet"}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {submission.is_demo ? (
