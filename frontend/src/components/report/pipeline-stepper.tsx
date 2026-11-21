@@ -1,4 +1,4 @@
-import { AlertTriangle, Brain, Check, Database, FileText, Loader2, ScanLine, ScanText, TrendingUp, XCircle } from "lucide-react";
+import { AlertTriangle, Brain, Check, Database, FileText, Loader2, Mic, ScanLine, ScanText, TrendingUp, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ProcessingLogEntry, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,15 @@ export const PIPELINE_STAGES: { label: string; Icon: LucideIcon }[] = [
   { label: "Results stored", Icon: Database },
 ];
 
+/** Voice answers (FR-2.8): no page pre-processing; "Transcription" then transcript mapping replace OCR. */
+export const VOICE_PIPELINE_STAGES: { label: string; Icon: LucideIcon }[] = PIPELINE_STAGES.map((stage, i) =>
+  i === 1
+    ? { label: "Pre-processing (n/a - audio)", Icon: ScanLine }
+    : i === 2
+      ? { label: "Transcription & mapping", Icon: Mic }
+      : stage,
+);
+
 /** processing_log step names written by backend/pipeline.py, main.py (upload) and seed.py. */
 const STEP_STAGE: Record<string, number> = {
   ingestion: 0,
@@ -20,6 +29,7 @@ const STEP_STAGE: Record<string, number> = {
   "pre-processing": 1,
   "ocr & parse": 2,
   "ocr & answer structuring": 2,
+  transcription: 2,
   "rubric evaluation": 3,
   "insights & roi": 4,
   persistence: 5,
@@ -117,10 +127,11 @@ const LOOK: Record<StageState, { label: string; look: string; iconLook: string; 
   waiting: { label: "Waiting", look: "border-slate-200 bg-white text-slate-400", iconLook: "bg-slate-100 text-slate-400" },
 };
 
-export function PipelineStepper({ states }: { states: StageState[] }) {
+export function PipelineStepper({ states, voice = false }: { states: StageState[]; voice?: boolean }) {
+  const stages = voice ? VOICE_PIPELINE_STAGES : PIPELINE_STAGES;
   return (
     <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" aria-label="Pipeline progress">
-      {PIPELINE_STAGES.map((stage, i) => {
+      {stages.map((stage, i) => {
         const state = states[i] ?? "waiting";
         const { label, look, iconLook, Icon = stage.Icon } = LOOK[state];
         const current = state === "active" || state === "review" || state === "failed";

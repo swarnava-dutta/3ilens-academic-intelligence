@@ -19,6 +19,7 @@ import { Notice, btnAmber, btnPrimary, btnSecondary, inputClass } from "./dialog
 import { fmtIST } from "./format";
 import { Pill } from "./primitives";
 import { UncertainText } from "./uncertain-text";
+import { VoiceAnswerPanel, voiceInfoFromSubmission } from "./voice-answer";
 
 type LoadState = { kind: "loading" } | { kind: "ready"; data: OcrReviewData } | { kind: "error"; message: string };
 
@@ -26,6 +27,7 @@ const REVIEW_ERRORS: Record<string, string> = {
   no_transcript: "There is no OCR transcript to approve: type the answers and save them as corrections, or request a rescan.",
   invalid_question: "One of the corrected question numbers is not on the rubric.",
   invalid_state: "This sheet is no longer waiting for review (it may already be grading). Reload the page.",
+  input_kind_mismatch: "A voice answer can only be replaced by audio, and a written sheet only by a document.",
 };
 
 function reviewError(err: unknown): string {
@@ -204,7 +206,11 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl bg-white/80 p-3 ring-1 ring-inset ring-amber-200">
-          <PagePanel id={id} data={data} />
+          {submission.input_kind === "voice" ? (
+            <VoiceAnswerPanel submissionId={id} voice={voiceInfoFromSubmission(submission)} isDemo={submission.is_demo} />
+          ) : (
+            <PagePanel id={id} data={data} />
+          )}
         </div>
 
         <div className="min-w-0 space-y-3 rounded-xl bg-white/80 p-3 ring-1 ring-inset ring-amber-200">
@@ -312,7 +318,11 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
             <input
               ref={fileRef}
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp"
+              accept={
+                submission.input_kind === "voice"
+                  ? ".mp3,.wav,.m4a,.ogg,audio/*"
+                  : ".pdf,.jpg,.jpeg,.png,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp"
+              }
               className="sr-only"
               tabIndex={-1}
               aria-hidden

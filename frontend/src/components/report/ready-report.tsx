@@ -28,6 +28,7 @@ import { RoiLab } from "./roi-lab";
 import { RunMetadataTable } from "./run-metadata";
 import { ReportSection, SectionNav } from "./section-nav";
 import { SourcePagesViewer } from "./source-pages";
+import { VoiceAnswerCard } from "./voice-answer";
 import { StatCards } from "./stat-cards";
 import { SubjectRollupCard } from "./subject-rollup";
 import { TopicScreeningCard } from "./topic-mastery";
@@ -141,8 +142,29 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
         </div>
       </ReportSection>
 
-      <ReportSection id="pages" description={isDemo ? "Synthetic record: no source scan." : "As uploaded and as processed."}>
-        <SourcePagesViewer result={result} />
+      <ReportSection
+        id="pages"
+        description={
+          result.voice
+            ? "Voice answer: the recording and its transcript."
+            : isDemo
+              ? "Synthetic record: no source scan."
+              : "As uploaded and as processed."
+        }
+      >
+        {result.voice ? (
+          <VoiceAnswerCard
+            submissionId={result.submission.id}
+            voice={result.voice}
+            mappedQuestions={result.question_evaluations
+              .filter((q) => (q.student_answer ?? "").trim())
+              .map((q) => q.question)
+              .sort((a, b) => a - b)}
+            isDemo={isDemo}
+          />
+        ) : (
+          <SourcePagesViewer result={result} />
+        )}
       </ReportSection>
 
       <p className="flex items-start justify-center gap-2 px-2 text-center text-xs leading-relaxed text-slate-400">

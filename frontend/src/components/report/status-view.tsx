@@ -9,7 +9,7 @@ import type { ProcessingLogEntry, ResultPending } from "@/lib/types";
 import { formatConfidence, formatDateTime } from "@/lib/utils";
 import { AuditTrailCard } from "./audit-trail";
 import { humanizeStep } from "./format";
-import { PIPELINE_STAGES, PipelineStepper, stageStates, type StageState } from "./pipeline-stepper";
+import { PIPELINE_STAGES, PipelineStepper, VOICE_PIPELINE_STAGES, stageStates, type StageState } from "./pipeline-stepper";
 import { Notice, btnPrimary } from "./dialog";
 import { MeterBar, Pill } from "./primitives";
 import { ReportHeader } from "./report-header";
@@ -116,7 +116,7 @@ function HumanReviewPanel({
 
       {states ? (
         <div className="mt-6">
-          <PipelineStepper states={states} />
+          <PipelineStepper states={states} voice={pending.submission.input_kind === "voice"} />
         </div>
       ) : null}
     </section>
@@ -216,7 +216,7 @@ function FailedPanel({
       </div>
       {states ? (
         <div className="mt-6">
-          <PipelineStepper states={states} />
+          <PipelineStepper states={states} voice={pending.submission.input_kind === "voice"} />
         </div>
       ) : null}
     </section>
@@ -227,7 +227,8 @@ function ActivePanel({ pending, states }: { pending: ResultPending; states: Stag
   const s = pending.submission;
   const index = states ? states.indexOf("active") : -1;
   const progress = ((Math.max(index, 0) + 0.5) / PIPELINE_STAGES.length) * 100;
-  const stepLabel = s.current_step ? humanizeStep(s.current_step) : PIPELINE_STAGES[Math.max(index, 0)].label;
+  const stages = s.input_kind === "voice" ? VOICE_PIPELINE_STAGES : PIPELINE_STAGES;
+  const stepLabel = s.current_step ? humanizeStep(s.current_step) : stages[Math.max(index, 0)].label;
   return (
     <section
       aria-labelledby="active-title"
@@ -277,7 +278,7 @@ function ActivePanel({ pending, states }: { pending: ResultPending; states: Stag
 
       {states ? (
         <div className="mt-5">
-          <PipelineStepper states={states} />
+          <PipelineStepper states={states} voice={pending.submission.input_kind === "voice"} />
         </div>
       ) : null}
     </section>
