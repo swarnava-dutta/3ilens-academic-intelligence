@@ -12,7 +12,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Building2, CalendarClock, LayoutDashboard, Plug, Route, Upload, Users } from "lucide-react";
 import { errorMessage, getHealth } from "@/lib/api";
 import type { Health } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -92,16 +91,16 @@ function useHealthPolling(): HealthState {
 /* ------------------------------------------------------------------ */
 
 /**
- * Console navigation (V5 wireframe parity): Students · Intake · Cohort · Owner · Integrations ·
- * How it works. `short` is the label below the sm breakpoint (the list also scrolls sideways).
+ * Console navigation: Students, Intake, Cohort, Owner, Integrations, How it works. `short` is the
+ * label below the sm breakpoint (the row also scrolls sideways).
  */
 const NAV_ITEMS = [
-  { href: "/students", label: "Students", short: "Students", Icon: Users },
-  { href: "/", label: "Intake", short: "Intake", Icon: Upload },
-  { href: "/cohort", label: "Cohort", short: "Cohort", Icon: LayoutDashboard },
-  { href: "/owner", label: "Owner", short: "Owner", Icon: Building2 },
-  { href: "/integrations", label: "Integrations", short: "LMS/AI", Icon: Plug },
-  { href: "/journey", label: "How it works", short: "Journey", Icon: Route },
+  { href: "/students", label: "Students", short: "Students" },
+  { href: "/", label: "Intake", short: "Intake" },
+  { href: "/cohort", label: "Cohort", short: "Cohort" },
+  { href: "/owner", label: "Owner", short: "Owner" },
+  { href: "/integrations", label: "Integrations", short: "LMS/AI" },
+  { href: "/journey", label: "How it works", short: "Journey" },
 ] as const;
 
 function isActive(href: string, pathname: string | null): boolean {
@@ -112,26 +111,21 @@ function isActive(href: string, pathname: string | null): boolean {
 
 function NavList({ pathname }: { pathname: string | null }) {
   return (
-    <ul className="flex w-full items-center gap-0.5 overflow-x-auto rounded-xl bg-slate-100/80 p-1 [scrollbar-width:none] sm:gap-1 md:w-auto md:bg-transparent md:p-0">
-      {NAV_ITEMS.map(({ href, label, short, Icon }) => {
+    <ul className="-mb-px flex overflow-x-auto [scrollbar-width:none]">
+      {NAV_ITEMS.map(({ href, label, short }) => {
         const active = isActive(href, pathname);
         return (
-          <li key={href} className="flex-1 shrink-0 md:flex-none">
+          <li key={href} className="shrink-0">
             <Link
               href={href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-1 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm md:px-2 2xl:px-3",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
+                "flex h-10 items-center whitespace-nowrap border-b-2 px-3 text-sm font-medium transition-colors duration-150 focus-visible:-outline-offset-2",
                 active
-                  ? "bg-white text-brand-navy shadow-sm ring-1 ring-slate-200 md:bg-brand-cyan-50 md:text-brand-navy md:shadow-none md:ring-brand-cyan/30"
-                  : "text-slate-600 hover:bg-white/70 hover:text-brand-navy md:hover:bg-slate-100",
+                  ? "border-brand-cyan text-brand-navy"
+                  : "border-transparent text-slate-600 hover:border-slate-300 hover:text-brand-navy",
               )}
             >
-              <Icon
-                className={cn("hidden h-4 w-4 sm:block", active ? "text-brand-cyan" : "text-slate-400")}
-                aria-hidden
-              />
               <span className="sm:hidden">{short}</span>
               <span className="hidden sm:inline">{label}</span>
             </Link>
@@ -146,41 +140,6 @@ function NavList({ pathname }: { pathname: string | null }) {
 function ActiveNavList() {
   const pathname = usePathname();
   return <NavList pathname={pathname} />;
-}
-
-export function LogoMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 40 40" className={className} aria-hidden="true" focusable="false">
-      <defs>
-        <linearGradient id="three-i-lens-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#13315c" />
-          <stop offset="1" stopColor="#0b2545" />
-        </linearGradient>
-      </defs>
-      <rect width="40" height="40" rx="11" fill="url(#three-i-lens-bg)" />
-      {/* Lens ring with an open aperture at the top right */}
-      <path
-        d="M26.71 10.05 A12 12 0 1 0 31.88 18.33"
-        fill="none"
-        stroke="#05a7c5"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-      />
-      {/* Insight glint */}
-      <circle cx="30.18" cy="13.64" r="2.4" fill="#a0d84e" />
-      <text
-        x="19.6"
-        y="24.4"
-        textAnchor="middle"
-        fontSize="12.5"
-        fontWeight="700"
-        fill="#ffffff"
-        style={{ fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif", letterSpacing: "-0.04em" }}
-      >
-        3i
-      </text>
-    </svg>
-  );
 }
 
 function AiStatus({ health, error, loading }: Pick<HealthState, "health" | "error" | "loading">) {
@@ -210,32 +169,23 @@ function AiStatus({ health, error, loading }: Pick<HealthState, "health" | "erro
       role="status"
       title={title}
       className={cn(
-        "inline-flex items-center gap-2 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
-        tone === "ok" && "bg-brand-lime-50 text-brand-lime-600 ring-brand-lime/40",
-        tone === "warn" && "bg-amber-50 text-amber-800 ring-amber-300",
-        tone === "down" && "bg-rose-50 text-rose-700 ring-rose-200",
-        tone === "idle" && "bg-slate-100 text-slate-500 ring-slate-200",
+        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs",
+        tone === "ok" && "text-slate-600",
+        tone === "warn" && "font-medium text-amber-800",
+        tone === "down" && "font-medium text-red-700",
+        tone === "idle" && "text-slate-500",
       )}
     >
-      <span className="relative flex h-2 w-2" aria-hidden>
-        {(tone === "ok" || tone === "idle") && (
-          <span
-            className={cn(
-              "absolute inline-flex h-full w-full animate-ping rounded-full opacity-60",
-              tone === "ok" ? "bg-brand-lime" : "bg-slate-400",
-            )}
-          />
+      <span
+        aria-hidden
+        className={cn(
+          "h-2 w-2 rounded-full",
+          tone === "ok" && "bg-brand-lime-600",
+          tone === "warn" && "bg-amber-500",
+          tone === "down" && "bg-red-600",
+          tone === "idle" && "bg-slate-400",
         )}
-        <span
-          className={cn(
-            "relative inline-flex h-2 w-2 rounded-full",
-            tone === "ok" && "bg-brand-lime-600",
-            tone === "warn" && "bg-amber-500",
-            tone === "down" && "bg-rose-500",
-            tone === "idle" && "bg-slate-400",
-          )}
-        />
-      </span>
+      />
       {label}
     </span>
   );
@@ -256,68 +206,56 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <HealthContext value={healthState}>
-      <header className="sticky top-0 z-40 print:hidden border-b border-slate-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/75">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6 lg:px-8 2xl:gap-x-6">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white print:hidden">
+        <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
           <Link
             href="/"
-            className="group flex items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2"
+            className="flex items-baseline gap-2 whitespace-nowrap"
             aria-label="3iLens Academic Intelligence - Intake"
           >
-            <LogoMark className="h-9 w-9 shrink-0 drop-shadow-sm transition-transform group-hover:scale-105" />
-            <span className="flex flex-col leading-tight">
-              <span className="text-base font-bold tracking-tight text-brand-navy">
-                3i<span className="text-brand-cyan">Lens</span>
-              </span>
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
-                Academic Intelligence
-              </span>
-            </span>
+            <span className="text-[17px] font-semibold tracking-tight text-brand-navy">3iLens</span>
+            <span className="hidden text-[13px] text-slate-500 sm:inline">Academic Intelligence</span>
           </Link>
 
-          <nav aria-label="Primary" className="order-last w-full md:order-none md:w-auto">
-            <Suspense fallback={<NavList pathname={null} />}>
-              <ActiveNavList />
-            </Suspense>
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2">
-            <span
-              className="hidden items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-200 sm:inline-flex"
+          <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-slate-600">
+            <p
+              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
               title={examTitle ? `Institution · active batch · ${examTitle}` : "Institution · active batch"}
             >
-              <Building2 className="h-3.5 w-3.5 text-brand-navy/70" aria-hidden />
-              {institution}
-              <span className="text-slate-300" aria-hidden>
-                ·
+              <span className="hidden truncate lg:inline">{institution}</span>
+              <span className="hidden text-slate-300 lg:inline" aria-hidden>
+                /
               </span>
-              <span className="text-brand-navy">{batch}</span>
+              <span className="hidden truncate font-medium text-brand-navy md:inline">{batch}</span>
               {exam && typeof days === "number" ? (
                 <>
-                  {/* Six nav items: the days-to-exam segment shows on 2xl only (the Cohort page shows the exam date). */}
-                  <span className="hidden text-slate-300 2xl:inline" aria-hidden>
-                    ·
+                  <span className="hidden text-slate-300 md:inline" aria-hidden>
+                    /
                   </span>
-                  <span className="hidden items-center gap-1 text-slate-600 2xl:inline-flex" title={examTitle}>
-                    <CalendarClock className="h-3.5 w-3.5 text-brand-cyan" aria-hidden />
-                    {exam} in {days}d{assumed ? <span className="text-slate-400">*</span> : null}
+                  <span title={examTitle}>
+                    {exam} in {days} d{assumed ? <span className="text-slate-400">*</span> : null}
                   </span>
                 </>
               ) : null}
-            </span>
+            </p>
+            <span className="h-4 w-px bg-slate-200" aria-hidden />
             <AiStatus health={health} error={error} loading={loading} />
           </div>
         </div>
+
+        <nav aria-label="Primary" className="mx-auto w-full max-w-7xl px-1 sm:px-3 lg:px-5">
+          <Suspense fallback={<NavList pathname={null} />}>
+            <ActiveNavList />
+          </Suspense>
+        </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
 
-      <footer className="border-t border-slate-200 bg-white/60 print:hidden">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>
-            <span className="font-semibold text-brand-navy">PoC</span> · local pipeline (BackgroundTasks · SQLite ·
-            local storage) · WhatsApp delivery simulated
-          </p>
-          <p className="text-slate-400">3iLens Academic Intelligence</p>
+      <footer className="border-t border-slate-200 print:hidden">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:justify-between sm:px-6 lg:px-8">
+          <p>Proof of concept · local pipeline (SQLite, local storage) · WhatsApp delivery simulated</p>
+          <p>3iLens Academic Intelligence</p>
         </div>
       </footer>
     </HealthContext>

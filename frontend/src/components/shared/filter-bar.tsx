@@ -1,6 +1,5 @@
 "use client";
 
-import { FilterX, SlidersHorizontal } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getFilters, type DashboardQuery } from "@/lib/api";
@@ -51,8 +50,8 @@ export function useDashboardFilters(): DashboardQuery {
 }
 
 const selectClass =
-  "h-9 min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 shadow-sm " +
-  "focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30";
+  "h-9 min-w-0 max-w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 " +
+  "focus-visible:border-brand-cyan";
 
 /**
  * Batch / test / urgency / topic selects backed by GET /api/filters. State lives in the URL
@@ -116,7 +115,6 @@ export function FilterBar({ show = ALL_FILTERS, className }: { show?: FilterKey[
       aria-label="Filters"
       className={cn("flex flex-wrap items-center gap-2 print:hidden", className)}
     >
-      <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
       {show.includes("batch") ? (
         <label className="min-w-0">
           <span className="sr-only">Batch</span>
@@ -189,10 +187,9 @@ export function FilterBar({ show = ALL_FILTERS, className }: { show?: FilterKey[
         <button
           type="button"
           onClick={clearAll}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          className="h-9 rounded-md px-2 text-sm font-medium text-brand-cyan-600 transition-colors duration-150 hover:text-brand-navy"
         >
-          <FilterX className="h-4 w-4" aria-hidden />
-          Clear
+          Clear filters
         </button>
       ) : null}
     </div>

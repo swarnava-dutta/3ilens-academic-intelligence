@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 /*
- * 3iLens brand tokens. Use as Tailwind utilities, e.g.
- *   bg-brand-navy text-brand-cyan border-brand-lime bg-brand-cyan-50 ring-brand-cyan/30
- * Base surface: bg-slate-50, text-slate-800. Cards: bg-white, rounded-2xl, border-slate-200,
- * shadow-sm. Status pills are rounded-full.
+ * 3iLens brand tokens, used as Tailwind utilities (bg-brand-navy, text-brand-cyan-600, ...).
+ * Page bg #f6f7f9; panels bg-white, border-slate-200, rounded-md, no shadow. Navy for headings and
+ * primary actions, cyan as the single interactive accent, lime only for positive data,
+ * amber = needs review, red = failure / at risk.
  */
 @theme inline {
   --color-brand-navy: #0b2545;
@@ -16,13 +16,34 @@
   --color-brand-lime-600: #7fb52f;
   --color-brand-lime-50: #f3fae8;
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-fira-code), ui-monospace, monospace;
 }
 
-body {
-  background: #f8fafc; /* slate-50 */
-  color: #1e293b; /* slate-800 */
+@layer base {
+  body {
+    background: #f6f7f9;
+    color: #1e293b; /* slate-800 */
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-cyan);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ------------------------------------------------------------------------- */

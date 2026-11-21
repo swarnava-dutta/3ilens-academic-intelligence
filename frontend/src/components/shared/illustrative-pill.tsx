@@ -1,4 +1,3 @@
-import { FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_TITLE =
@@ -22,11 +21,10 @@ export function IllustrativePill({
     <span
       title={title}
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-200",
+        "inline-flex items-center whitespace-nowrap rounded-sm border border-slate-300 px-1.5 text-xs text-slate-600",
         className,
       )}
     >
-      <FlaskConical className="h-3.5 w-3.5" aria-hidden />
       {label}
       <span className="sr-only">. {title}</span>
     </span>

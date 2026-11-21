@@ -8,28 +8,28 @@ const STYLES: Record<
 > = {
   PENDING: {
     label: "Pending",
-    className: "bg-slate-100 text-slate-600 ring-slate-200",
+    className: "bg-slate-100 text-slate-700",
     Icon: Clock,
   },
   PROCESSING: {
     label: "Processing",
-    className: "bg-brand-cyan-50 text-brand-cyan-600 ring-brand-cyan/30",
+    className: "bg-brand-cyan-50 text-cyan-800",
     Icon: Loader2,
     spin: true,
   },
   COMPLETED: {
     label: "Completed",
-    className: "bg-brand-lime-50 text-brand-lime-600 ring-brand-lime/40",
+    className: "bg-brand-lime-50 text-lime-800",
     Icon: CheckCircle2,
   },
   FAILED: {
     label: "Failed",
-    className: "bg-rose-50 text-rose-700 ring-rose-200",
+    className: "bg-red-50 text-red-700",
     Icon: XCircle,
   },
   HUMAN_REVIEW_REQUIRED: {
     label: "Human review required",
-    className: "bg-amber-100 text-amber-800 ring-amber-300 font-semibold",
+    className: "bg-amber-100 text-amber-900 font-semibold",
     Icon: AlertTriangle,
   },
 };
@@ -40,12 +40,12 @@ export function StatusBadge({ status, className }: { status: SubmissionStatus; c
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium",
         s.className,
         className,
       )}
     >
-      <Icon className={cn("h-3.5 w-3.5", s.spin && "animate-spin")} aria-hidden />
+      <Icon className={cn("h-3 w-3", s.spin && "animate-spin")} aria-hidden />
       {s.label}
     </span>
   );

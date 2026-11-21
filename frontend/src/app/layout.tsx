@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fira_Code, Fira_Sans } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const firaSans = Fira_Sans({
+  variable: "--font-fira-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const firaCode = Fira_Code({
+  variable: "--font-fira-code",
   subsets: ["latin"],
 });
 
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
     template: "%s · 3iLens Academic Intelligence",
   },
   description:
-    "Handwritten answer sheets to AI OCR, rubric evaluation, Preparation ROI and cohort insights - 3iLens Academic Intelligence proof of concept.",
+    "Handwritten answer sheet OCR, rubric grading, student reports and cohort analytics for NEET coaching institutes.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -29,10 +30,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     // own attributes are exempt; mismatches anywhere below are still reported.
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${firaSans.variable} ${firaCode.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col bg-slate-50 font-sans text-slate-800 antialiased" suppressHydrationWarning>
+      <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>
         <AppShell>{children}</AppShell>
       </body>
     </html>
