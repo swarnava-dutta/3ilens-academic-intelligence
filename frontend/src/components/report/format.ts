@@ -1,4 +1,4 @@
-// Report-only helpers (shared lib files are owned elsewhere).
+// Report-only helpers (generic helpers live in src/lib).
 import { masteryTone } from "@/lib/utils";
 
 // Exam weightage comes from the API (Priority.weightage, StudyPlan topics' exam_marks and RoiBasis);
@@ -178,7 +178,7 @@ export function isoDateIST(iso: string | null | undefined): string {
   return t === null ? (iso ?? "") : IST_ISO_DATE.format(t);
 }
 
-/** "Rs 0.42" (the lead's wording for costs, e.g. "OCR cache hit - no vision call (Rs 0.00)"). */
+/** "Rs 0.42" (cost wording used across the report, e.g. "OCR cache hit - no vision call (Rs 0.00)"). */
 export function fmtInr(n: unknown, digits = 2): string {
   return typeof n === "number" && Number.isFinite(n) ? `Rs ${n.toFixed(digits)}` : "—";
 }

@@ -24,7 +24,7 @@ import { Eyebrow, MeterBar, Pill, SectionCard } from "./primitives";
 import { openSourcePage } from "./report-events";
 import { UncertainText } from "./uncertain-text";
 
-/** "p. 2" chip that opens the page in the source-page viewer (section 05). */
+/** "p. 2" chip that opens the page in the source-page viewer (the "Original pages" section). */
 export function SourcePageChip({ page, className }: { page: number; className?: string }) {
   return (
     <button

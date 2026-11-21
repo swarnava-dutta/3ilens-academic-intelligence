@@ -201,7 +201,7 @@ export function VoiceAnswerPanel({
   );
 }
 
-/** Report card wrapper for the voice answer (section 05 for voice submissions). */
+/** Report card wrapper for the voice answer (the "Original pages" section for voice submissions). */
 export function VoiceAnswerCard({
   submissionId,
   voice,

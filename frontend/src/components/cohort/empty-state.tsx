@@ -19,7 +19,7 @@ export function CohortEmptyState({
   const [error, setError] = useState<string | null>(null);
   const inPipeline = cohort.total_submissions ?? 0;
 
-  /** set=all: Genetics + mixed demo cohorts; set=insights: the wave-2 sample (NEET-C, MCQ papers, interventions). */
+  /** set=all: Genetics + mixed demo cohorts; set=insights: the insights sample (NEET-C, MCQ papers, interventions). */
   async function loadDemo(set: DemoSet) {
     setSeeding(set);
     setError(null);
@@ -90,12 +90,12 @@ export function CohortEmptyState({
           ) : (
             <FlaskConical className="h-4 w-4" aria-hidden />
           )}
-          {seeding === "insights" ? "Loading wave-2 sample…" : "Load wave-2 sample (MCQ papers, interventions)"}
+          {seeding === "insights" ? "Loading insights sample…" : "Load insights sample (MCQ papers, interventions)"}
         </button>
       </div>
 
       <p className="mx-auto mt-4 max-w-md text-xs text-slate-500">
-        The demo cohort and the wave-2 sample (NEET-C (sample), NEET MCQ papers, logged interventions) are
+        The demo cohort and the insights sample (NEET-C (sample), NEET MCQ papers, logged interventions) are
         synthetic sample data, inserted without any AI calls. They stay clearly labelled as demo data on every
         screen.
       </p>

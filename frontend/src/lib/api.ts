@@ -401,7 +401,7 @@ export async function getFilters(): Promise<DashboardFilters> {
 }
 
 // =========================================================================== //
-// Wave 2 (contract v3) - API_CONTRACT.md "Wave 2 (contract v3)"
+// Contract v3 - voice, LLM chain, Bloom, patterns, interventions, owner, LMS (API_CONTRACT.md)
 // =========================================================================== //
 
 // --- Voice answers (FR-2.8) ------------------------------------------------- //

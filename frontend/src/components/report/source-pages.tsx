@@ -50,7 +50,7 @@ function PageImage({
   );
 }
 
-/** Source pages viewer (SAIR section 05): thumbnails, large page, lightbox, processed/original toggle. */
+/** Source pages viewer (the report's "Original pages" section): thumbnails, large page, lightbox, processed/original toggle. */
 export function SourcePagesViewer({ result }: { result: Result }) {
   const id = result.submission.id;
   const isDemo = result.submission.is_demo;

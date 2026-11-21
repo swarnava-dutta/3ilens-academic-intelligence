@@ -2,7 +2,7 @@
 //
 // - Question references (Q-ref chips, evidence trace, action plan) scroll to the question card
 //   #q-<n> and flash it.
-// - "Open page n" links ask the source-page viewer (section 05) to show page n via a window event
+// - "Open page n" links ask the source-page viewer (the "Original pages" section) to show page n via a window event
 //   and record #page-<n> in the URL so the view can be shared.
 
 export const OPEN_PAGE_EVENT = "sair:open-page";
@@ -45,7 +45,7 @@ export function focusQuestion(question: number): void {
   replaceHash(`q-${question}`);
 }
 
-/** Show page n in the source-page viewer (section 05) and scroll to it. */
+/** Show page n in the source-page viewer (the "Original pages" section) and scroll to it. */
 export function openSourcePage(page: number): void {
   replaceHash(`page-${page}`);
   window.dispatchEvent(new CustomEvent<number>(OPEN_PAGE_EVENT, { detail: page }));

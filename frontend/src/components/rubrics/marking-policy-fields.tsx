@@ -38,7 +38,7 @@ function detect(policy: MarkingPolicy | undefined): Preset {
 
 /** One-line summary, e.g. "steps of 0.5 · -1 per wrong MCQ". */
 export function policySummary(policy: MarkingPolicy | undefined): string {
-  if (!policy) return "Wave-1 rule: 0.5-mark steps, no negative marking";
+  if (!policy) return "Default rule: 0.5-mark steps, no negative marking";
   const mode =
     policy.partial_credit === "steps"
       ? `partial credit in ${policy.mark_step}-mark steps`
@@ -51,7 +51,7 @@ export function policySummary(policy: MarkingPolicy | undefined): string {
 
 /**
  * Rubric-wide marking policy (FR-3.8 / FR-4.8): presets NEET +4/-1, board 0.5-mark steps,
- * whole marks, none (the wave-1 rule), or custom fields. Questions may override mode and step.
+ * whole marks, none (the default rule), or custom fields. Questions may override mode and step.
  */
 export function MarkingPolicyFields({
   value,

@@ -46,9 +46,9 @@ export type InvocationPurpose =
 export type LanguageHint = "en" | "hi" | "ta" | "kn" | "te";
 export type ReviewAction = "approve" | "correct" | "rescan";
 export type RubricSource = "text" | "pdf" | "docx" | "json";
-/** "insights" = the wave-2 sample set (MCQ papers, NEET-C (sample), interventions); not part of "all". */
+/** "insights" = the insights sample set (MCQ papers, NEET-C (sample), interventions); not part of "all". */
 export type DemoSet = "genetics" | "mixed" | "all" | "insights";
-// --- wave 2 (contract v3) ---
+// --- contract v3 ---
 export type QuestionType = "descriptive" | "mcq";
 /** Bloom's taxonomy: K1 Remember, K2 Understand, K3 Apply, K4 Analyse, K5 Evaluate. */
 export type BloomLevel = "K1" | "K2" | "K3" | "K4" | "K5";
@@ -152,7 +152,7 @@ export interface RubricQuestion {
   effort_hours: number;
   /** Syllabus chapter (maps the topic onto the weightage matrix). */
   chapter?: string;
-  // --- wave 2 (absent on older rubrics) ---
+  // --- MCQ, Bloom and marking-scheme fields (absent on older rubrics) ---
   question_type?: QuestionType;
   /** MCQ option texts (2-6), lettered A-F. */
   options?: string[];
@@ -174,7 +174,7 @@ export interface RubricContent {
   name: string;
   subject: string;
   questions: RubricQuestion[];
-  /** Absent = the wave-1 rule (0.5-mark steps, no negative marking). */
+  /** Absent = the default rule (0.5-mark steps, no negative marking). */
   marking_policy?: MarkingPolicy;
 }
 
@@ -310,7 +310,7 @@ export interface QuestionEvaluation {
   source_pages: number[];
   uncertain_words: UncertainWord[];
   corrected_by_faculty: boolean;
-  // --- wave 2 (filled at read time for older rows) ---
+  // --- contract v3 (filled at read time for older rows) ---
   question_type: QuestionType;
   bloom_level: BloomLevel | null;
   bloom_source: BloomSource | null;
@@ -655,7 +655,7 @@ export interface Result {
   versions: EvaluationVersion[];
   deliveries: Delivery[];
   study_plan: StudyPlan;
-  // --- wave 2 (guarded hooks: a failure falls back to the empty value) ---
+  // --- contract v3 (guarded extension hooks: a failure falls back to the empty value) ---
   llm_routes: LlmRoute[];
   patterns: StudentPatterns;
   interventions: InterventionRecord[];
@@ -785,7 +785,7 @@ export interface Cohort {
   excluded: ExcludedStudents;
   operations: Operations;
   release_counts: ReleaseCounts;
-  /** Wave 2 exam-behaviour patterns (guarded; empty on failure). */
+  /** Exam-behaviour patterns (guarded; empty on failure). */
   patterns: CohortPatterns;
 }
 
@@ -1096,7 +1096,7 @@ export interface DeliveryInput {
 }
 
 // =========================================================================== //
-// Wave 2 (contract v3) - see API_CONTRACT.md "Wave 2 (contract v3)"
+// Contract v3 - see API_CONTRACT.md
 // =========================================================================== //
 
 // --- Voice answers (FR-2.8) -------------------------------------------------- //

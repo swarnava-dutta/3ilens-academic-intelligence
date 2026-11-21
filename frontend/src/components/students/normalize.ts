@@ -1,5 +1,5 @@
-// Defensive defaults for GET /api/students rows (the endpoint is built in parallel; older or partial
-// payloads must never crash the page).
+// Defensive defaults for GET /api/students rows (older or partial payloads must never crash the
+// page).
 import type { Batch, FocusItem, Quadrant, RubricRef, StudentCard, TeachingNudge, TopicPoint, Urgency } from "@/lib/types";
 
 const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];

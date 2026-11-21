@@ -5,7 +5,7 @@ import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { errorCode, errorMessage, errorStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/** Plain-language next step for the coded wave-2 errors. */
+/** Plain-language next step for the coded API errors. */
 const CODE_HINTS: Record<string, string> = {
   ai_not_configured: "Add ANTHROPIC_API_KEY to .env and restart the API.",
   fallback_unavailable: "Set OPENAI_API_KEY and LLM_FALLBACK=1 in .env, then restart the API.",
@@ -21,7 +21,7 @@ const CODE_HINTS: Record<string, string> = {
   unknown_key: "That key no longer exists. Reload the list.",
 };
 
-/** errorMessage() plus a hint for coded errors, and a clear note when a wave-2 route is missing. */
+/** errorMessage() plus a hint for coded errors, and a clear note when a route is missing on an older API. */
 export function describeError(err: unknown): { message: string; hint: string | null; code: string | null } {
   const code = errorCode(err);
   if (code === null && errorStatus(err) === 404) {

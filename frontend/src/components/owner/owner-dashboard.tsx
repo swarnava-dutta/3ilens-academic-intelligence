@@ -18,7 +18,7 @@ import { WhatIfSimulator } from "./what-if";
 
 const SEEDS: { set: DemoSet; label: string; busy: string }[] = [
   { set: "all", label: "Load sample cohorts", busy: "Loading sample cohorts…" },
-  { set: "insights", label: "Load wave-2 sample (MCQ papers, interventions)", busy: "Loading wave-2 sample…" },
+  { set: "insights", label: "Load insights sample (MCQ papers, interventions)", busy: "Loading insights sample…" },
 ];
 
 /** Seed buttons: set=all (Genetics + mixed), then set=insights (NEET-C, MCQ papers, interventions). */
@@ -190,7 +190,7 @@ export function OwnerDashboard() {
           <h2 className="text-lg font-semibold text-brand-navy">No submissions in this institution yet</h2>
           <p className="mx-auto mt-1 max-w-xl text-sm text-slate-600">
             Upload answer sheets on the Intake page, or load the labelled sample data: first the sample cohorts, then
-            the wave-2 sample (NEET MCQ papers, batch NEET-C (sample) and logged interventions). Both are synthetic and
+            the insights sample (NEET MCQ papers, batch NEET-C (sample) and logged interventions). Both are synthetic and
             make no AI calls.
           </p>
           <div className="mt-5 flex justify-center">
@@ -204,7 +204,7 @@ export function OwnerDashboard() {
           {data.interventions?.records === 0 ? (
             <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
               <p className="mb-2">
-                No interventions logged yet, so effectiveness and calibration are empty. The wave-2 sample adds NEET-C
+                No interventions logged yet, so effectiveness and calibration are empty. The insights sample adds NEET-C
                 (sample) with MCQ papers and logged interventions.
               </p>
               <SeedButtons onSeeded={reload} only={["insights"]} />

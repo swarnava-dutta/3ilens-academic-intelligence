@@ -1,4 +1,4 @@
-// Defensive defaults for GET /api/results/{id}. Backend packages land in parallel and older rows
+// Defensive defaults for GET /api/results/{id}. Older API builds omit newer fields and older rows
 // predate contract v2, so every field the report reads is defaulted here; components can then
 // trust the shape (arrays are arrays, objects exist) without crashing the demo.
 import type {
@@ -124,7 +124,7 @@ function normalizeQuestion(raw: unknown): QuestionEvaluation {
       .map((w) => ({ text: str(w?.text), confidence: num(w?.confidence) }))
       .filter((w) => w.text.trim() !== ""),
     corrected_by_faculty: bool(q?.corrected_by_faculty),
-    // wave 2 (contract v3)
+    // contract v3 fields
     question_type: q?.question_type === "mcq" ? "mcq" : "descriptive",
     bloom_level: bloomLevel(q?.bloom_level),
     bloom_source: bloomSource(q?.bloom_source),
@@ -656,7 +656,7 @@ export function normalizeResult(r: Result): Result {
       })),
     deliveries: arr<Delivery>(r.deliveries).filter((d) => typeof d?.id === "number").map(normalizeDelivery),
     study_plan: normalizeStudyPlan(r.study_plan, batch, pct),
-    // wave 2 (contract v3): guarded on the server too; default when an older API omits them
+    // contract v3 extension fields: guarded on the server too; default when an older API omits them
     llm_routes: arr(r.llm_routes),
     patterns: r.patterns ?? { negative_marking: null, fatigue: null, transfer: null, bloom_profile: [], notes: [] },
     interventions: arr(r.interventions),

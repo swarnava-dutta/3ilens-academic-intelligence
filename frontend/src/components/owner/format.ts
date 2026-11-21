@@ -1,4 +1,4 @@
-// Formatting helpers for the wave-2 aggregate surfaces (owner, integrations, cohort patterns).
+// Formatting helpers for the aggregate surfaces (owner, integrations, cohort patterns).
 import { num } from "@/components/cohort/format";
 
 /** Typographic minus (U+2212) so negative numbers never read as a hyphen. */
