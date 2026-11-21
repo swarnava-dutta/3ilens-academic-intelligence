@@ -1,16 +1,15 @@
 # 3iLens Academic Intelligence - Proof of Concept (PoC) Specification
 **Author:** Lead Principal Engineer
-**Target Executing Agent:** Claude Code
 
-> Implementation notes (added during the build):
+> Implementation notes:
 > - `claude-3-5-sonnet-20241022` was retired on 2025-10-28. The PoC uses the current Sonnet (`claude-sonnet-5-5`), configurable via `ANTHROPIC_MODEL`.
 > - Vision/OCR provider is configurable via `VISION_PROVIDER` (`anthropic` default, or `openai` with `OPENAI_VISION_MODEL=gpt-4o`).
 > - The HTTP contract actually implemented is in `/API_CONTRACT.md`.
 
 ## 1. Project Overview & Objective
-You are tasked with building a functional Proof of Concept (PoC) for the "3iLens Academic Intelligence" platform. The client needs a runnable demo to visualize the journey from document upload (handwritten answer sheets) to AI evaluation, cohort insights, and Preparation ROI generation.
+The goal is a functional Proof of Concept (PoC) for the "3iLens Academic Intelligence" platform. The client needs a runnable demo to visualize the journey from document upload (handwritten answer sheets) to AI evaluation, cohort insights, and Preparation ROI generation.
 
-The conceptual architecture dictates a 16-step AWS pipeline. For this PoC, we will abstract the heavy cloud infrastructure (SQS, ECS, S3, RDS) into local equivalents (Background Tasks, Local File System, SQLite) so it can run smoothly on a local machine for a client demonstration. You will integrate Anthropic/OpenAI APIs to perform actual OCR, answer structuring, and rubric evaluation.
+The conceptual architecture dictates a 16-step AWS pipeline. For this PoC, the heavy cloud infrastructure (SQS, ECS, S3, RDS) is abstracted into local equivalents (Background Tasks, Local File System, SQLite) so it can run smoothly on a local machine for a client demonstration. The PoC integrates Anthropic/OpenAI APIs to perform actual OCR, answer structuring, and rubric evaluation.
 
 ## 2. Tech Stack & Architecture
 *   **Frontend:** Next.js 14+ (App Router), React, Tailwind CSS, Lucide React (for iconography matching the flat, academic UI vibe).
@@ -22,7 +21,7 @@ The conceptual architecture dictates a 16-step AWS pipeline. For this PoC, we wi
     *   **Evaluation:** Anthropic `claude-3-5-sonnet-20241022` (to simulate the Rubric Evaluation engine).
 
 ## 3. The Functional Pipeline (To Be Implemented)
-You must implement the following core flow. Build a FastAPI backend that handles these steps sequentially when triggered by the Next.js frontend:
+The core flow is below: a FastAPI backend handles these steps sequentially when triggered by the Next.js frontend.
 
 1.  **Ingestion (API Route):** Receive a PDF/Image of a student's answer sheet and a Rubric JSON. Save to local storage.
 2.  **Mock Job Queue:** Use FastAPI `BackgroundTasks` to decouple the upload from processing.
@@ -43,13 +42,13 @@ Implement these models in the FastAPI backend:
 *   **StudentSubmission:** `id`, `student_name`, `file_path`, `status` (PENDING, PROCESSING, COMPLETED, FAILED), `ocr_confidence`.
 *   **EvaluationResult:** `submission_id`, `total_score`, `topic_mastery` (JSON), `roi_recommendations` (JSON), `strengths_gaps` (JSON).
 
-## 5. Step-by-Step Execution Plan for Claude Code
+## 5. Implementation Plan
 
 ### Phase 1: Project Scaffolding
 1. Initialize a monorepo structure with two folders: `/frontend` and `/backend`.
 2. In `/frontend`: Run `npx create-next-app@latest . --typescript --tailwind --eslint`. Install `lucide-react`, `axios`, `clsx`, `tailwind-merge`.
 3. In `/backend`: Create a Python virtual environment. Install `fastapi`, `uvicorn`, `sqlalchemy`, `anthropic`, `openai`, `python-multipart`.
-4. Create a `.env` file at the root. Include placeholders for `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. (I will populate these manually).
+4. Create a `.env` file at the root. Include placeholders for `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` (the keys are filled in manually).
 
 ### Phase 2: Backend Development (FastAPI)
 1. Setup `database.py` with SQLite and create the tables defined in Section 4.
@@ -84,7 +83,7 @@ Implement these models in the FastAPI backend:
 1. Write a `seed.py` script in the backend that populates a mock Rubric in the database for a "Biology - Genetics" test.
 2. Provide a `README.md` at the root with exact commands to start both the Next.js dev server and the FastAPI uvicorn server concurrently.
 
-## 6. Strict Guidelines for the Agent
+## 6. Implementation Guidelines
 * **Do not use placeholder functions for the AI.** Write the actual API calls to Anthropic/OpenAI using their respective official Python SDKs.
 * Ensure CORS is configured properly in FastAPI so the Next.js frontend running on port 3000 can talk to FastAPI on port 8000.
 * Prioritize clean, modern UI for the Next.js components. The client demo relies heavily on visual appeal. Use Tailwind grids, cards with subtle shadows, and pill-shaped status badges.
