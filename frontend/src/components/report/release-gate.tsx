@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, Hourglass, ShieldCheck, Undo2 } from "lucide-react";
+import { BadgeCheck, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { errorMessage, releaseResult, revokeResult } from "@/lib/api";
 import type { ReleaseInfo, RubricRef } from "@/lib/types";
@@ -21,12 +21,11 @@ export function ReleaseChip({ release, className }: { release: ReleaseInfo; clas
           : "AI first-pass marks; teacher review pending"
       }
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset",
-        released ? "bg-brand-lime-50 text-lime-800 ring-brand-lime/60" : "bg-amber-50 text-amber-900 ring-amber-300",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium",
+        released ? "bg-brand-lime-50 text-lime-800" : "bg-amber-100 text-amber-900",
         className,
       )}
     >
-      {released ? <BadgeCheck className="h-3.5 w-3.5" aria-hidden /> : <Hourglass className="h-3.5 w-3.5" aria-hidden />}
       {released ? "Released" : "Provisional"}
     </span>
   );
@@ -96,25 +95,24 @@ export function ReleaseGateCard({
       id="release-gate"
       title="Academic release gate"
       description="AI marks are provisional until a named faculty reviewer approves them."
-      icon={ShieldCheck}
       action={<ReleaseChip release={release} />}
       className="print:break-inside-avoid"
     >
       <div
         className={cn(
-          "rounded-xl border p-4 [print-color-adjust:exact]",
-          released ? "border-lime-300 bg-brand-lime-50" : "border-amber-300 bg-amber-50",
+          "border-l-[3px] py-1 pl-3 [print-color-adjust:exact]",
+          released ? "border-brand-lime-600" : "border-amber-500",
         )}
       >
         {released ? (
-          <p className="text-sm text-lime-950">
+          <p className="text-sm text-slate-800">
             <span className="font-semibold">Released by {release.reviewed_by ?? "faculty"}</span>
             {release.reviewed_at ? ` on ${fmtIST(release.reviewed_at)}` : ""}. Marks against rubric{" "}
             {rubricLabel(rubric)} ({rubric.status}).
             {release.note ? <span className="mt-1 block text-xs">Reviewer note: {release.note}</span> : null}
           </p>
         ) : (
-          <p className="text-sm text-amber-950">
+          <p className="text-sm text-slate-800">
             <span className="font-semibold">Pending.</span>{" "}
             {rubric.status === "AUTHOR_DRAFT"
               ? "Author-draft rubric: a teacher must review the marks and the answer key before academic release."
@@ -143,7 +141,7 @@ export function ReleaseGateCard({
           )
         ) : (
           <form
-            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+            className="space-y-3 rounded-md border border-slate-200 p-4"
             onSubmit={(e) => {
               e.preventDefault();
               void submit(step === "confirm-release" ? "release" : "revoke");

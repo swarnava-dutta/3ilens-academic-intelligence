@@ -96,9 +96,9 @@ export function SectionNav() {
   return (
     <nav
       aria-label="Report sections"
-      className="sticky top-[7.4rem] z-30 -mx-1 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80 md:top-[4.4rem] print:hidden"
+      className="sticky top-[7.4rem] z-30 border-b border-slate-200 bg-[#f6f7f9] md:top-[4.4rem] print:hidden"
     >
-      <ol className="flex gap-1 relative overflow-x-auto print:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ol className="relative flex overflow-x-auto print:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {REPORT_SECTIONS.map((s) => {
           const isActive = active === s.id;
           return (
@@ -113,14 +113,16 @@ export function SectionNav() {
                   replaceHash(s.id);
                 }}
                 className={cn(
-                  "flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
-                  isActive ? "bg-brand-navy text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-brand-navy",
+                  "-mb-px flex min-h-10 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-cyan",
+                  isActive
+                    ? "border-brand-cyan-600 text-brand-navy"
+                    : "border-transparent text-slate-600 hover:border-slate-300 hover:text-brand-navy",
                 )}
               >
                 <span
                   className={cn(
-                    "font-mono text-xs tabular-nums",
-                    isActive ? "text-brand-cyan" : "text-slate-400",
+                    "text-xs tabular-nums",
+                    isActive ? "text-brand-cyan-600" : "text-slate-500",
                   )}
                 >
                   {s.n}
@@ -154,17 +156,14 @@ export function ReportSection({
       id={id}
       data-report-section
       aria-labelledby={`${id}-heading`}
-      className="scroll-mt-[11.5rem] space-y-6 md:scroll-mt-[8.5rem] print:space-y-4"
+      className="scroll-mt-[11.5rem] space-y-4 md:scroll-mt-[8.5rem] print:space-y-4"
     >
-      <header className="flex flex-wrap items-end justify-between gap-2 border-b-2 border-brand-cyan/70 pb-2 print:break-after-avoid">
-        <h2 id={`${id}-heading`} className="text-xl font-semibold tracking-tight text-brand-cyan-600 sm:text-2xl">
-          <span className="tabular-nums">{meta.n}</span>
-          <span className="mx-2 text-brand-cyan/50" aria-hidden>
-            |
-          </span>
-          <span className="text-brand-navy">{meta.label}</span>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-300 pb-2 print:break-after-avoid">
+        <h2 id={`${id}-heading`} className="text-lg font-semibold text-brand-navy">
+          <span className="mr-2 tabular-nums text-slate-400">{meta.n}</span>
+          {meta.label}
         </h2>
-        {description ? <p className="text-xs text-slate-500">{description}</p> : null}
+        {description ? <p className="text-[13px] text-slate-500">{description}</p> : null}
       </header>
       {children}
     </section>

@@ -105,26 +105,26 @@ export function stageStates(
 }
 
 const LOOK: Record<StageState, { label: string; look: string; iconLook: string; Icon?: LucideIcon }> = {
-  done: { label: "Done", Icon: Check, look: "border-lime-200 bg-white text-slate-700", iconLook: "bg-brand-lime text-brand-navy" },
+  done: { label: "Done", Icon: Check, look: "border-slate-200 bg-white text-slate-700", iconLook: "text-lime-700" },
   active: {
     label: "In progress",
     Icon: Loader2,
-    look: "border-brand-cyan/50 bg-brand-cyan-50 text-brand-navy ring-2 ring-brand-cyan/20",
-    iconLook: "bg-brand-cyan text-white",
+    look: "border-brand-cyan-600 bg-white text-brand-navy",
+    iconLook: "text-brand-cyan-600",
   },
   review: {
     label: "Paused for review",
     Icon: AlertTriangle,
-    look: "border-amber-300 bg-amber-100 text-amber-900",
-    iconLook: "bg-amber-500 text-white",
+    look: "border-amber-300 bg-amber-50 text-amber-900",
+    iconLook: "text-amber-700",
   },
-  failed: { label: "Failed here", Icon: XCircle, look: "border-rose-300 bg-rose-100 text-rose-900", iconLook: "bg-rose-600 text-white" },
+  failed: { label: "Failed here", Icon: XCircle, look: "border-rose-300 bg-rose-50 text-rose-900", iconLook: "text-rose-700" },
   "not-run": {
     label: "Not run",
-    look: "border-dashed border-slate-300 bg-white/60 text-slate-400",
-    iconLook: "bg-slate-100 text-slate-400",
+    look: "border-dashed border-slate-300 bg-white text-slate-500",
+    iconLook: "text-slate-400",
   },
-  waiting: { label: "Waiting", look: "border-slate-200 bg-white text-slate-400", iconLook: "bg-slate-100 text-slate-400" },
+  waiting: { label: "Waiting", look: "border-slate-200 bg-white text-slate-500", iconLook: "text-slate-400" },
 };
 
 export function PipelineStepper({ states, voice = false }: { states: StageState[]; voice?: boolean }) {
@@ -138,15 +138,13 @@ export function PipelineStepper({ states, voice = false }: { states: StageState[
         return (
           <li
             key={stage.label}
-            className={cn("flex items-center gap-2.5 rounded-xl border px-3 py-2.5 [print-color-adjust:exact]", look)}
+            className={cn("flex items-center gap-2 rounded-md border px-3 py-2 [print-color-adjust:exact]", look)}
             aria-current={current ? "step" : undefined}
           >
-            <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full", iconLook)}>
-              <Icon className={cn("h-3.5 w-3.5", state === "active" && "animate-spin")} aria-hidden />
-            </span>
+            <Icon className={cn("h-4 w-4 shrink-0", iconLook, state === "active" && "motion-safe:animate-spin")} aria-hidden />
             <span className="min-w-0">
-              <span className="block truncate text-xs font-semibold">{stage.label}</span>
-              <span className="block text-[11px] opacity-80">{label}</span>
+              <span className="block truncate text-xs font-medium">{stage.label}</span>
+              <span className="block text-xs opacity-80">{label}</span>
             </span>
           </li>
         );

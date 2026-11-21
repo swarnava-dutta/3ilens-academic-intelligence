@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ListFilter } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import type { Priority, TopicMastery } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -59,11 +59,10 @@ export function TopicScreeningCard({
       id="topic-screening"
       title="Topic screening (not proven mastery)"
       description="Observed marks per topic, weakest first. Score / max · n = questions in the topic."
-      icon={ListFilter}
       className={className}
     >
       {sorted.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+        <p className="py-6 text-center text-sm text-slate-500">
           No topic data was recorded for this assessment.
         </p>
       ) : (
@@ -77,10 +76,10 @@ export function TopicScreeningCard({
                   aria-pressed={filter === c.key}
                   onClick={() => setFilter(c.key)}
                   className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
+                    "h-8 rounded-sm border px-2.5 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
                     filter === c.key
-                      ? "bg-brand-navy text-white ring-brand-navy"
-                      : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50",
+                      ? "border-brand-cyan-600 bg-brand-cyan-50 text-brand-navy"
+                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50",
                   )}
                 >
                   {c.key === "all" ? c.label : `${c.label} (${c.n})`}
@@ -98,7 +97,7 @@ export function TopicScreeningCard({
           </div>
 
           {shown.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">
+            <p className="py-4 text-center text-sm text-slate-500">
               No topics in this group.
             </p>
           ) : (
@@ -111,12 +110,12 @@ export function TopicScreeningCard({
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                       <p className="min-w-0 text-sm font-medium text-slate-800">
                         {rankOf(t) !== null ? (
-                          <span className="mr-1.5 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-700">
+                          <span className="mr-1.5 rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-700">
                             {group.label}
                           </span>
                         ) : null}
                         {t.topic}
-                        <span className="ml-1.5 text-xs font-normal text-slate-400">{t.subject}</span>
+                        <span className="ml-1.5 text-xs font-normal text-slate-500">{t.subject}</span>
                       </p>
                       <p className="text-xs tabular-nums text-slate-600">
                         <span className="font-semibold text-brand-navy">{fraction(t.score, t.max_marks)}</span> · n=
@@ -124,14 +123,14 @@ export function TopicScreeningCard({
                       </p>
                     </div>
                     <div
-                      className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-slate-100 [print-color-adjust:exact]"
+                      className="mt-1.5 h-2 w-full overflow-hidden rounded-sm bg-slate-100 [print-color-adjust:exact]"
                       role="meter"
                       aria-label={`${t.topic}: ${fraction(t.score, t.max_marks)}`}
                       aria-valuemin={0}
                       aria-valuemax={100}
                       aria-valuenow={Math.round(pct)}
                     >
-                      <div className={cn("h-full rounded-full", group.fill)} style={{ width: `${Math.max(pct, 1.5)}%` }} />
+                      <div className={cn("h-full rounded-sm", group.fill)} style={{ width: `${Math.max(pct, 1.5)}%` }} />
                     </div>
                     {t.questions.length > 0 ? (
                       <div className="mt-1 flex flex-wrap gap-1 print:hidden">
@@ -146,35 +145,35 @@ export function TopicScreeningCard({
             </ul>
           )}
 
-          <div className="mt-5 border-t border-slate-100 pt-3">
+          <div className="mt-5 border-t border-slate-200 pt-3">
             <button
               type="button"
               aria-expanded={tableOpen}
               onClick={() => setTableOpen((o) => !o)}
-              className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-brand-cyan-600 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-brand-cyan print:hidden"
+              className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-cyan-600 transition-colors duration-150 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan print:hidden"
             >
-              <ChevronDown className={cn("h-4 w-4 transition-transform", tableOpen && "rotate-180")} aria-hidden />
+              <ChevronDown className={cn("h-4 w-4", tableOpen && "rotate-180")} aria-hidden />
               {tableOpen ? "Hide" : "Show"} outcome counts table
             </button>
             <div className={cn("relative mt-3 overflow-x-auto", tableOpen ? "block" : "hidden print:block")}>
               <table className="w-full min-w-[32rem] print:min-w-0 border-collapse text-sm">
                 <caption className="sr-only">Topic outcome counts</caption>
                 <thead>
-                  <tr className="bg-brand-navy text-left text-xs text-white [print-color-adjust:exact]">
-                    <th scope="col" className="px-2.5 py-2 font-semibold">Topic</th>
-                    <th scope="col" className="px-2.5 py-2 text-right font-semibold">Score/max</th>
-                    <th scope="col" className="px-2.5 py-2 text-right font-semibold">Full</th>
-                    <th scope="col" className="px-2.5 py-2 text-right font-semibold">Partial</th>
-                    <th scope="col" className="px-2.5 py-2 text-right font-semibold">Zero</th>
-                    <th scope="col" className="px-2.5 py-2 text-right font-semibold">Blank</th>
+                  <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                    <th scope="col" className="px-2.5 py-2 font-medium">Topic</th>
+                    <th scope="col" className="px-2.5 py-2 text-right font-medium">Score/max</th>
+                    <th scope="col" className="px-2.5 py-2 text-right font-medium">Full</th>
+                    <th scope="col" className="px-2.5 py-2 text-right font-medium">Partial</th>
+                    <th scope="col" className="px-2.5 py-2 text-right font-medium">Zero</th>
+                    <th scope="col" className="px-2.5 py-2 text-right font-medium">Blank</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((t) => (
-                    <tr key={t.topic} className="border-b border-slate-100 even:bg-slate-50 [print-color-adjust:exact]">
+                    <tr key={t.topic} className="border-b border-slate-100">
                       <th scope="row" className="px-2.5 py-1.5 text-left font-medium text-slate-800">
                         {t.topic}
-                        <span className="ml-1 text-xs font-normal text-slate-400">{t.subject}</span>
+                        <span className="ml-1 text-xs font-normal text-slate-500">{t.subject}</span>
                       </th>
                       <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-brand-navy">
                         {fraction(t.score, t.max_marks)}

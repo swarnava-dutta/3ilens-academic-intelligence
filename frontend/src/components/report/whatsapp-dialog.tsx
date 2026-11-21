@@ -66,7 +66,7 @@ export function CopyButton({ text, label = "Copy link", className }: { text: str
         window.setTimeout(() => setState("idle"), 1800);
       }}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan",
+        "inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
         className,
       )}
     >
@@ -80,7 +80,7 @@ export function CopyButton({ text, label = "Copy link", className }: { text: str
 export function DeliveryResult({ delivery }: { delivery: Delivery }) {
   const link = delivery.download_url ? downloadUrl(delivery.download_url) : null;
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 [print-color-adjust:exact]">
+    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 [print-color-adjust:exact]">
       <p className="flex items-start gap-2 font-semibold">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
         <span>
@@ -100,7 +100,7 @@ export function DeliveryResult({ delivery }: { delivery: Delivery }) {
       </p>
       {link ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-md bg-white/80 px-2 py-1 font-mono text-[11px] text-slate-600 ring-1 ring-inset ring-amber-200">
+          <code className="min-w-0 flex-1 truncate rounded-sm border border-amber-200 bg-white px-2 py-1 font-mono text-xs text-slate-600">
             {link}
           </code>
           <CopyButton text={link} />
@@ -195,13 +195,13 @@ export function WhatsAppDialog({
     >
       <div className="space-y-4">
         <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <p className="mb-1.5 text-[13px] text-slate-500">
             Template preview · 3ilens_report_ready_v1 (assumed)
           </p>
-          <div className="rounded-2xl rounded-tl-sm bg-[#e7fbe6] p-3 text-sm leading-relaxed text-slate-800 shadow-sm ring-1 ring-inset ring-emerald-200">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-800">
             {preview}
           </div>
-          <p className="mt-1 font-mono text-[11px] text-slate-400">{WHATSAPP_TEMPLATE}</p>
+          <p className="mt-1 font-mono text-xs text-slate-500">{WHATSAPP_TEMPLATE}</p>
         </div>
 
         {results ? (

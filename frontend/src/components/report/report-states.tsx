@@ -1,18 +1,13 @@
 import Link from "next/link";
-import { ArrowLeft, RefreshCw, SearchX, ServerCrash } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { btnPrimary as primaryBtn, btnSecondary as secondaryBtn } from "./dialog";
 
 function StateCard({
-  icon: Icon,
-  iconClass,
   title,
   children,
   actions,
 }: {
-  icon: LucideIcon;
-  iconClass: string;
   title: string;
   children: ReactNode;
   actions: ReactNode;
@@ -20,30 +15,20 @@ function StateCard({
   return (
     <section
       aria-labelledby="report-state-title"
-      className="mx-auto mt-6 flex max-w-xl flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm sm:mt-12"
+      className="mt-6 max-w-xl rounded-md border border-slate-200 bg-white px-6 py-8 sm:mt-10"
     >
-      <span className={cn("grid h-16 w-16 place-items-center rounded-2xl ring-1 ring-inset", iconClass)}>
-        <Icon className="h-8 w-8" aria-hidden />
-      </span>
-      <h1 id="report-state-title" className="mt-5 text-2xl font-semibold tracking-tight text-brand-navy">
+      <h1 id="report-state-title" className="text-xl font-semibold text-brand-navy">
         {title}
       </h1>
-      <div className="mt-2 max-w-md text-sm leading-relaxed text-slate-600">{children}</div>
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">{actions}</div>
+      <div className="mt-2 text-sm leading-relaxed text-slate-600">{children}</div>
+      <div className="mt-6 flex flex-wrap items-center gap-2">{actions}</div>
     </section>
   );
 }
 
-const primaryBtn =
-  "inline-flex items-center gap-2 rounded-full bg-brand-navy px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-brand-navy-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
-const secondaryBtn =
-  "inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
-
 export function ReportNotFound({ id }: { id?: string }) {
   return (
     <StateCard
-      icon={SearchX}
-      iconClass="bg-brand-cyan-50 text-brand-cyan-600 ring-brand-cyan/30"
       title="Report not found"
       actions={
         <Link href="/" className={primaryBtn}>
@@ -68,8 +53,6 @@ export function ReportNotFound({ id }: { id?: string }) {
 export function ReportLoadError({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <StateCard
-      icon={ServerCrash}
-      iconClass="bg-rose-50 text-rose-600 ring-rose-200"
       title="Couldn’t load this report"
       actions={
         <>
@@ -86,7 +69,7 @@ export function ReportLoadError({ message, onRetry }: { message: string; onRetry
         </>
       }
     >
-      <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-rose-800 ring-1 ring-inset ring-rose-200">
+      <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
         {message}
       </p>
     </StateCard>

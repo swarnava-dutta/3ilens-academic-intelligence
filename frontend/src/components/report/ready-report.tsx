@@ -76,7 +76,6 @@ export function ReadyReport({
         onWhatsApp={() => setWhatsAppOpen(true)}
         onReevaluated={() => onReload?.()}
       />
-      <ProvisionalBanner release={release} rubric={result.rubric} isDemo={isDemo} />
       {archived ? (
         <Notice tone="info">
           <span className="font-medium text-slate-800">
@@ -91,7 +90,7 @@ export function ReadyReport({
           </Link>
         </Notice>
       ) : null}
-
+      <ProvisionalBanner release={release} rubric={result.rubric} isDemo={isDemo} />
       <SectionNav />
 
       <ReportSection id="overview" description="Run metadata, KPIs and the teacher's immediate reading.">

@@ -23,7 +23,7 @@ export function ExaminerNoteChip({ note }: { note: string }) {
   return (
     <span
       title={`${EXAMINER_NOTE_LABEL}${text ? `: "${text}"` : ""}`}
-      className="my-0.5 inline-flex max-w-full flex-wrap items-start gap-1 whitespace-normal rounded-md bg-amber-50 px-1.5 py-0.5 align-middle font-sans text-[11px] font-medium text-amber-900 ring-1 ring-inset ring-amber-300 [print-color-adjust:exact]"
+      className="my-0.5 inline-flex max-w-full flex-wrap items-start gap-1 whitespace-normal rounded-sm border border-amber-300 bg-amber-50 px-1.5 py-0.5 align-middle font-sans text-xs font-medium text-amber-900 [print-color-adjust:exact]"
     >
       <Flag className="mt-px h-3 w-3 shrink-0 text-amber-700" aria-hidden />
       <span>{EXAMINER_NOTE_LABEL}</span>

@@ -37,7 +37,13 @@ export function BackToWorkspace({ className }: { className?: string }) {
 }
 
 /** Report metadata as a definition list under the title row. */
-function MetaList({ items }: { items: { term: string; value: ReactNode; mono?: boolean; title?: string }[] }) {
+function MetaList({
+  items,
+  children,
+}: {
+  items: { term: string; value: ReactNode; mono?: boolean; title?: string }[];
+  children?: ReactNode;
+}) {
   return (
     <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-slate-200 px-4 py-3 sm:px-6">
       {items.map((it) => (
@@ -48,6 +54,7 @@ function MetaList({ items }: { items: { term: string; value: ReactNode; mono?: b
           </dd>
         </div>
       ))}
+      {children}
     </dl>
   );
 }
@@ -259,24 +266,31 @@ function VersionSelect({ submissionId, viewing }: { submissionId: number; viewin
   if (!versions || versions.length < 2) return null;
   const current = versions.find((v) => v.current)?.version;
   return (
-    <label className="inline-flex items-center gap-2 text-[13px] text-slate-500">
-      Version
-      <select
+    <div className="print:hidden">
+      <dt>
+        <label htmlFor="report-version" className="text-xs text-slate-500">
+          Version
+        </label>
+      </dt>
+      <dd>
+        <select
+          id="report-version"
         value={viewing ?? current}
         onChange={(e) => {
           const v = Number(e.target.value);
           router.push(v === current ? `/report/${submissionId}` : `/report/${submissionId}?version=${v}`);
         }}
-        className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
-      >
-        {[...versions].reverse().map((v) => (
-          <option key={v.version} value={v.version}>
-            v{v.version} · {v.total_score}/{v.total_marks} · {formatDateTime(v.created_at)}
-            {v.current ? " (current)" : ""}
-          </option>
-        ))}
-      </select>
-    </label>
+          className="-ml-1 h-8 max-w-full rounded-md border border-slate-300 bg-white px-1.5 text-sm tabular-nums text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+        >
+          {[...versions].reverse().map((v) => (
+            <option key={v.version} value={v.version}>
+              v{v.version} · {v.total_score}/{v.total_marks} · {formatDateTime(v.created_at)}
+              {v.current ? " (current)" : ""}
+            </option>
+          ))}
+        </select>
+      </dd>
+    </div>
   );
 }
 
@@ -325,7 +339,7 @@ export function SairHeader({
         </nav>
 
         <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[13px] text-slate-500">
               Student academic intelligence report · {submission.input_kind === "voice" ? "voice answer" : "answer sheet"}
             </p>
@@ -338,8 +352,7 @@ export function SairHeader({
               {submission.is_demo ? <span className={quietTag}>Synthetic demo record</span> : null}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 print:hidden">
-            <VersionSelect submissionId={submission.id} viewing={version} />
+          <div className="flex shrink-0 flex-wrap items-center gap-2 print:hidden">
             {version === undefined ? (
               <>
                 <a href={reportPdfUrl(submission.id)} className={btnPrimary}>
@@ -376,9 +389,10 @@ export function SairHeader({
           },
           { term: "Executed", value: fmtIST(meta.executed_at) },
           { term: "Run ID", value: meta.run_id, mono: true },
-          ...(version !== undefined ? [{ term: "Version", value: `${version} (archived)` }] : []),
         ]}
-      />
+      >
+        <VersionSelect submissionId={submission.id} viewing={version} />
+      </MetaList>
       <RerunDialog open={rerunOpen} onClose={() => setRerunOpen(false)} result={result} onQueued={onReevaluated} />
     </header>
   );

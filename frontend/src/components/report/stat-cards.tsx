@@ -189,7 +189,7 @@ export function StatCards({ result }: { result: Result }) {
         </Figure>
       </dl>
       <p className="text-xs leading-snug text-slate-500">
-        {markingRule} Observed score is a screening result, not certified competency. Blank answers count in the
+        {markingRule.replace(/\.?\s*$/, ".")} Observed score is a screening result, not certified competency. Blank answers count in the
         denominator; mapping is not approval. BRD targets: under {fmtInr(cost.target_inr)} and{" "}
         {fmtSeconds(lat.target_seconds)} per learner.
       </p>

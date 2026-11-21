@@ -1,4 +1,4 @@
-import { AlertTriangle, Database, FlaskConical, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, Database, ShieldAlert, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { InvocationPurpose, LlmRoute } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ function modelName(model: string | null | undefined): string {
 interface ChipLook {
   text: string;
   title: string;
-  Icon: LucideIcon;
+  Icon: LucideIcon | null;
   tone: string;
 }
 
@@ -82,8 +82,8 @@ export function routeLook(route: LlmRoute): ChipLook {
   return {
     text: `${stage} · ${providerName(route.served_provider)} (${route.served_model ?? route.primary_model})`,
     title: `Served by the primary model; ${attempts}.`,
-    Icon: Sparkles,
-    tone: "bg-brand-cyan-50 text-cyan-900 ring-brand-cyan/30",
+    Icon: null,
+    tone: "bg-slate-100 text-slate-700",
   };
 }
 
@@ -105,12 +105,11 @@ export function LlmRouteChips({
     return isDemo ? (
       <span
         className={cn(
-          "inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-inset ring-slate-300",
+          "inline-flex items-center gap-1 whitespace-nowrap rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700",
           className,
         )}
       >
-        <FlaskConical className="h-3 w-3" aria-hidden />
-        Synthetic sample - no AI call
+        Synthetic sample, no AI call
       </span>
     ) : (
       <span className={cn("text-xs text-slate-500", className)}>Route not recorded for this run</span>
@@ -125,11 +124,11 @@ export function LlmRouteChips({
             key={`${route.stage}-${i}`}
             title={look.title}
             className={cn(
-              "inline-flex max-w-full items-start gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+              "inline-flex max-w-full items-start gap-1 rounded-sm px-1.5 py-0.5 text-xs",
               look.tone,
             )}
           >
-            <look.Icon className="mt-px h-3 w-3 shrink-0" aria-hidden />
+            {look.Icon ? <look.Icon className="mt-0.5 h-3 w-3 shrink-0" aria-hidden /> : null}
             <span className="min-w-0 break-words">{look.text}</span>
             <span className="sr-only">. {look.title}</span>
           </span>

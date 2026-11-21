@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Brain, Loader2, RotateCcw, ServerCrash, UserCheck, WifiOff, XCircle } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
@@ -25,9 +25,9 @@ export function pendingLog(pending: ResultPending): ProcessingLogEntry[] {
 
 function FactTile({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl bg-white/70 p-3.5 ring-1 ring-inset ring-amber-200">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">{label}</p>
-      <div className="mt-1 text-sm font-semibold text-amber-950">{children}</div>
+    <div className="min-w-0 bg-white px-4 py-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <div className="mt-1 text-sm font-semibold text-slate-800">{children}</div>
     </div>
   );
 }
@@ -50,18 +50,15 @@ function HumanReviewPanel({
   return (
     <section
       aria-labelledby="review-title"
-      className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 shadow-sm [print-color-adjust:exact] sm:p-7"
+      className="rounded-md border border-l-[3px] border-amber-300 border-l-amber-500 bg-white p-4 [print-color-adjust:exact] sm:p-6"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-300">
-          <AlertTriangle className="h-7 w-7" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">BRD safety constraint</p>
-          <h2 id="review-title" className="mt-1 text-2xl font-semibold tracking-tight text-amber-950">
+      <div>
+        <div className="min-w-0">
+          <p className="text-[13px] text-amber-800">BRD safety constraint</p>
+          <h2 id="review-title" className="mt-0.5 text-lg font-semibold text-brand-navy">
             Human review required
           </h2>
-          <p className="mt-2 max-w-3xl leading-relaxed text-amber-900">
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
             {voice ? "Transcript confidence for this voice answer" : "OCR confidence for this answer sheet"} is{" "}
             <strong>{formatConfidence(confidence)}</strong>
             {!voice && flagged.length ? (
@@ -77,13 +74,13 @@ function HumanReviewPanel({
             was skipped and no AI marks were published. Review the transcript below, then approve or correct it to grade,
             or request a {voice ? "new recording" : "rescan"}.
           </p>
-          {pending.detail ? <p className="mt-2 text-sm text-amber-800">System note: {pending.detail}</p> : null}
+          {pending.detail ? <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p> : null}
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <FactTile label={confidenceLabel}>
-          <span className="text-2xl tabular-nums">{formatConfidence(confidence)}</span>
+          <span className="text-xl tabular-nums text-amber-800">{formatConfidence(confidence)}</span>
           <MeterBar
             className="mt-2"
             size="sm"
@@ -97,24 +94,20 @@ function HumanReviewPanel({
           />
         </FactTile>
         <FactTile label="Auto-grade threshold">
-          <span className="text-2xl tabular-nums">{threshold}%</span>
+          <span className="text-xl tabular-nums">{threshold}%</span>
           <p className="mt-1 text-xs font-normal text-amber-800">Minimum {confidenceLabel.toLowerCase()}</p>
         </FactTile>
         <FactTile label="AI evaluation">
-          <span className="inline-flex items-center gap-1.5">
-            <Brain className="h-4 w-4" aria-hidden /> Skipped
-          </span>
+          Skipped
           <p className="mt-1 text-xs font-normal text-amber-800">Pipeline halted before grading</p>
         </FactTile>
         <FactTile label="Routed to">
-          <span className="inline-flex items-center gap-1.5">
-            <UserCheck className="h-4 w-4" aria-hidden /> Faculty review
-          </span>
+          Faculty review
           <p className="mt-1 text-xs font-normal text-amber-800">Manual marking queue</p>
         </FactTile>
       </div>
 
-      <div className="mt-6 border-t border-amber-200 pt-5">
+      <div className="mt-6 border-t border-slate-200 pt-5">
         <ReviewEditor submission={s} onChanged={onChanged} />
       </div>
 
@@ -161,14 +154,14 @@ function RetryControl({ pending, onChanged }: { pending: ResultPending; onChange
           {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RotateCcw className="h-4 w-4" aria-hidden />}
           {busy ? "Re-queuing…" : "Retry"}
         </button>
-        <Pill className="bg-white text-rose-800 ring-rose-200">
+        <Pill className="bg-rose-50 text-rose-800">
           {attempts > max ? `Attempt ${attempts}` : `Attempts ${attempts}/${max}`}
         </Pill>
         {s.last_error_code ? (
-          <Pill className="bg-white font-mono text-rose-800 ring-rose-200">{s.last_error_code}</Pill>
+          <Pill className="bg-rose-50 font-mono text-rose-800">{s.last_error_code}</Pill>
         ) : null}
       </div>
-      <p className="text-xs text-rose-800/80">
+      <p className="text-xs text-slate-600">
         Retry re-drives the job from the dead-letter queue with the stored upload (and any cached OCR).
       </p>
       {error ? <Notice tone="error">{error}</Notice> : null}
@@ -189,31 +182,26 @@ function FailedPanel({
   return (
     <section
       aria-labelledby="failed-title"
-      className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-5 shadow-sm [print-color-adjust:exact] sm:p-7"
+      className="rounded-md border border-l-[3px] border-rose-300 border-l-rose-600 bg-white p-4 [print-color-adjust:exact] sm:p-6"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-rose-100 text-rose-700 ring-1 ring-inset ring-rose-300">
-          <XCircle className="h-7 w-7" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Dead-letter queue</p>
-          <h2 id="failed-title" className="mt-1 text-2xl font-semibold tracking-tight text-rose-950">
+      <div>
+        <div className="min-w-0">
+          <p className="text-[13px] text-rose-700">Dead-letter queue</p>
+          <h2 id="failed-title" className="mt-0.5 text-lg font-semibold text-brand-navy">
             Processing failed
           </h2>
-          <p className="mt-2 max-w-3xl leading-relaxed text-rose-900">
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
             The pipeline could not complete this submission. It was marked <strong>FAILED</strong> and routed to the
             dead-letter queue for investigation. No partial grades were published.
           </p>
-          <div className="mt-4 rounded-xl bg-white/80 p-4 ring-1 ring-inset ring-rose-200">
-            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-rose-700">
-              <ServerCrash className="h-3.5 w-3.5" aria-hidden /> Error
-            </p>
+          <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 p-3">
+            <p className="text-xs font-medium text-rose-700">Error</p>
             <p className="mt-1 whitespace-pre-wrap break-words font-mono text-sm text-rose-950">
               {s.error_message || pending.detail || "No error message was recorded."}
             </p>
           </div>
           {pending.detail && s.error_message && pending.detail !== s.error_message ? (
-            <p className="mt-2 text-sm text-rose-800">System note: {pending.detail}</p>
+            <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p>
           ) : null}
           <RetryControl pending={pending} onChanged={onChanged} />
         </div>
@@ -237,22 +225,19 @@ function ActivePanel({ pending, states }: { pending: ResultPending; states: Stag
     <section
       aria-labelledby="active-title"
       aria-live="polite"
-      className="rounded-2xl border border-brand-cyan/30 bg-white p-5 shadow-sm sm:p-7"
+      className="rounded-md border border-slate-200 bg-white p-4 sm:p-6"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-brand-cyan-50 text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/30">
-          <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
+      <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 id="active-title" className="text-2xl font-semibold tracking-tight text-brand-navy">
+            <h2 id="active-title" className="text-lg font-semibold text-brand-navy">
               Report in progress
             </h2>
             <StatusBadge status={pending.status} />
           </div>
-          <p className="mt-2 max-w-3xl leading-relaxed text-slate-600">
-            The answer sheet is moving through the AI pipeline. This page refreshes automatically and will show the
-            full Student Intelligence Report as soon as evaluation completes.
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+            The answer sheet is in the processing pipeline. This page refreshes automatically and shows the report when
+            evaluation completes.
           </p>
           {pending.detail ? <p className="mt-1 text-sm text-slate-500">{pending.detail}</p> : null}
         </div>
@@ -264,19 +249,15 @@ function ActivePanel({ pending, states }: { pending: ResultPending; states: Stag
             Current step: <span className="font-semibold text-brand-navy">{stepLabel}</span>
           </p>
           <p className="inline-flex items-center gap-2 text-xs text-slate-500">
-            <span className="relative flex h-2 w-2" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-cyan opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-cyan" />
-            </span>
+            <Loader2 className="h-3.5 w-3.5 text-brand-cyan-600 motion-safe:animate-spin" aria-hidden />
             Auto-refreshing every 3 s
           </p>
         </div>
         <MeterBar
-          size="lg"
           percent={progress}
           label="Pipeline progress"
           valueText={`Stage ${Math.max(index, 0) + 1} of ${PIPELINE_STAGES.length}: ${stepLabel}`}
-          fillClass="bg-linear-to-r from-brand-cyan to-brand-lime animate-pulse"
+          fillClass="bg-brand-cyan-600"
         />
       </div>
 
@@ -293,9 +274,8 @@ export function ConnectionBanner({ message }: { message: string }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden"
+      className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 print:hidden"
     >
-      <WifiOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <p>
         <span className="font-semibold">Connection interrupted.</span> {message} Retrying automatically…
       </p>

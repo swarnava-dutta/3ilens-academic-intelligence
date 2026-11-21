@@ -1,4 +1,3 @@
-import { Layers } from "lucide-react";
 import type { SubjectRollup } from "@/lib/types";
 import { clampPct, fmtNumber, fraction } from "./format";
 import { SectionCard } from "./primitives";
@@ -29,7 +28,7 @@ function RollupChart({ rows }: { rows: SubjectRollup[] }) {
       {[0, 25, 50, 75, 100].map((g) => (
         <g key={g}>
           <line x1={LEFT} x2={width - 6} y1={y(g)} y2={y(g)} className="stroke-slate-200" strokeWidth={g === 0 ? 1.2 : 0.8} />
-          <text x={LEFT - 6} y={y(g) + 3.5} textAnchor="end" className="fill-slate-400 text-[10px]">
+          <text x={LEFT - 6} y={y(g) + 3.5} textAnchor="end" className="fill-slate-500 text-[10px] tabular-nums">
             {g}
           </text>
         </g>
@@ -45,10 +44,10 @@ function RollupChart({ rows }: { rows: SubjectRollup[] }) {
               y={top}
               width={w}
               height={Math.max(0, CHART_H - BOTTOM - top)}
-              rx={3}
-              className={r.pct === best && rows.length > 1 ? "fill-cyan-700" : "fill-sky-600/80"}
+              rx={1}
+              className={r.pct === best && rows.length > 1 ? "fill-brand-navy" : "fill-slate-400"}
             />
-            <text x={x + w / 2} y={top - 7} textAnchor="middle" className="fill-slate-700 text-[11px] font-semibold">
+            <text x={x + w / 2} y={top - 7} textAnchor="middle" className="fill-slate-700 text-[11px] font-medium tabular-nums">
               {fmtNumber(r.pct)}% (n={r.questions})
             </text>
             <text x={x + w / 2} y={CHART_H - BOTTOM + 16} textAnchor="middle" className="fill-slate-600 text-[11px]">
@@ -69,10 +68,9 @@ export function SubjectRollupCard({ rows }: { rows: SubjectRollup[] }) {
       id="subject-rollup"
       title="Subject roll-up"
       description="Marks earned divided by each subject's maximum. Screening results, not certified competencies."
-      icon={Layers}
     >
       {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+        <p className="py-6 text-center text-sm text-slate-500">
           No subject data was recorded for this assessment.
         </p>
       ) : (
@@ -89,19 +87,19 @@ export function SubjectRollupCard({ rows }: { rows: SubjectRollup[] }) {
             <table className="w-full min-w-[30rem] print:min-w-0 border-collapse text-sm">
               <caption className="sr-only">Subject roll-up</caption>
               <thead>
-                <tr className="bg-brand-navy text-left text-xs text-white [print-color-adjust:exact]">
-                  <th scope="col" className="px-2.5 py-2 font-semibold">Subject</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Qs</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Full</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Partial</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Zero</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Blank</th>
-                  <th scope="col" className="px-2.5 py-2 text-right font-semibold">Score / max</th>
+                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                  <th scope="col" className="px-2.5 py-2 font-medium">Subject</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Qs</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Full</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Partial</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Zero</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Blank</th>
+                  <th scope="col" className="px-2.5 py-2 text-right font-medium">Score / max</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.subject} className="border-b border-slate-100 even:bg-slate-50 [print-color-adjust:exact]">
+                  <tr key={r.subject} className="border-b border-slate-100">
                     <th scope="row" className="px-2.5 py-2 text-left font-medium text-slate-800">{r.subject}</th>
                     <td className="px-2.5 py-2 text-right tabular-nums">{r.questions}</td>
                     <td className="px-2.5 py-2 text-right tabular-nums">{r.full}</td>

@@ -1,6 +1,5 @@
 "use client";
 
-import { FileSearch } from "lucide-react";
 import type { ReactNode } from "react";
 import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
@@ -12,7 +11,7 @@ import { SectionCard } from "./primitives";
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 border-b border-slate-100 py-2.5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <dt className="text-xs font-medium uppercase tracking-wider text-slate-400">{label}</dt>
+      <dt className="text-[13px] text-slate-500">{label}</dt>
       <dd className="min-w-0 break-words text-sm text-slate-700 sm:text-right">{children}</dd>
     </div>
   );
@@ -33,7 +32,6 @@ export function SubmissionDetailsCard({
       id="submission-details"
       title="Submission details"
       description="Governed record for this answer sheet."
-      icon={FileSearch}
       className={className}
     >
       <dl>
@@ -48,7 +46,7 @@ export function SubmissionDetailsCard({
         <Row label="Current step">{submission.current_step ? humanizeStep(submission.current_step) : "—"}</Row>
         <Row label="OCR confidence">
           {formatConfidence(submission.ocr_confidence)}
-          <span className="text-slate-400"> (threshold {Math.round(threshold * 100)}%)</span>
+          <span className="text-slate-500"> (threshold {Math.round(threshold * 100)}%)</span>
         </Row>
         <Row label="Submitted">{formatDateTime(submission.created_at)}</Row>
         <Row label="Last update">{formatDateTime(submission.updated_at)}</Row>
