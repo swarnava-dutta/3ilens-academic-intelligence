@@ -2,6 +2,7 @@
 pattern sets, the intervention effectiveness ordering, scoring and contract checks."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import timedelta
 
 import pytest
@@ -95,6 +96,11 @@ def test_pinned_mock09_patterns(client, seeded):
     for name in ("Aditi Rao", "Sneha Kulkarni"):
         assert analytics.result_urgency(mock09[name].result)[0] == "on_track"
         assert analytics.result_urgency(mock10[name].result)[0] == "on_track"
+    urgency = {name: analytics.result_urgency(sub.result)[0] for name, sub in mock09.items()}
+    assert urgency["Kunal Desai"] == urgency["Ishita Ghosh"] == urgency["Nikhil Sood"] == "needs_attention"
+    assert sorted(Counter(urgency.values()).items()) == [("at_risk", 4), ("needs_attention", 6), ("on_track", 2)]
+    late = {n for n, s in mock10.items() if client.get(f"/api/results/{s.id}").json()["patterns"]["fatigue"]["flagged"]}
+    assert late == FATIGUED  # Mock 10 keeps the designed fatigue pattern
     avg = lambda subs: sum(analytics.percentage(s.result) for s in subs.values()) / len(subs)  # noqa: E731
     assert avg(mock10) > avg(mock09)
 
@@ -163,6 +169,12 @@ def test_cohort_for_neet_c_passes_the_contract(client, seeded):
     assert HIGH_RISK <= names
     assert FATIGUED <= {s["student_name"] for s in patterns["fatigue"]["students"]}
     assert {c["concept"] for c in patterns["transfer"]["concepts"]} >= {"Genetics", "Organic Chemistry", "Mechanics"}
+    for section in ("negative_marking", "fatigue", "transfer"):
+        listed = [s["student_name"] for s in patterns[section]["students"]]
+        assert len(listed) == len(set(listed)), section  # one row per student (latest test)
+    assert any("sat more than one test" in note for note in patterns["notes"])
+    one_test = client.get("/api/cohort", params={"batch_id": batch.id, "rubric_id": _mock09["Kunal Desai"].rubric_id}).json()
+    assert not any("sat more than one test" in note for note in one_test["patterns"]["notes"])
     options = client.get("/api/whatif/options", params={"batch_id": batch.id}).json()
     check_interface(options, "WhatIfOptions")
     assert len(options["topics"]) == 8 and options["calibration_factor"] is not None

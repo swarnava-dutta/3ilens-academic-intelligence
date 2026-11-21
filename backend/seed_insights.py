@@ -69,17 +69,18 @@ LATE_FROM = 18  # Mock 09 final third: Q18-Q26 (26 questions, k = 9)
 
 # name -> archetype. base = P(correct); blank = P(blank | not correct); over = topics answered
 # wrong (never blank); memoriser = K1/K2 up, K3 down; fatigue = P drop in Q18-Q26 (+ late_blank);
-# strong = at least 2 of 3 right in every topic; gaps = topics left completely blank (cautious).
+# strong = at least 2 of 3 right in every topic (also the balanced average student); gaps = topics left
+# completely blank (cautious). Mock 09 urgency mix as designed: 2 on track, 6 need attention, 4 at risk.
 STUDENTS: dict[str, dict[str, Any]] = {
     "Aditi Rao": {"base": 0.86, "blank": 0.6, "strong": True},
-    "Kunal Desai": {"base": 0.8, "blank": 0.0, "over": ("Organic Chemistry", "Electrostatics")},
+    "Kunal Desai": {"base": 0.98, "blank": 0.0, "over": ("Organic Chemistry", "Electrostatics")},
     "Tanvi Shah": {"base": 0.8, "blank": 0.4, "fatigue": 0.55, "late_blank": 0.75},
     "Farhan Qureshi": {"base": 0.62, "blank": 0.35, "memoriser": True},
-    "Ishita Ghosh": {"base": 0.66, "blank": 0.4},
+    "Ishita Ghosh": {"base": 0.5, "blank": 0.6, "strong": True},
     "Karan Malhotra": {"base": 0.66, "blank": 0.05, "over": ("Mechanics", "Chemical Bonding"), "fatigue": 0.5,
                        "late_blank": 0.5},
     "Lavanya Pillai": {"base": 0.62, "blank": 0.35, "memoriser": True},
-    "Nikhil Sood": {"base": 0.74, "blank": 0.35, "fatigue": 0.55, "late_blank": 0.7},
+    "Nikhil Sood": {"base": 0.84, "blank": 0.35, "fatigue": 0.55, "late_blank": 0.8},
     "Pooja Venkat": {"base": 0.66, "blank": 0.05, "over": ("Genetics", "Human Physiology")},
     "Rahul Bansal": {"base": 0.6, "blank": 0.1, "memoriser": True, "over": ("Organic Chemistry",)},
     "Sneha Kulkarni": {"base": 0.84, "blank": 0.6, "strong": True},
@@ -210,7 +211,8 @@ def _mcqs(content: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _p_correct(name: str, arch: dict[str, Any], q: dict[str, Any]) -> float:
-    if q["topic"] in arch.get("over", ()) or q["topic"] in arch.get("gaps", ()):
+    over = q["topic"] in arch.get("over", ()) and marking.question_type(q) == "mcq"  # no penalty on written answers
+    if over or q["topic"] in arch.get("gaps", ()):
         return 0.0
     p = arch["base"] + arch.get("topics", {}).get(q["topic"], 0.0)
     if arch.get("memoriser"):
@@ -451,6 +453,7 @@ def _evaluation(grades: list[QuestionGrade], content: dict[str, Any], answers: l
 # --------------------------------------------------------------------------- #
 LEVELS10 = [(c, w, max(0.0, 4 * c - w) / 12 * 100) for c in range(4) for w in range(4 - c)]
 MOCK10_LATE_FROM = 17  # 24 questions, k = 8
+MOCK10_FATIGUE_PTS = 25.0  # fatigue archetypes keep a final-third accuracy drop in Mock 10
 
 
 def _allowed(arch: dict[str, Any], c: int, w: int) -> bool:
@@ -498,8 +501,8 @@ def _drop(states: dict[int, str], late_from: int) -> tuple[float, float]:
 
 def mock10_inputs(name: str, content: dict[str, Any], plan: dict[str, tuple[int, int]]) -> tuple[list[OcrAnswer], EvaluationOutput]:
     """Mock 10 letters from the planned per-topic (correct, wrong) counts. Within a topic the right
-    items are placed by level (memorisers miss K3) and, for students without the fatigue archetype,
-    shifted so the final third is not weaker (topic mastery is unchanged by the swaps)."""
+    items are placed by level (memorisers miss K3) and shifted so the final third is weaker for the
+    fatigue archetypes and not weaker for everyone else (topic mastery is unchanged by the swaps)."""
     arch = STUDENTS[name]
     by_topic: dict[str, list[dict[str, Any]]] = {}
     for q in _mcqs(content):
@@ -513,20 +516,21 @@ def mock10_inputs(name: str, content: dict[str, Any], plan: dict[str, tuple[int,
             order = sorted(items, key=lambda q: _u("m10", name, q["question"]))
         for i, q in enumerate(order):
             states[int(q["question"])] = "correct" if i < correct else ("wrong" if i < correct + wrong else "blank")
-    if not arch.get("fatigue"):
-        for topic in sorted(by_topic, key=lambda t: _u("m10-swap", name, t)):
-            drop, jump = _drop(states, MOCK10_LATE_FROM)
-            if drop <= 0 and jump <= 0:
+    fatigued = bool(arch.get("fatigue"))
+    for topic in sorted(by_topic, key=lambda t: _u("m10-swap", name, t)):
+        drop, jump = _drop(states, MOCK10_LATE_FROM)
+        if (drop >= MOCK10_FATIGUE_PTS) if fatigued else (drop <= 0 and jump <= 0):
+            break
+        items = sorted(by_topic[topic], key=lambda q: int(q["question"]))
+        late = items[-1]
+        for early in items[:-1]:
+            if arch.get("memoriser") and "K3" in (early.get("bloom_level"), late.get("bloom_level")):
+                continue
+            ne, nl = int(early["question"]), int(late["question"])
+            better, worse = (nl, ne) if fatigued else (ne, nl)  # fatigue: move the right answers early
+            if (states[better], states[worse]) in (("correct", "wrong"), ("correct", "blank"), ("wrong", "blank")):
+                states[ne], states[nl] = states[nl], states[ne]
                 break
-            items = sorted(by_topic[topic], key=lambda q: int(q["question"]))
-            late = items[-1]
-            for early in items[:-1]:
-                if arch.get("memoriser") and "K3" in (early.get("bloom_level"), late.get("bloom_level")):
-                    continue
-                ne, nl = int(early["question"]), int(late["question"])
-                if (states[ne], states[nl]) in (("correct", "wrong"), ("correct", "blank"), ("wrong", "blank")):
-                    states[ne], states[nl] = states[nl], states[ne]
-                    break
     answers = []
     for q in _mcqs(content):
         n = int(q["question"])

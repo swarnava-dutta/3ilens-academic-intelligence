@@ -30,6 +30,7 @@ from sqlalchemy import select
 
 import analytics
 import bloom
+import hashing
 import insights
 import marking
 
@@ -62,6 +63,7 @@ TRANSFER_LOW = 40.0
 TRANSFER_HIGH = 60.0
 TRANSFER_GAP = 25.0
 TRANSFER_NOTE = "Needs the same concept at recall (K1-K2) and application (K3-K5) levels"
+REPEATED_NOTE = "{n} students sat more than one test: each is listed once, for their latest test - filter by test to see the others"
 TRANSFER_ADVICE = {
     "memorisation": (
         "Recall is solid but application lags in {concept}: switch to application questions (K3-K4) and "
@@ -586,6 +588,27 @@ def _modal_risk(risks: list[str]) -> str:
     return max(counts, key=lambda r: (counts[r], RISK_ORDER[r]))
 
 
+def _latest_test_only(profiles: list[tuple[Any, dict[str, Any]]], sections: list[dict[str, Any] | None]) -> int:
+    """Keep one student-list row per student (their most recent flagged test) in each section.
+    Returns how many students have more than one profiled test (0 when filtered to one test)."""
+    def key(sub: Any) -> str:
+        return getattr(sub, "student_ref", None) or hashing.student_ref_for(sub.student_name)
+
+    tests = Counter(key(sub) for sub, _ in profiles)
+    repeated = sum(1 for n in tests.values() if n > 1)
+    if not repeated:
+        return 0
+    subs = {sub.id: sub for sub, _ in profiles}
+    for section in sections:
+        if not section:
+            continue
+        kept: dict[str, int] = {}
+        for sid in sorted((r["submission_id"] for r in section["students"]), key=lambda i: (str(subs[i].created_at), i)):
+            kept[key(subs[sid])] = sid  # the newest test wins
+        section["students"] = [r for r in section["students"] if r["submission_id"] in kept.values()]
+    return repeated
+
+
 def cohort_extras(db: Any, *, pairs: list[tuple[Any, Any]], rubrics: dict[int, Any]) -> dict[str, Any]:
     """{"patterns": CohortPatterns} over the completed (submission, result) pairs. Each student is
     profiled against their own rubric; fatigue peers are the pairs on the same rubric."""
@@ -737,6 +760,9 @@ def cohort_extras(db: Any, *, pairs: list[tuple[Any, Any]], rubrics: dict[int, A
                 "level": level, "questions": int(q), "marks": round(marks, 2), "max_marks": round(maximum, 2),
                 "accuracy": round(marks / maximum, 3) if maximum > 0 else None,
             })
+    repeated = _latest_test_only(profiles, [negative, fatigue, transfer])
+    if repeated:
+        notes.append(REPEATED_NOTE.format(n=repeated))
     if negative or fatigue or transfer:
         notes.append(THRESHOLD_NOTE)
     return {"patterns": {
