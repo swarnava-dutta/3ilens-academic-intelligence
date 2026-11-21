@@ -69,6 +69,11 @@ DEMO_REGRADE_MESSAGE = "Synthetic demo re-run - no AI call"
 DEMO_NEW_QUESTION_GAP = "Not graded - new in this rubric version (demo)"
 MAX_ERROR_CHARS = 500
 
+# current_step while a re-evaluation is queued / running: GET /api/results/{id} answers 202
+# (PENDING / PROCESSING, "Re-grading") until the new grade is stored.
+REGRADE_QUEUED_STEP = "Re-grading (queued)"
+REGRADE_STEP = "Re-grading"
+
 MODE_FULL = "full"
 MODE_EVALUATION_ONLY = "evaluation_only"
 MODES = (MODE_FULL, MODE_EVALUATION_ONLY)
@@ -471,7 +476,8 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
             _record(
                 db, sub, "Queue",
                 f"{PICKUP_MESSAGE} Evaluation-only run ({reason}): the stored transcript is re-used.",
-                current_step="Rubric evaluation", error_message=None, last_error_code=None,
+                current_step=REGRADE_STEP if reason == "reevaluate" else "Rubric evaluation",
+                error_message=None, last_error_code=None,
             )
             _write_artifact(job.job_dir, RUN_FILE, {"mode": mode, "reason": reason, "started_at": utc_iso()})
             answers = _stored_answers(job)
@@ -483,7 +489,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
             db, sub, step,
             f"Grading {len(answers)} answer(s) against rubric '{rubric.name}' ({rubric.version}) "
             f"with {settings.anthropic_model} (AI call 2).",
-            current_step="Rubric evaluation",
+            current_step=REGRADE_STEP if job.reason == "reevaluate" else "Rubric evaluation",
         )
         evaluation = _ai_call(
             job, step, "AI call 2 (evaluation)",

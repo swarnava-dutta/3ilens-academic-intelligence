@@ -224,3 +224,44 @@ def test_a_job_queued_twice_runs_once(upload, fake_ai, client):
     sub = upload().json()
     pipeline.process_submission(sub["id"])  # already COMPLETED: skipped
     assert fake_ai.calls["ocr"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Re-evaluation in flight (wave-1 leftover: the report must say "Re-grading", not show old marks)
+# --------------------------------------------------------------------------- #
+def test_results_answer_202_while_a_reevaluation_is_queued_and_running(upload, fake_ai, client, monkeypatch):
+    import ai
+    import database
+    import main
+    import pipeline
+
+    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+    sub = upload().json()
+    assert client.get(f"/api/results/{sub['id']}").status_code == 200
+
+    queued: list[tuple] = []
+    real_process = pipeline.process_submission
+    monkeypatch.setattr(pipeline, "process_submission", lambda *args, **kwargs: queued.append((args, kwargs)))
+    assert client.post(f"/api/submissions/{sub['id']}/reevaluate").status_code == 202
+    waiting = client.get(f"/api/results/{sub['id']}")
+    assert waiting.status_code == 202
+    body = waiting.json()
+    assert body["status"] == "PENDING" and body["submission"]["current_step"] == "Re-grading (queued)"
+    assert body["submission"]["total_score"] is None  # the old marks are archived, not shown
+
+    seen: list[tuple] = []
+    real_evaluation = fake_ai.run_evaluation
+
+    def evaluation(answers, rubric_content, **kwargs):
+        with database.SessionLocal() as db:  # what GET /api/results returns mid-run
+            response = main.get_result(sub["id"], db)
+            row = db.get(database.StudentSubmission, sub["id"])
+            seen.append((response.status_code, row.status, row.current_step))
+        return real_evaluation(answers, rubric_content, **kwargs)
+
+    monkeypatch.setattr(ai, "run_evaluation", evaluation)
+    (args, kwargs), = queued
+    real_process(*args, **kwargs)
+    assert seen == [(202, "PROCESSING", "Re-grading")]
+    done = client.get(f"/api/results/{sub['id']}")
+    assert done.status_code == 200 and done.json()["submission"]["status"] == "COMPLETED"

@@ -202,8 +202,10 @@ def prepare_reevaluation(db: Session, sub: StudentSubmission, target: Rubric) ->
         f"Re-evaluation queued against rubric '{target.name}' ({target.version}).{before} "
         "OCR reused - no vision call.",
     )
+    # The current result is archived above, so GET /api/results/{id} answers 202 with this step
+    # until the new grade is stored (the report shows "Re-grading", not the old marks).
     sub.status = SubmissionStatus.PENDING
-    sub.current_step = "Queued"
+    sub.current_step = pipeline.REGRADE_QUEUED_STEP
     sub.error_message = None
     sub.last_error_code = None
     sub.completed_at = None
