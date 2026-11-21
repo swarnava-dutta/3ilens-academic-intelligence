@@ -3,12 +3,11 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { clampPct } from "./format";
 
-/** White report card with a navy heading row. `id` is the section anchor (and the heading id prefix). */
+/** White bordered panel: title row over a hairline divider. `icon` is accepted but not drawn. `id` is the section anchor (and the heading id prefix). */
 export function SectionCard({
   id,
   title,
   description,
-  icon: Icon,
   action,
   className,
   children,
@@ -26,27 +25,20 @@ export function SectionCard({
       id={id}
       aria-labelledby={`${id}-title`}
       className={cn(
-        "min-w-0 scroll-mt-[11.5rem] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 md:scroll-mt-[8.5rem] print:shadow-none",
+        "min-w-0 scroll-mt-[11.5rem] rounded-md border border-slate-200 bg-white md:scroll-mt-[8.5rem]",
         className,
       )}
     >
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {Icon ? (
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-cyan-50 text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/20">
-              <Icon className="h-5 w-5" aria-hidden />
-            </span>
-          ) : null}
-          <div className="min-w-0">
-            <h2 id={`${id}-title`} className="text-lg font-semibold tracking-tight text-brand-navy">
-              {title}
-            </h2>
-            {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-slate-200 px-4 py-3 sm:px-5">
+        <div className="min-w-0">
+          <h2 id={`${id}-title`} className="text-[15px] font-semibold leading-snug text-brand-navy">
+            {title}
+          </h2>
+          {description ? <p className="mt-0.5 text-[13px] text-slate-500">{description}</p> : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      {children}
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
@@ -55,7 +47,7 @@ export function Pill({ className, children }: { className?: string; children: Re
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium tabular-nums",
         className,
       )}
     >
@@ -69,8 +61,8 @@ export function MeterBar({
   percent,
   label,
   valueText,
-  fillClass = "bg-brand-cyan",
-  trackClass = "bg-brand-cyan-50",
+  fillClass = "bg-brand-navy-700",
+  trackClass = "bg-slate-100",
   markerPercent,
   markerLabel,
   className,
@@ -96,21 +88,21 @@ export function MeterBar({
       aria-valuenow={Math.round(p)}
       aria-valuetext={valueText ?? `${Math.round(p)}%`}
       className={cn(
-        "relative w-full rounded-full [print-color-adjust:exact]",
-        size === "sm" ? "h-1.5" : size === "lg" ? "h-3" : "h-2.5",
+        "relative w-full rounded-sm [print-color-adjust:exact]",
+        size === "sm" ? "h-1.5" : size === "lg" ? "h-2.5" : "h-2",
         trackClass,
         className,
       )}
     >
       <div
-        className={cn("h-full rounded-full transition-[width] duration-700 ease-out", fillClass)}
+        className={cn("h-full rounded-sm", fillClass)}
         style={{ width: `${p}%` }}
       />
       {markerPercent !== undefined ? (
         <div
           aria-hidden
           title={markerLabel}
-          className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-brand-navy"
+          className="absolute -top-1 -bottom-1 w-0.5 bg-slate-900"
           style={{ left: `calc(${clampPct(markerPercent)}% - 1px)` }}
         />
       ) : null}
@@ -124,8 +116,8 @@ export function RadialGauge({
   label,
   size = 112,
   strokeWidth = 10,
-  colorClass = "text-brand-cyan",
-  trackClass = "text-brand-cyan-50",
+  colorClass = "text-brand-navy-700",
+  trackClass = "text-slate-100",
   children,
 }: {
   percent: number;
@@ -164,10 +156,9 @@ export function RadialGauge({
             fill="none"
             stroke="currentColor"
             strokeWidth={strokeWidth}
-            strokeLinecap="round"
             strokeDasharray={c}
             strokeDashoffset={c * (1 - p / 100)}
-            className={cn("transition-[stroke-dashoffset] duration-700 ease-out", colorClass)}
+            className={colorClass}
           />
         ) : null}
       </svg>
@@ -176,12 +167,7 @@ export function RadialGauge({
   );
 }
 
-/** Small uppercase label used inside cards. */
-export function Eyebrow({ icon: Icon, children, className }: { icon?: LucideIcon; children: ReactNode; className?: string }) {
-  return (
-    <p className={cn("flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500", className)}>
-      {Icon ? <Icon className="h-3.5 w-3.5" aria-hidden /> : null}
-      {children}
-    </p>
-  );
+/** Small sentence-case label used inside panels. `icon` is accepted but not drawn. */
+export function Eyebrow({ children, className }: { icon?: LucideIcon; children: ReactNode; className?: string }) {
+  return <p className={cn("text-[13px] font-medium text-slate-500", className)}>{children}</p>;
 }
