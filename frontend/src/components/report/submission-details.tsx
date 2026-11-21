@@ -1,0 +1,59 @@
+"use client";
+
+import { FileSearch } from "lucide-react";
+import type { ReactNode } from "react";
+import { useOcrThreshold } from "@/components/app-shell";
+import { StatusBadge } from "@/components/status-badge";
+import type { Submission } from "@/lib/types";
+import { formatConfidence, formatDateTime } from "@/lib/utils";
+import { humanizeStep } from "./format";
+import { SectionCard } from "./primitives";
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 border-b border-slate-100 py-2.5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <dt className="text-xs font-medium uppercase tracking-wider text-slate-400">{label}</dt>
+      <dd className="min-w-0 break-words text-sm text-slate-700 sm:text-right">{children}</dd>
+    </div>
+  );
+}
+
+export function SubmissionDetailsCard({
+  submission,
+  rubricLabel,
+  className,
+}: {
+  submission: Submission;
+  rubricLabel?: string;
+  className?: string;
+}) {
+  const threshold = useOcrThreshold();
+  return (
+    <SectionCard
+      id="submission-details"
+      title="Submission details"
+      description="Governed record for this answer sheet."
+      icon={FileSearch}
+      className={className}
+    >
+      <dl>
+        <Row label="Student">{submission.student_name}</Row>
+        <Row label="Status">
+          <StatusBadge status={submission.status} />
+        </Row>
+        <Row label="File">
+          <span className="font-mono text-xs">{submission.original_filename}</span>
+        </Row>
+        <Row label="Rubric">{rubricLabel ?? `Rubric ${submission.rubric_id}`}</Row>
+        <Row label="Current step">{submission.current_step ? humanizeStep(submission.current_step) : "—"}</Row>
+        <Row label="OCR confidence">
+          {formatConfidence(submission.ocr_confidence)}
+          <span className="text-slate-400"> (threshold {Math.round(threshold * 100)}%)</span>
+        </Row>
+        <Row label="Submitted">{formatDateTime(submission.created_at)}</Row>
+        <Row label="Last update">{formatDateTime(submission.updated_at)}</Row>
+        <Row label="Data source">{submission.is_demo ? "Synthetic demo record" : "Live upload"}</Row>
+      </dl>
+    </SectionCard>
+  );
+}

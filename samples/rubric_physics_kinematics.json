@@ -1,0 +1,66 @@
+{
+  "name": "Physics - Kinematics",
+  "subject": "Physics",
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Equations of Motion",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "A car starts from rest and accelerates uniformly at 2 m/s^2 for 10 s, then moves with constant velocity for 20 s, and finally decelerates uniformly to rest in 5 s. Find the maximum velocity, the total distance travelled and the deceleration.",
+      "expected_answer": "v_max = u + at = 0 + 2 x 10 = 20 m/s. Phase 1: s1 = 1/2 a t^2 = 1/2 x 2 x 10^2 = 100 m. Phase 2: s2 = 20 x 20 = 400 m. Phase 3: deceleration = 20 / 5 = 4 m/s^2, s3 = 1/2 x 20 x 5 = 50 m. Total distance = 100 + 400 + 50 = 550 m.",
+      "grading_criteria": [
+        "1 mark: maximum velocity v = at = 20 m/s",
+        "1 mark: distance while accelerating s1 = 100 m",
+        "1 mark: s2 = 400 m and s3 = 50 m, total distance 550 m (area under the v-t graph also accepted)",
+        "1 mark: deceleration = 20/5 = 4 m/s^2"
+      ],
+      "effort_hours": 3
+    },
+    {
+      "question": 2,
+      "topic": "Projectile Motion",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "A ball is projected with a speed of 20 m/s at 30 degrees above the horizontal (g = 10 m/s^2). Find the time of flight, the maximum height and the horizontal range.",
+      "expected_answer": "u_x = 20 cos 30 = 10 sqrt(3) m/s, u_y = 20 sin 30 = 10 m/s. Time of flight T = 2 u sin(theta) / g = 2 x 10 / 10 = 2 s. Maximum height H = u^2 sin^2(theta) / 2g = 100 / 20 = 5 m. Range R = u^2 sin(2 theta) / g = 400 x (sqrt(3)/2) / 10 = 20 sqrt(3) = 34.6 m.",
+      "grading_criteria": [
+        "1 mark: resolves velocity into u_x = 10 sqrt(3) m/s and u_y = 10 m/s",
+        "1 mark: time of flight T = 2 s",
+        "1 mark: maximum height H = 5 m",
+        "1 mark: range R = 20 sqrt(3) m (about 34.6 m)"
+      ],
+      "effort_hours": 4
+    },
+    {
+      "question": 3,
+      "topic": "Motion Graphs",
+      "subject": "Physics",
+      "max_marks": 3,
+      "prompt": "What do the slope of a position-time graph and the area under a velocity-time graph represent? Sketch the velocity-time graph of a ball thrown vertically upward with speed u until it returns to the thrower.",
+      "expected_answer": "The slope of an x-t graph gives the (instantaneous) velocity. The area under a v-t graph gives the displacement. For a ball thrown up, the v-t graph is a single straight line of slope -g starting at +u, crossing v = 0 at the top (t = u/g) and reaching -u when it returns at t = 2u/g.",
+      "grading_criteria": [
+        "1 mark: slope of the position-time graph = velocity",
+        "1 mark: area under the velocity-time graph = displacement",
+        "1 mark: straight line with constant negative slope -g from +u through v = 0 at t = u/g to -u at t = 2u/g"
+      ],
+      "effort_hours": 2
+    },
+    {
+      "question": 4,
+      "topic": "Relative Velocity",
+      "subject": "Physics",
+      "max_marks": 5,
+      "prompt": "A river 400 m wide flows at 3 m/s. A swimmer can swim at 5 m/s in still water. (a) In which direction should he swim to cross along the shortest path, and how long will it take? (b) If he instead swims perpendicular to the current, how long does he take and how far downstream does he land?",
+      "expected_answer": "(a) For the shortest path the resultant must be straight across: 5 sin(theta) = 3, so theta = sin^-1(3/5) = 37 degrees upstream from the line perpendicular to the bank (127 degrees with the current). Resultant speed across = sqrt(5^2 - 3^2) = 4 m/s, time = 400 / 4 = 100 s. (b) Swimming perpendicular gives minimum time t = 400 / 5 = 80 s; drift downstream = 3 x 80 = 240 m.",
+      "grading_criteria": [
+        "1 mark: heads upstream at sin^-1(3/5) = 37 degrees to the perpendicular (127 degrees with the flow)",
+        "1 mark: resultant velocity across the river = 4 m/s",
+        "1 mark: time for the shortest path = 100 s",
+        "1 mark: time when swimming perpendicular = 80 s (minimum time)",
+        "1 mark: downstream drift = 240 m"
+      ],
+      "effort_hours": 4
+    }
+  ]
+}

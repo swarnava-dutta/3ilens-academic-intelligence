@@ -1,0 +1,81 @@
+{
+  "name": "Biology - Genetics",
+  "subject": "Biology",
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Mendelian Inheritance",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "In pea plants, tall (T) is dominant over dwarf (t). A heterozygous tall plant is crossed with a dwarf plant. Show the cross, give the genotypic and phenotypic ratios of the offspring, and name this type of cross.",
+      "expected_answer": "Tt x tt. Gametes T, t x t. Offspring Tt : tt = 1 : 1 (genotypic); 1 tall : 1 dwarf (phenotypic). This is a test cross, used to find whether a dominant-phenotype plant is homozygous or heterozygous.",
+      "grading_criteria": [
+        "1 mark: correct parental genotypes and gametes (Tt x tt) or a correct Punnett square",
+        "1 mark: genotypic ratio 1 Tt : 1 tt",
+        "1 mark: phenotypic ratio 1 tall : 1 dwarf",
+        "1 mark: identifies it as a test cross (and its purpose)"
+      ],
+      "effort_hours": 2
+    },
+    {
+      "question": 2,
+      "topic": "Incomplete Dominance & Codominance",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Distinguish between incomplete dominance and codominance, giving one example of each.",
+      "expected_answer": "Incomplete dominance: the heterozygote shows an intermediate phenotype because neither allele is completely dominant, e.g. snapdragon (Antirrhinum) / Mirabilis flower colour: red (RR) x white (rr) gives pink (Rr); F2 ratio 1:2:1. Codominance: both alleles are fully and simultaneously expressed in the heterozygote, e.g. ABO blood groups, I^A I^B gives blood group AB.",
+      "grading_criteria": [
+        "1 mark: correct definition of incomplete dominance (intermediate heterozygote phenotype)",
+        "1 mark: valid example of incomplete dominance (snapdragon / four o'clock flower colour)",
+        "1 mark: correct definition of codominance (both alleles expressed together)",
+        "1 mark: valid example of codominance (ABO blood group AB, roan cattle)"
+      ],
+      "effort_hours": 3
+    },
+    {
+      "question": 3,
+      "topic": "Molecular Basis of Inheritance",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Describe the semi-conservative mode of DNA replication and name the experiment that proved it.",
+      "expected_answer": "Each daughter DNA molecule has one parental (old) strand and one newly synthesised strand. Proved by Meselson and Stahl (1958) by growing E. coli in 15N then transferring to 14N and separating DNA by CsCl density-gradient centrifugation: hybrid 15N/14N DNA after one generation, then equal hybrid and light DNA after two generations. DNA polymerase synthesises 5'->3'; leading strand is continuous, lagging strand is discontinuous (Okazaki fragments joined by ligase).",
+      "grading_criteria": [
+        "1 mark: states each daughter molecule keeps one parental strand and one new strand",
+        "1 mark: names the Meselson and Stahl experiment",
+        "1 mark: describes 15N/14N labelling with CsCl density-gradient centrifugation and the hybrid-DNA result",
+        "1 mark: mentions DNA polymerase 5'->3' synthesis or leading/lagging strands / Okazaki fragments"
+      ],
+      "effort_hours": 4
+    },
+    {
+      "question": 4,
+      "topic": "Sex-linked Inheritance",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "A colour-blind man marries a woman with normal vision whose father was colour-blind. Show the cross and state what proportion of their sons and daughters will be colour-blind.",
+      "expected_answer": "Man X^c Y; woman is a carrier X X^c (her father gave her X^c). Gametes X^c, Y x X, X^c. Daughters: X X^c (carrier, normal) and X^c X^c (colour-blind) -> 50% of daughters colour-blind. Sons: X Y (normal) and X^c Y (colour-blind) -> 50% of sons colour-blind.",
+      "grading_criteria": [
+        "1 mark: correct genotypes - man X^cY and woman a carrier XX^c (with reason)",
+        "1 mark: correct cross / gametes / Punnett square",
+        "1 mark: 50% of daughters colour-blind (other 50% carriers)",
+        "1 mark: 50% of sons colour-blind"
+      ],
+      "effort_hours": 3
+    },
+    {
+      "question": 5,
+      "topic": "Chromosomal Disorders",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "What is Down's syndrome? State its cause and any two symptoms.",
+      "expected_answer": "Down's syndrome is a chromosomal disorder caused by trisomy of chromosome 21 (47 chromosomes, 2n+1), usually due to non-disjunction of chromosome 21 during meiosis (gamete formation). Symptoms: short stature, small round head, furrowed tongue, partially open mouth, broad palm with characteristic palm crease, physical, psychomotor and mental retardation / congenital heart disease.",
+      "grading_criteria": [
+        "1 mark: identifies it as a chromosomal disorder / aneuploidy",
+        "1 mark: cause is trisomy 21 (extra copy of chromosome 21, 47 chromosomes)",
+        "1 mark: mentions non-disjunction during meiosis",
+        "1 mark: any two correct symptoms (0.5 each)"
+      ],
+      "effort_hours": 2
+    }
+  ]
+}

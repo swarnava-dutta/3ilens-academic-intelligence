@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/*
+ * 3iLens brand tokens. Use as Tailwind utilities, e.g.
+ *   bg-brand-navy text-brand-cyan border-brand-lime bg-brand-cyan-50 ring-brand-cyan/30
+ * Base surface: bg-slate-50, text-slate-800. Cards: bg-white, rounded-2xl, border-slate-200,
+ * shadow-sm. Status pills are rounded-full.
+ */
+@theme inline {
+  --color-brand-navy: #0b2545;
+  --color-brand-navy-700: #13315c;
+  --color-brand-cyan: #05a7c5;
+  --color-brand-cyan-600: #0490aa;
+  --color-brand-cyan-50: #e6f7fa;
+  --color-brand-lime: #a0d84e;
+  --color-brand-lime-600: #7fb52f;
+  --color-brand-lime-50: #f3fae8;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: #f8fafc; /* slate-50 */
+  color: #1e293b; /* slate-800 */
+}
+
+/* ------------------------------------------------------------------------- */
+/* Student Academic Intelligence Report (SAIR)                               */
+/* ------------------------------------------------------------------------- */
+
+/* Q-ref chips scroll to a question card (#q-<n>) and flash it briefly. */
+@keyframes sair-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(5 167 197 / 0);
+    background-color: #ffffff;
+  }
+  15%,
+  60% {
+    box-shadow: 0 0 0 4px rgb(5 167 197 / 0.45);
+    background-color: #e6f7fa;
+  }
+}
+
+.sair-flash {
+  animation: sair-flash 1.8s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sair-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px rgb(5 167 197 / 0.6);
+  }
+}
+
+/* Print-only blocks (end-of-report footer line, appendix tables). */
+.sair-print-only {
+  display: none;
+}
+
+/*
+ * Printed pages. The running footer (release status + run id) is drawn in the bottom page-margin
+ * box: PrintFooter (components/report/provisional-banner.tsx) injects an
+ * `@page { @bottom-center { content: "..." } }` rule with the live text, so it repeats on every
+ * printed page without overlapping body text. The page counter below is static.
+ */
+@page {
+  size: A4;
+  margin: 12mm 11mm 16mm;
+
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 7pt;
+    color: #64748b;
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  .sair-print-only {
+    display: block;
+  }
+
+  /* Interactive-only chrome. */
+  .sair-screen-only {
+    display: none !important;
+  }
+}

@@ -1,0 +1,125 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useState } from "react";
+import { FilterX } from "lucide-react";
+import { RubricVersionsPanel } from "@/components/rubrics/rubric-versions";
+import { useDashboardFilters } from "@/components/shared/filter-bar";
+import { hasDashboardFilters } from "@/components/workspace/use-submissions";
+import { CohortToolbar } from "./cohort-actions";
+import { CohortHeader, DemoNotice, StaleBanner } from "./cohort-header";
+import { ConfusionsCard, CommonErrorsCard, InterventionsCard } from "./class-insights";
+import { Toast, type ToastMessage } from "./dialog";
+import { CohortEmptyState } from "./empty-state";
+import { ExamDateCard } from "./exam-date-card";
+import { hasResults } from "./format";
+import { KpiGrid } from "./kpi-cards";
+import { OperationsCard, ReleaseCard } from "./operations";
+import { PipelineHealth } from "./pipeline-health";
+import { Priorities } from "./priorities";
+import { ScoreDistribution } from "./score-distribution";
+import { CohortErrorCard, CohortSkeleton } from "./states";
+import { AtRiskCard, RankingCard } from "./student-lists";
+import { TopicMastery } from "./topic-mastery";
+import { UrgencyStrip } from "./urgency-strip";
+import { useCohort } from "./use-cohort";
+
+/**
+ * Cohort Dashboard: GET /api/cohort with the URL filters (batch, test, urgency, topic), refreshed
+ * every 10 s. Reads search params, so it must render inside <Suspense>.
+ */
+export function CohortDashboard() {
+  const filters = useDashboardFilters();
+  const pathname = usePathname();
+  const { cohort, error, updatedLabel, refreshing, refresh } = useCohort(filters);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const closeToast = useCallback(() => setToast(null), []);
+  const filtered = hasDashboardFilters(filters);
+
+  if (!cohort) {
+    if (error) {
+      return <CohortErrorCard message={error} onRetry={refresh} retrying={refreshing} />;
+    }
+    return <CohortSkeleton />;
+  }
+
+  const ready = hasResults(cohort);
+  const denominator = cohort.completed ?? 0;
+  const preferredRubricId = filters.rubric_id ?? cohort.rubric_versions?.[0]?.id ?? null;
+
+  return (
+    <div className="space-y-6">
+      <CohortHeader cohort={cohort} updatedLabel={updatedLabel} refreshing={refreshing} onRefresh={refresh} />
+      <CohortToolbar cohort={cohort} filters={filters} />
+
+      {error ? <StaleBanner message={error} updatedLabel={updatedLabel} /> : null}
+      <DemoNotice cohort={cohort} />
+
+      {ready ? (
+        <>
+          <KpiGrid cohort={cohort} />
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <UrgencyStrip cohort={cohort} />
+            {cohort.batch ? (
+              <ExamDateCard key={`${cohort.batch.id}-${cohort.batch.exam_date ?? ""}`} batch={cohort.batch} onSaved={refresh} />
+            ) : null}
+          </div>
+          <PipelineHealth cohort={cohort} />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <RankingCard ranking={cohort.ranking ?? []} mixed={cohort.mixed_rubrics ?? false} />
+            <AtRiskCard rows={cohort.at_risk ?? []} />
+          </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+            <TopicMastery topics={cohort.topic_mastery} className="lg:col-span-3" />
+            <ScoreDistribution buckets={cohort.score_distribution} className="lg:col-span-2" />
+          </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <CommonErrorsCard errors={cohort.common_errors ?? []} denominator={denominator} />
+            <div className="space-y-6">
+              <ConfusionsCard clusters={cohort.confusion_clusters ?? []} denominator={denominator} />
+              <InterventionsCard interventions={cohort.interventions ?? []} />
+            </div>
+          </div>
+          <Priorities priorities={cohort.top_priorities} />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <OperationsCard cohort={cohort} />
+            </div>
+            <ReleaseCard cohort={cohort} />
+          </div>
+        </>
+      ) : filtered ? (
+        <>
+          <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+            <p className="text-base font-semibold text-brand-navy">No completed students match these filters</p>
+            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+              Sheets still in review, failed or processing are not counted. Change the filters above, or show the
+              whole cohort.
+            </p>
+            <Link
+              href={pathname}
+              scroll={false}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+            >
+              <FilterX className="h-4 w-4" aria-hidden />
+              Clear filters
+            </Link>
+          </section>
+          {(cohort.total_submissions ?? 0) > 0 ? <PipelineHealth cohort={cohort} /> : null}
+        </>
+      ) : (
+        <>
+          <CohortEmptyState cohort={cohort} onSeeded={refresh} />
+          {(cohort.total_submissions ?? 0) > 0 ? <PipelineHealth cohort={cohort} /> : null}
+          {cohort.batch ? (
+            <ExamDateCard key={`${cohort.batch.id}-${cohort.batch.exam_date ?? ""}`} batch={cohort.batch} onSaved={refresh} />
+          ) : null}
+        </>
+      )}
+
+      <RubricVersionsPanel preferredRubricId={preferredRubricId} onRerunQueued={refresh} onToast={setToast} />
+      <Toast toast={toast} onClose={closeToast} />
+    </div>
+  );
+}

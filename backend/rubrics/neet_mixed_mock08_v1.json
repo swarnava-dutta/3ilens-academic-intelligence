@@ -1,0 +1,198 @@
+{
+  "name": "NEET Mixed - Mock 08",
+  "subject": "Mixed",
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Genetics",
+      "chapter": "Genetics",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "A man heterozygous for blood group A marries a woman heterozygous for blood group B. Work out the possible blood groups of their children with the probability of each, and name the inheritance pattern shown by the I^A and I^B alleles.",
+      "expected_answer": "Parents I^A i x I^B i; gametes I^A, i and I^B, i. Children I^A I^B (AB), I^A i (A), I^B i (B) and ii (O), each with probability 1/4 (25%). I^A and I^B are codominant (both expressed in AB) and both are dominant over i; the ABO gene shows multiple allelism.",
+      "grading_criteria": [
+        "1 mark: correct parental genotypes I^A i x I^B i and their gametes",
+        "1 mark: complete Punnett square with all four offspring genotypes",
+        "1 mark: blood groups AB, A, B and O each with probability 1/4 (25%)",
+        "1 mark: names codominance of I^A and I^B (and multiple alleles / dominance over i)"
+      ],
+      "effort_hours": 6
+    },
+    {
+      "question": 2,
+      "topic": "Genetics",
+      "chapter": "Genetics",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Pure-breeding round yellow (RRYY) pea plants are crossed with wrinkled green (rryy) plants. Give the F1 genotype and phenotype, the F2 phenotypic ratio with labels, and the Mendelian law this dihybrid cross illustrates.",
+      "expected_answer": "F1 is RrYy, all round yellow. F1 forms four gamete types RY, Ry, rY and ry in equal proportion. F2: 9 round yellow : 3 round green : 3 wrinkled yellow : 1 wrinkled green. It illustrates the law of independent assortment - the two gene pairs segregate independently of each other.",
+      "grading_criteria": [
+        "1 mark: F1 genotype RrYy with phenotype round yellow",
+        "1 mark: four F1 gamete types RY, Ry, rY, ry in equal proportion",
+        "1 mark: F2 ratio 9:3:3:1 with the correct phenotype labels",
+        "1 mark: names the law of independent assortment"
+      ],
+      "effort_hours": 6
+    },
+    {
+      "question": 3,
+      "topic": "Human Physiology",
+      "chapter": "Human Physiology",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Describe how the oxygen-haemoglobin dissociation curve is affected by pCO2, H+ concentration and temperature, and explain why this matters for oxygen delivery in the tissues.",
+      "expected_answer": "The curve is sigmoid. High pCO2, high H+ (low pH) and high temperature lower the affinity of haemoglobin for O2 and shift the curve to the right (Bohr effect). In the tissues these conditions favour dissociation of oxyhaemoglobin so O2 is unloaded; in the alveoli high pO2, low pCO2, lower H+ and lower temperature favour formation of oxyhaemoglobin.",
+      "grading_criteria": [
+        "1 mark: sigmoid curve relating percentage saturation of haemoglobin to pO2",
+        "1 mark: high pCO2, H+ and temperature shift the curve to the right (lower affinity)",
+        "1 mark: names the Bohr effect",
+        "1 mark: significance - O2 unloading in tissues and loading in alveoli"
+      ],
+      "effort_hours": 7
+    },
+    {
+      "question": 4,
+      "topic": "Cell Biology",
+      "chapter": "Cell Biology",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Distinguish between mitosis and meiosis on the basis of the number and ploidy of daughter cells, the number of divisions, crossing over and their biological significance.",
+      "expected_answer": "Mitosis is an equational division giving two genetically identical diploid daughter cells; meiosis gives four haploid cells. Mitosis has one division; meiosis has two (meiosis I reductional, meiosis II equational). Crossing over occurs at pachytene of prophase I in meiosis only, producing variation. Mitosis serves growth and repair; meiosis forms gametes and keeps the chromosome number constant across generations.",
+      "grading_criteria": [
+        "1 mark: mitosis gives 2 identical diploid cells, meiosis gives 4 haploid cells",
+        "1 mark: one division in mitosis versus two in meiosis (reductional then equational)",
+        "1 mark: crossing over in prophase I (pachytene) of meiosis only, causing variation",
+        "1 mark: significance - growth and repair versus gamete formation and constant chromosome number"
+      ],
+      "effort_hours": 5
+    },
+    {
+      "question": 5,
+      "topic": "Organic Chemistry",
+      "chapter": "Organic Chemistry",
+      "subject": "Chemistry",
+      "max_marks": 4,
+      "prompt": "Write the mechanism of the SN1 hydrolysis of tert-butyl bromide with aqueous KOH and state its rate law. Explain why tert-butyl bromide reacts faster by SN1 than methyl bromide.",
+      "expected_answer": "Step 1 (slow, rate-determining): (CH3)3C-Br ionises to the tert-butyl carbocation and Br-. Step 2 (fast): OH- attacks the planar carbocation to give (CH3)3C-OH. Rate = k[(CH3)3CBr], first order. The 3 degree carbocation is stabilised by hyperconjugation and the +I effect of three methyl groups, whereas the methyl carbocation is very unstable, so CH3Br reacts by SN2 instead.",
+      "grading_criteria": [
+        "1 mark: slow ionisation to the tert-butyl carbocation as the rate-determining step",
+        "1 mark: fast nucleophilic attack by OH- giving tert-butyl alcohol",
+        "1 mark: first-order rate law, rate = k[(CH3)3CBr]",
+        "1 mark: stability of the 3 degree carbocation (hyperconjugation / +I effect) explains the order"
+      ],
+      "effort_hours": 7
+    },
+    {
+      "question": 6,
+      "topic": "Ecology",
+      "chapter": "Ecology",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Explain the pyramid of energy in an ecosystem. Why is it always upright? Illustrate your answer with Lindeman's 10 per cent law.",
+      "expected_answer": "The pyramid of energy shows the energy flow at each trophic level per unit area per unit time. It is always upright because energy is lost as heat in respiration at every level (second law of thermodynamics), so each level has less energy than the one below. By the 10 per cent law only about 10% is passed on, e.g. 1000 J in producers -> 100 J in herbivores -> 10 J in carnivores.",
+      "grading_criteria": [
+        "1 mark: defines the pyramid of energy (energy per trophic level per unit area per unit time)",
+        "1 mark: always upright - energy decreases at each successive trophic level",
+        "1 mark: reason - respiratory heat loss / second law of thermodynamics",
+        "1 mark: 10 per cent law with a numerical illustration"
+      ],
+      "effort_hours": 3
+    },
+    {
+      "question": 7,
+      "topic": "Electrostatics",
+      "chapter": "Electrostatics",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "Using Gauss's law, derive the electric field at a distance r from an infinitely long straight wire with uniform linear charge density lambda. How does the field vary with r?",
+      "expected_answer": "Choose a coaxial cylindrical Gaussian surface of radius r and length l. By symmetry E is radial and constant on the curved surface; flux through the flat ends is zero. Flux = E x 2 pi r l = q_enclosed / epsilon_0 = lambda l / epsilon_0, so E = lambda / (2 pi epsilon_0 r), directed radially outward for positive lambda. E is inversely proportional to r.",
+      "grading_criteria": [
+        "1 mark: coaxial cylindrical Gaussian surface justified by symmetry",
+        "1 mark: flux only through the curved surface, E x 2 pi r l",
+        "1 mark: applies Gauss's law to get E = lambda / (2 pi epsilon_0 r)",
+        "1 mark: radial direction and E proportional to 1/r"
+      ],
+      "effort_hours": 7
+    },
+    {
+      "question": 8,
+      "topic": "Plant Physiology",
+      "chapter": "Plant Physiology",
+      "subject": "Biology",
+      "max_marks": 4,
+      "prompt": "Compare the C3 and C4 pathways of photosynthesis with respect to the primary CO2 acceptor, the first stable product, the leaf anatomy involved and photorespiration.",
+      "expected_answer": "C3: CO2 is accepted by RuBP (RuBisCO); the first stable product is 3-PGA (3-carbon); fixation happens in mesophyll cells; photorespiration occurs. C4: CO2 is first accepted by PEP (PEP carboxylase) in mesophyll cells; the first stable product is oxaloacetic acid (4-carbon); Kranz anatomy with bundle-sheath cells where the Calvin cycle runs; photorespiration is negligible.",
+      "grading_criteria": [
+        "1 mark: primary acceptor RuBP (C3) versus PEP (C4)",
+        "1 mark: first stable product 3-PGA (C3) versus oxaloacetic acid (C4)",
+        "1 mark: Kranz anatomy with mesophyll and bundle-sheath cells in C4 plants",
+        "1 mark: photorespiration present in C3, negligible in C4"
+      ],
+      "effort_hours": 5
+    },
+    {
+      "question": 9,
+      "topic": "Mechanics",
+      "chapter": "Mechanics",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "A ball is projected from level ground at 20 m/s, 30 degrees above the horizontal (g = 10 m/s^2). Find the time of flight, the maximum height and the horizontal range, showing your working.",
+      "expected_answer": "u_x = 20 cos 30 = 17.3 m/s and u_y = 20 sin 30 = 10 m/s. Time of flight T = 2 u_y / g = 2 s. Maximum height H = u_y^2 / 2g = 5 m. Range R = u_x x T = u^2 sin 2 theta / g = 400 x 0.866 / 10 = 34.6 m.",
+      "grading_criteria": [
+        "1 mark: resolves the velocity into u_x = 17.3 m/s and u_y = 10 m/s",
+        "1 mark: time of flight T = 2 s",
+        "1 mark: maximum height H = 5 m",
+        "1 mark: range R = 34.6 m with units"
+      ],
+      "effort_hours": 8
+    },
+    {
+      "question": 10,
+      "topic": "Mechanics",
+      "chapter": "Mechanics",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "State the work-energy theorem. A 2 kg block slides from rest down a frictionless incline of height 5 m (g = 10 m/s^2). Using energy conservation, find its speed at the bottom and the work done by gravity.",
+      "expected_answer": "Work-energy theorem: the net work done on a body equals the change in its kinetic energy. With no friction, mgh = 1/2 m v^2, so v = sqrt(2gh) = sqrt(100) = 10 m/s, independent of the incline angle. Work done by gravity = mgh = 2 x 10 x 5 = 100 J.",
+      "grading_criteria": [
+        "1 mark: correct statement of the work-energy theorem",
+        "1 mark: energy conservation mgh = 1/2 m v^2 (angle not needed)",
+        "1 mark: speed at the bottom v = 10 m/s",
+        "1 mark: work done by gravity = 100 J"
+      ],
+      "effort_hours": 8
+    },
+    {
+      "question": 11,
+      "topic": "Thermodynamics",
+      "chapter": "Thermodynamics",
+      "subject": "Physics",
+      "max_marks": 4,
+      "prompt": "State the first law of thermodynamics. For an ideal gas, explain why the work done in an isothermal expansion equals the heat absorbed, and write the expression for this work.",
+      "expected_answer": "First law: dQ = dU + dW (heat supplied = increase in internal energy + work done by the system). For an ideal gas internal energy depends only on temperature, so in an isothermal process dU = 0 and Q = W. Work done W = nRT ln(V2/V1) = 2.303 nRT log10(V2/V1).",
+      "grading_criteria": [
+        "1 mark: statement of the first law with a consistent sign convention",
+        "1 mark: internal energy of an ideal gas depends only on temperature",
+        "1 mark: isothermal so dU = 0 and Q = W",
+        "1 mark: W = nRT ln(V2/V1)"
+      ],
+      "effort_hours": 6
+    },
+    {
+      "question": 12,
+      "topic": "Chemical Bonding",
+      "chapter": "Chemical Bonding",
+      "subject": "Chemistry",
+      "max_marks": 4,
+      "prompt": "Using VSEPR theory, predict the shapes and approximate bond angles of NH3 and H2O, and explain why the bond angle in H2O is smaller than in NH3.",
+      "expected_answer": "Both central atoms have four electron pairs (sp3). NH3 has 3 bond pairs and 1 lone pair: trigonal pyramidal, about 107 degrees. H2O has 2 bond pairs and 2 lone pairs: bent (V-shaped), about 104.5 degrees. Repulsion order lone pair-lone pair > lone pair-bond pair > bond pair-bond pair, so the two lone pairs on oxygen compress the bond angle more.",
+      "grading_criteria": [
+        "1 mark: NH3 trigonal pyramidal with a bond angle of about 107 degrees",
+        "1 mark: H2O bent / V-shaped with a bond angle of about 104.5 degrees",
+        "1 mark: electron-pair count (3 bp + 1 lp, 2 bp + 2 lp; sp3)",
+        "1 mark: lp-lp > lp-bp > bp-bp repulsion explains the smaller H2O angle"
+      ],
+      "effort_hours": 5
+    }
+  ]
+}

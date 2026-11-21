@@ -1,0 +1,315 @@
+{
+  "exam": "NEET",
+  "version": "neet-matrix-illustrative-2026.11",
+  "source": "Illustrative - derived from the V5 spec sample topics; not from licensed past papers",
+  "confidence": 0.3,
+  "illustrative": true,
+  "total_marks": 720.0,
+  "note": "Sample data for the PoC. Rows with a 'parent' are Genetics sub-chapters that split the 24 Genetics marks so the seeded Genetics rubric topics carry different weights; the bottom-third cut-off for over-investing flags uses the top-level chapters only. effort_hours = study hours to reach about 85% from mastery 0-40 (from_low), 40-70 (from_mid), 70-90 (from_high).",
+  "chapters": [
+    {
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "aliases": [
+        "Genetics and Evolution",
+        "Principles of Inheritance and Variation",
+        "Inheritance",
+        "Heredity"
+      ],
+      "avg_questions_per_paper": 6.0,
+      "avg_marks": 24.0,
+      "weightage_rank": 3,
+      "effort_hours": {
+        "from_low": 9.0,
+        "from_mid": 6.0,
+        "from_high": 3.0
+      },
+      "historic_error_rate": 0.9,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "aliases": [
+        "Physiology",
+        "Animal Physiology",
+        "Human Physiology and Health"
+      ],
+      "avg_questions_per_paper": 6.5,
+      "avg_marks": 26.0,
+      "weightage_rank": 1,
+      "effort_hours": {
+        "from_low": 10.5,
+        "from_mid": 7.0,
+        "from_high": 3.5
+      },
+      "historic_error_rate": 0.65,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "aliases": [
+        "Cell: The Unit of Life",
+        "Cell Cycle and Cell Division",
+        "Cell Structure and Function",
+        "Cell Biology and Genetics"
+      ],
+      "avg_questions_per_paper": 4.5,
+      "avg_marks": 18.0,
+      "weightage_rank": 6,
+      "effort_hours": {
+        "from_low": 7.5,
+        "from_mid": 5.0,
+        "from_high": 2.5
+      },
+      "historic_error_rate": 0.75,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "aliases": [
+        "Organic",
+        "Hydrocarbons",
+        "Organic Chemistry - Some Basic Principles and Techniques",
+        "Organic Reactions"
+      ],
+      "avg_questions_per_paper": 5.75,
+      "avg_marks": 23.0,
+      "weightage_rank": 4,
+      "effort_hours": {
+        "from_low": 10.5,
+        "from_mid": 7.0,
+        "from_high": 3.5
+      },
+      "historic_error_rate": 0.9,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "aliases": [
+        "Ecology and Environment",
+        "Environment",
+        "Ecosystem",
+        "Organisms and Populations"
+      ],
+      "avg_questions_per_paper": 3.25,
+      "avg_marks": 13.0,
+      "weightage_rank": 9,
+      "effort_hours": {
+        "from_low": 4.5,
+        "from_mid": 3.0,
+        "from_high": 1.5
+      },
+      "historic_error_rate": 0.35,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "aliases": [
+        "Electric Charges and Fields",
+        "Electrostatic Potential and Capacitance",
+        "Electricity",
+        "Current Electricity"
+      ],
+      "avg_questions_per_paper": 5.25,
+      "avg_marks": 21.0,
+      "weightage_rank": 5,
+      "effort_hours": {
+        "from_low": 10.5,
+        "from_mid": 7.0,
+        "from_high": 3.5
+      },
+      "historic_error_rate": 0.95,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Plant Physiology",
+      "aliases": [
+        "Photosynthesis",
+        "Photosynthesis in Higher Plants",
+        "Respiration in Plants",
+        "Plant Growth and Development"
+      ],
+      "avg_questions_per_paper": 4.25,
+      "avg_marks": 17.0,
+      "weightage_rank": 8,
+      "effort_hours": {
+        "from_low": 7.5,
+        "from_mid": 5.0,
+        "from_high": 2.5
+      },
+      "historic_error_rate": 0.5,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "aliases": [
+        "Kinematics",
+        "Laws of Motion",
+        "Work, Energy and Power",
+        "Rotational Motion",
+        "Newtonian Mechanics"
+      ],
+      "avg_questions_per_paper": 6.25,
+      "avg_marks": 25.0,
+      "weightage_rank": 2,
+      "effort_hours": {
+        "from_low": 12.0,
+        "from_mid": 8.0,
+        "from_high": 4.0
+      },
+      "historic_error_rate": 0.65,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Physics",
+      "chapter": "Thermodynamics",
+      "aliases": [
+        "Thermal Physics",
+        "Heat and Thermodynamics",
+        "Kinetic Theory"
+      ],
+      "avg_questions_per_paper": 3.0,
+      "avg_marks": 12.0,
+      "weightage_rank": 10,
+      "effort_hours": {
+        "from_low": 9.0,
+        "from_mid": 6.0,
+        "from_high": 3.0
+      },
+      "historic_error_rate": 0.85,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "aliases": [
+        "Chemical Bonding and Molecular Structure",
+        "Bonding",
+        "Molecular Structure"
+      ],
+      "avg_questions_per_paper": 4.25,
+      "avg_marks": 17.0,
+      "weightage_rank": 7,
+      "effort_hours": {
+        "from_low": 7.5,
+        "from_mid": 5.0,
+        "from_high": 2.5
+      },
+      "historic_error_rate": 0.5,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Mendelian Inheritance",
+      "parent": "Genetics",
+      "aliases": [
+        "Mendelian Genetics",
+        "Principles of Inheritance",
+        "Monohybrid Cross",
+        "Dihybrid Cross",
+        "Test Cross"
+      ],
+      "avg_questions_per_paper": 1.5,
+      "avg_marks": 6.0,
+      "weightage_rank": 12,
+      "effort_hours": {
+        "from_low": 3.0,
+        "from_mid": 2.0,
+        "from_high": 1.0
+      },
+      "historic_error_rate": 0.6,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Incomplete Dominance & Codominance",
+      "parent": "Genetics",
+      "aliases": [
+        "Incomplete Dominance",
+        "Codominance",
+        "Incomplete Dominance and Codominance",
+        "Multiple Alleles"
+      ],
+      "avg_questions_per_paper": 0.75,
+      "avg_marks": 3.0,
+      "weightage_rank": 15,
+      "effort_hours": {
+        "from_low": 4.5,
+        "from_mid": 3.0,
+        "from_high": 1.5
+      },
+      "historic_error_rate": 0.8,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Molecular Basis of Inheritance",
+      "parent": "Genetics",
+      "aliases": [
+        "Molecular Basis",
+        "Molecular Genetics",
+        "DNA Replication",
+        "DNA Structure and Replication"
+      ],
+      "avg_questions_per_paper": 2.0,
+      "avg_marks": 8.0,
+      "weightage_rank": 11,
+      "effort_hours": {
+        "from_low": 6.0,
+        "from_mid": 4.0,
+        "from_high": 2.0
+      },
+      "historic_error_rate": 0.9,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Sex-linked Inheritance",
+      "parent": "Genetics",
+      "aliases": [
+        "Sex Linked Inheritance",
+        "X-linked Inheritance",
+        "Sex-linked Disorders",
+        "Sex Determination"
+      ],
+      "avg_questions_per_paper": 1.0,
+      "avg_marks": 4.0,
+      "weightage_rank": 13,
+      "effort_hours": {
+        "from_low": 4.5,
+        "from_mid": 3.0,
+        "from_high": 1.5
+      },
+      "historic_error_rate": 0.75,
+      "confidence": 0.3
+    },
+    {
+      "subject": "Biology",
+      "chapter": "Chromosomal Disorders",
+      "parent": "Genetics",
+      "aliases": [
+        "Chromosomal Abnormalities",
+        "Aneuploidy",
+        "Down's Syndrome",
+        "Genetic Disorders"
+      ],
+      "avg_questions_per_paper": 0.75,
+      "avg_marks": 3.0,
+      "weightage_rank": 14,
+      "effort_hours": {
+        "from_low": 3.0,
+        "from_mid": 2.0,
+        "from_high": 1.0
+      },
+      "historic_error_rate": 0.5,
+      "confidence": 0.3
+    }
+  ]
+}
