@@ -13,11 +13,13 @@ import {
 } from "@/lib/api";
 import type { ReevaluationEstimate, Rubric, RubricContent, RubricVersionResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { BloomSuggestions } from "./bloom-suggestions";
 import { RubricDraftEditor } from "./rubric-draft-editor";
 import {
   cloneContent,
   compareContents,
   normalizeContent,
+  policyKey,
   questionList,
   rubricLabel,
   rubricStatusLabel,
@@ -142,8 +144,11 @@ export function RubricVersionsPanel({
   const diff = baseline && normalized ? compareContents(normalizeContent(baseline), normalized) : null;
   const changed = diff ? diff.added.length + diff.removed.length + diff.changed.length > 0 : false;
   const nameChanged = !!(baseline && normalized && normalizeContent(baseline).name !== normalized.name);
+  // A rubric-wide marking-policy change re-scores every question even when no question changed.
+  const policyChanged = !!(baseline && normalized && policyKey(normalizeContent(baseline)) !== policyKey(normalized));
   const issues = editing ? validateContent(editing) : null;
-  const canSave = !!selected && !!normalized && (changed || nameChanged) && (issues?.count ?? 1) === 0 && !saving;
+  const anyChange = changed || nameChanged || policyChanged;
+  const canSave = !!selected && !!normalized && anyChange && (issues?.count ?? 1) === 0 && !saving;
   const students = est?.students ?? null;
 
   async function save(reprocess: boolean) {
@@ -283,6 +288,18 @@ export function RubricVersionsPanel({
               ) : null}
             </div>
 
+            <BloomSuggestions
+              rubricId={selected.id}
+              content={editing}
+              disabled={saving}
+              onApply={(next, mode) => {
+                setContent(next);
+                if (!changeNote.trim()) {
+                  setChangeNote(mode === "ai" ? "Bloom levels (AI-suggested)" : "Bloom levels (heuristic-suggested)");
+                }
+              }}
+            />
+
             <RubricDraftEditor
               value={editing}
               onChange={(next) => setContent(next)}
@@ -309,11 +326,11 @@ export function RubricVersionsPanel({
             <div
               className={cn(
                 "rounded-xl px-4 py-3 text-sm ring-1 ring-inset",
-                changed || nameChanged ? "bg-violet-50/60 text-slate-700 ring-violet-200" : "bg-slate-50 text-slate-500 ring-slate-200",
+                anyChange ? "bg-violet-50/60 text-slate-700 ring-violet-200" : "bg-slate-50 text-slate-500 ring-slate-200",
               )}
               aria-live="polite"
             >
-              {!(changed || nameChanged) ? (
+              {!anyChange ? (
                 <p>No changes yet. Edit a question above to preview the re-run.</p>
               ) : (
                 <>
@@ -330,6 +347,7 @@ export function RubricVersionsPanel({
                     <p className="mt-1 text-xs text-slate-600">
                       Questions added: {questionList(diff.added)} · removed: {questionList(diff.removed)} · changed:{" "}
                       {questionList(diff.changed)}
+                      {policyChanged ? " · marking policy changed (every question re-scored)" : ""}
                     </p>
                   ) : null}
                   {diff && !diff.reusable ? (
@@ -358,7 +376,7 @@ export function RubricVersionsPanel({
                   setContent(null);
                   setChangeNote("");
                 }}
-                disabled={saving || !(changed || nameChanged)}
+                disabled={saving || !anyChange}
                 className={btnSecondary}
               >
                 Discard edits
