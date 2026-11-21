@@ -91,7 +91,7 @@ export function Priorities({ priorities }: { priorities: Priority[] }) {
       ) : (
         <>
           {/* Desktop: full table */}
-          <div className="mt-5 hidden overflow-x-auto lg:block">
+          <div className="relative mt-5 hidden overflow-x-auto lg:block">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">
                 Cohort preparation priorities ranked by ROI, with mastery, gain potential, weightage,

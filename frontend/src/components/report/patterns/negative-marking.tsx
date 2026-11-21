@@ -60,7 +60,7 @@ export function NegativeMarkingCard({
           </p>
 
           {topics.length ? (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-inset ring-slate-200">
+            <div className="relative overflow-x-auto rounded-xl ring-1 ring-inset ring-slate-200">
               <table className="w-full min-w-[46rem] text-left text-sm">
                 <caption className="sr-only">Negative-marking risk per topic, highest risk first</caption>
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">

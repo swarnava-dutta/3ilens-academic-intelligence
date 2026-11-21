@@ -131,7 +131,7 @@ export function BloomSuggestions({
                 </span>
               ))}
             </p>
-            <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-inset ring-slate-200">
+            <div className="relative overflow-x-auto rounded-lg bg-white ring-1 ring-inset ring-slate-200">
               <table className="w-full min-w-[36rem] text-left text-sm">
                 <caption className="sr-only">Suggested Bloom levels per question</caption>
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">

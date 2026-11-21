@@ -277,7 +277,7 @@ export function ProcessingQueue({ queue, intakeBatchId, onDismissIntake, batchTa
           ) : null}
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm md:min-w-[900px]">
             <thead>
               <tr className="bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">

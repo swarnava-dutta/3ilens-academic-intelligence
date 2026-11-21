@@ -169,7 +169,7 @@ export function FatigueCard({ profile, note, className }: { profile: FatigueProf
               {table ? "Hide data table" : "Show data table"}
             </button>
             {table ? (
-              <div className="mt-2 max-h-64 overflow-auto rounded-lg ring-1 ring-inset ring-slate-200">
+              <div className="relative mt-2 max-h-64 overflow-auto rounded-lg ring-1 ring-inset ring-slate-200">
                 <table className="w-full text-left text-xs">
                   <caption className="sr-only">Accuracy per question</caption>
                   <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
