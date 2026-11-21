@@ -294,34 +294,34 @@ def test_a_copy_of_the_real_database_migrates_and_serves(isolated_env, monkeypat
         assert column in columns[table]
 
 
-# Wave 2 (contract v3): the columns and tables a contract-v2 database does not have yet.
-WAVE2_COLUMNS = (
+# Contract v3: the columns and tables a contract-v2 database does not have yet.
+V3_COLUMNS = (
     ("batches", "faculty_lead"),
     ("student_submissions", "input_kind"),
     ("student_submissions", "audio_seconds"),
     ("student_submissions", "voice_question"),
     ("student_submissions", "detected_languages"),
 )
-WAVE2_TABLES = ("intervention_records", "api_keys")
+V3_TABLES = ("intervention_records", "api_keys")
 
 
-def test_a_contract_v2_database_gains_the_wave2_columns_and_tables(isolated_env, monkeypatch):
-    """A copy of the real DB with every wave-2 column / table removed (= a contract-v2 database)
-    migrates on start-up and serves Results with the wave-2 read-time defaults."""
+def test_a_contract_v2_database_gains_the_v3_columns_and_tables(isolated_env, monkeypatch):
+    """A copy of the real DB with every v3 column / table removed (= a contract-v2 database)
+    migrates on start-up and serves Results with the v3 read-time defaults."""
     import database
 
     copy = isolated_env / "v2_copy.db"
     if not _snapshot_real_db(copy):
         pytest.skip("backend/3ilens.db not available")
     with sqlite3.connect(copy) as conn:
-        for table, column in WAVE2_COLUMNS:
+        for table, column in V3_COLUMNS:
             existing = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
             if column in existing:
                 conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
-        for table in WAVE2_TABLES:
+        for table in V3_TABLES:
             conn.execute(f'DROP TABLE IF EXISTS "{table}"')
     columns = _columns(copy)
-    assert all(column not in columns[table] for table, column in WAVE2_COLUMNS)
+    assert all(column not in columns[table] for table, column in V3_COLUMNS)
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{copy.as_posix()}")
     from fastapi.testclient import TestClient
@@ -336,14 +336,16 @@ def test_a_contract_v2_database_gains_the_wave2_columns_and_tables(isolated_env,
         for sub in completed:
             result = client.get(f"/api/results/{sub['id']}").json()
             check_interface(result, "Result")
-            assert result["voice"] is None and result["interventions"] == [] and result["llm_routes"] == []
+            assert result["voice"] is None and result["interventions"] == []
+            for route in result["llm_routes"]:  # derived from the stored model_invocations
+                check_interface(route, "LlmRoute")
             assert all(q["question_type"] in ("descriptive", "mcq") for q in result["question_evaluations"])
         check_interface(client.get("/api/cohort").json(), "Cohort")
         check_interface(client.get("/api/health").json(), "Health")
     database.dispose_engine()
     columns = _columns(copy)
-    for table, column in WAVE2_COLUMNS:
+    for table, column in V3_COLUMNS:
         assert column in columns[table]
     with sqlite3.connect(copy) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert set(WAVE2_TABLES) <= tables
+    assert set(V3_TABLES) <= tables

@@ -1,4 +1,4 @@
-"""Wave 2 contract (v3) acceptance: new read-time defaults, MCQ +4/-1 scoring end to end, rubric
+"""Contract v3 acceptance: new read-time defaults, MCQ +4/-1 scoring end to end, rubric
 validation, unchanged seed hashes, the insights demo set, faculty_lead, and the guarded hooks."""
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ def _completed_demo_ids(client) -> list[int]:
     return [s["id"] for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED"]
 
 
-# (a) seeded Genetics rows carry the wave-2 read-time defaults -------------------------------
-def test_genetics_demo_rows_have_wave2_defaults(client):
+# (a) seeded Genetics rows carry the v3 read-time defaults ----------------------------------
+def test_genetics_demo_rows_have_v3_defaults(client):
     assert client.post("/api/demo/seed").json()["created"] == 13
     ids = _completed_demo_ids(client)
     assert ids
@@ -41,7 +41,9 @@ def test_genetics_demo_rows_have_wave2_defaults(client):
         check_interface(result, "Result")
         assert result["llm_routes"] == [] and result["interventions"] == [] and result["voice"] is None
         patterns = result["patterns"]
-        assert patterns["negative_marking"] is None and patterns["fatigue"] is None and patterns["transfer"] is None
+        assert patterns["negative_marking"] is None and patterns["fatigue"] is None
+        # Recall (Q2/3/5) vs transfer (Q1/4) on the Genetics paper gives a transfer profile.
+        assert patterns["transfer"]["concepts"][0]["concept"] == "Genetics"
         assert {q["question"]: q["bloom_level"] for q in result["question_evaluations"]} == GENETICS_LEVELS
         for q in result["question_evaluations"]:
             assert q["bloom_source"] == "heuristic" and q["question_type"] == "descriptive"
@@ -168,14 +170,14 @@ def _with_question(**changes):
         (_with_question(mark_step=0.3), "mark_step"),
     ],
 )
-def test_invalid_wave2_rubrics_are_422(upload, forbid_ai, rubric, message):
+def test_invalid_v3_rubrics_are_422(upload, forbid_ai, rubric, message):
     response = upload(rubric_json=json.dumps(rubric))
     assert response.status_code == 422, response.text
     assert response.json()["code"] == "invalid_rubric"
     assert message in response.json()["detail"]
 
 
-def test_valid_wave2_rubric_fields_round_trip():
+def test_valid_v3_rubric_fields_round_trip():
     from schemas import RubricContentIn
 
     rubric = _with_question(
@@ -231,7 +233,7 @@ def test_insights_demo_set_is_accepted_and_all_is_unchanged(client):
     response = client.post("/api/demo/seed", params={"set": "insights"})
     assert response.status_code == 200, response.text
     check_interface(response.json(), "DemoSeedResult")
-    assert response.json()["created"] >= 0  # 0 from the W2-0 stub; W2-3 seeds the sample set
+    assert response.json()["created"] >= 0
     assert client.post("/api/demo/seed", params={"set": "bogus"}).status_code == 422
 
 
@@ -251,7 +253,7 @@ def test_batch_faculty_lead_round_trips_and_clears(client):
 
 
 # (i) guarded hooks ---------------------------------------------------------------------------------
-def test_a_failing_wave2_hook_never_breaks_the_report_or_cohort(client, monkeypatch):
+def test_a_failing_extension_hook_never_breaks_the_report_or_cohort(client, monkeypatch):
     import llm_route
     import patterns
 
@@ -259,7 +261,7 @@ def test_a_failing_wave2_hook_never_breaks_the_report_or_cohort(client, monkeypa
     sub_id = _completed_demo_ids(client)[0]
 
     def boom(*_args, **_kwargs):
-        raise RuntimeError("wave-2 bug")
+        raise RuntimeError("extension hook bug")
 
     monkeypatch.setattr(patterns, "result_extras", boom)
     monkeypatch.setattr(patterns, "cohort_extras", boom)
@@ -272,7 +274,7 @@ def test_a_failing_wave2_hook_never_breaks_the_report_or_cohort(client, monkeypa
     assert cohort.status_code == 200 and cohort.json()["patterns"] == patterns.empty_cohort_patterns()
 
 
-# voice read side + interface stubs ------------------------------------------------------------------
+# voice read side + interfaces -----------------------------------------------------------------------
 def test_voice_rows_expose_voice_info(client, db_session):
     from database import StudentSubmission
 
@@ -284,14 +286,19 @@ def test_voice_rows_expose_voice_info(client, db_session):
     result = client.get(f"/api/results/{sub_id}").json()
     check_interface(result, "Result")
     assert result["submission"]["input_kind"] == "voice"
+    # Sample rows count the synthetic transcript (the stored answer text of the voice question).
+    sample = client.get(f"/api/submissions/{sub_id}/transcript").json()["text"]
+    assert sample
     assert result["voice"] == {
         "audio_url": None, "audio_seconds": 42.5, "detected_languages": ["en", "hi"], "transcription_model": None,
-        "voice_question": 1, "transcript_chars": 0, "synthetic": True,
+        "voice_question": 1, "transcript_chars": len(sample), "synthetic": True,
     }
 
 
-def test_structure_transcript_question_hint_path():
+def test_structure_transcript_question_hint_path(monkeypatch):
     import ai
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     content = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
     out = ai.structure_transcript("  Tall is dominant so the F1 shows 3:1.  ", content, question_hint=1,
@@ -305,9 +312,8 @@ def test_structure_transcript_question_hint_path():
     assert empty.answers == [] and empty.overall_confidence == 0.0
     with pytest.raises(ValueError):
         ai.structure_transcript("text", content, question_hint=99)
-    with pytest.raises(ai.AIServiceError) as exc:
+    with pytest.raises(ai.AIConfigurationError):  # whole-paper mapping is a Claude call
         ai.structure_transcript("Question 1 ...", content)
-    assert exc.value.code == "not_implemented"
     assert ai.fallback_available() is False and "simulated_outage" in ai.FALLBACK_TRIGGER_CODES
 
 

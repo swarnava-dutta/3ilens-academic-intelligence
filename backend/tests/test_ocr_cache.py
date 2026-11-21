@@ -157,3 +157,20 @@ def test_cache_key_covers_engine_and_prompt_version(isolated_env, monkeypatch):
     assert key != pipeline.ocr_cache_key(sub, rubric, "anthropic", "claude-opus-5-5", ["en"])
     monkeypatch.setattr(ai, "OCR_PROMPT_VERSION", f"{ai.OCR_PROMPT_VERSION}-next")
     assert key != pipeline.ocr_cache_key(sub, rubric, "anthropic", "claude-sonnet-5-5", ["en"])
+
+
+def test_a_fallback_served_transcript_is_not_cached(cache_on, upload, fake_ai, monkeypatch, db_session):
+    """OCR served by the GPT-4o fallback (FR-3.10) is never stored under the Claude cache key."""
+    import ai
+    from database import OcrCache
+
+    original = fake_ai.run_ocr
+
+    def fallback_ocr(pages, rubric_content, **kwargs):
+        return original(pages, rubric_content, **kwargs).model_copy(update={"provider": "openai", "model": "gpt-4o"})
+
+    monkeypatch.setattr(ai, "run_ocr", fallback_ocr)
+    upload()
+    assert db_session.query(OcrCache).count() == 0
+    upload()
+    assert fake_ai.calls["ocr"] == 2  # read again: nothing was cached

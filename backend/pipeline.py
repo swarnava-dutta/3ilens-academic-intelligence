@@ -770,10 +770,14 @@ def _cache_store(job: _Job, cache_key: str | None, ocr: OcrResult) -> None:
     if cache_key is None:
         return
     db, sub = job.db, job.sub
+    provider, model = vision_model()
+    if ocr.provider and ocr.provider != provider:
+        # Served by the fallback model (FR-3.10): never stored under the primary model's cache key.
+        logger.info("OCR for submission %s came from %s - not cached", sub.id, ocr.provider)
+        return
     try:
         if db.scalar(select(OcrCache.id).where(OcrCache.cache_key == cache_key)) is not None:
             return
-        provider, model = vision_model()
         batch = sub.batch
         db.add(OcrCache(
             cache_key=cache_key,

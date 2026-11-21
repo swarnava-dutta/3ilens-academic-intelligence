@@ -2101,6 +2101,8 @@ def _purpose_label(purpose: str) -> str:
         return "rubric drafting"
     if purpose == "voice_mapping":
         return "voice-answer mapping"
+    if purpose == "transcription":
+        return "speech-to-text transcription"
     if purpose == "bloom_detect":
         return "Bloom level detection"
     return "rubric evaluation"

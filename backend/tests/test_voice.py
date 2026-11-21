@@ -189,7 +189,7 @@ def test_intake_errors(upload, forbid_ai, client, monkeypatch, tmp_path):
 def test_voice_question_is_checked_against_a_custom_rubric_and_ignored_for_documents(
     upload, fake_ai, fake_transcriber, client
 ):
-    from tests.test_wave2_contract import MCQ_RUBRIC
+    from tests.test_contract_v3 import MCQ_RUBRIC
 
     rubric = json.dumps(MCQ_RUBRIC)
     assert voice_upload(upload, voice_question="4", rubric_json=rubric).json()["code"] == "invalid_question"

@@ -154,3 +154,31 @@ def test_ai_failure_is_502_and_the_failed_call_is_recorded(client, db_session, m
     (row,) = db_session.query(ModelInvocation).filter_by(submission_id=sub.id).all()
     assert row.status == "error" and row.error_code == "rate_limited"
     assert not (get_settings().artifact_dir / str(sub.id) / "consistency.json").exists()
+
+
+def test_mcq_regrade_keeps_the_deterministic_marks(upload, fake_ai, client, monkeypatch):
+    """MCQs are scored from the transcript (+4/-1/0), never from the re-grade: no false delta."""
+    from tests.test_contract_v3 import MCQ_LETTERS, MCQ_RUBRIC
+
+    def letters_ocr(pages, rubric_content, **kwargs):
+        fake_ai.calls["ocr"] += 1
+        answers = [OcrAnswer(question=n, answer=f"({letter.lower()})", confidence=0.95)
+                   for n, letter in MCQ_LETTERS.items()]
+        return OcrResult(answers=answers, overall_confidence=0.95, provider="anthropic", model="fake-vision-model")
+
+    monkeypatch.setattr(ai, "run_ocr", letters_ocr)
+    queued = upload(student_name="MCQ Consistency", rubric_json=json.dumps(MCQ_RUBRIC))
+    assert queued.status_code == 202, queued.text
+    sub_id = queued.json()["id"]
+    assert client.get(f"/api/results/{sub_id}").json()["total_score"] == 3
+
+    def regrade(answers, rubric_content, **kwargs):  # an all-MCQ paper makes no grading call
+        return EvaluationOutput(evaluations=[], overall_strengths=[], overall_gaps=[])
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", TEST_KEY)
+    monkeypatch.setattr(ai, "run_evaluation", regrade)
+    body = client.post(f"/api/results/{sub_id}/consistency-check").json()
+    assert [(d["question"], d["original"], d["regrade"], d["delta"]) for d in body["deltas"]] == [
+        (1, 4.0, 4.0, 0.0), (2, -1.0, -1.0, 0.0), (3, 0.0, 0.0, 0.0),
+    ]
+    assert body["total_regrade"] == body["total_original"] == 3 and body["within_tolerance"] is True

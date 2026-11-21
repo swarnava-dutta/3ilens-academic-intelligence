@@ -231,7 +231,7 @@ def test_all_mcq_paper_logs_no_grading_call(upload, fake_ai, client, monkeypatch
 
     import ai
     from ai_schemas import EvaluationOutput, OcrAnswer, OcrResult
-    from tests.test_wave2_contract import MCQ_LETTERS, MCQ_RUBRIC
+    from tests.test_contract_v3 import MCQ_LETTERS, MCQ_RUBRIC
 
     monkeypatch.setattr(ai, "run_ocr", lambda pages, content, **kwargs: OcrResult(
         answers=[OcrAnswer(question=n, answer=letter, confidence=0.95) for n, letter in MCQ_LETTERS.items()],

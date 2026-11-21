@@ -25,6 +25,7 @@ import ai
 import analytics
 import docx_reader
 import insights
+import marking
 import pipeline
 import provenance
 import result_view
@@ -228,20 +229,36 @@ def _consistency_answers(sub: StudentSubmission) -> tuple[list[OcrAnswer], str]:
     return answers, "stored answers"
 
 
-def _compare(sub: StudentSubmission, rubric_content: dict, evaluation: Any) -> list[ConsistencyDelta]:
+def _compare(
+    sub: StudentSubmission, rubric_content: dict, evaluation: Any, answers: list[OcrAnswer]
+) -> list[ConsistencyDelta]:
+    """Score the re-grade exactly like the original (marking.py): MCQs keep their deterministic
+    +4/-1/0 marks from the transcript, descriptive questions apply the rubric's marking scheme."""
     original = {
         insights._as_int(q.get("question")): float(q.get("estimated_marks") or 0)
         for q in sub.result.question_evaluations or []
         if isinstance(q, dict)
     }
-    grades = {g.question: g.estimated_marks for g in evaluation.evaluations}
+    grades = {g.question: g for g in evaluation.evaluations}
+    texts = {a.question: a.answer for a in answers}
+    policy = marking.policy_for(rubric_content)
     deltas = []
     for q in sorted(rubric_content.get("questions") or [], key=lambda item: insights._as_int(item.get("question")) or 0):
         number = insights._as_int(q.get("question"))
         if number is None:
             continue
-        max_marks = float(q.get("max_marks") or 0)
-        regrade = insights.bounded_marks(grades.get(number, 0.0), max_marks) if max_marks > 0 else 0.0
+        grade = grades.get(number)
+        is_mcq = marking.question_type(q) == "mcq"
+        if not is_mcq and (grade is None or float(q.get("max_marks") or 0) <= 0):
+            regrade = 0.0
+        else:
+            regrade = float(marking.score_question(
+                q,
+                answer_text=texts.get(number, ""),
+                estimated_marks=grade.estimated_marks if grade is not None else 0.0,
+                criteria_awards=[a.model_dump() for a in grade.criteria_awards] if grade is not None else [],
+                policy=policy,
+            )["marks"])
         before = original.get(number, 0.0)
         deltas.append(
             ConsistencyDelta(question=number, original=before, regrade=regrade, delta=round(regrade - before, 2))
@@ -270,7 +287,7 @@ def consistency_check(submission_id: int, db: DbSession) -> ConsistencyCheck:
     finally:
         _record_usages(db, usages, sub)
 
-    deltas = _compare(sub, content, evaluation)
+    deltas = _compare(sub, content, evaluation, answers)
     total_original = round(float(sub.result.total_score or 0), 2)
     total_regrade = round(sum(d.regrade for d in deltas), 2)
     delta_total = round(total_regrade - total_original, 2)

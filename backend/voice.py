@@ -217,9 +217,13 @@ def result_extras(db: Any, *, sub: Any) -> dict[str, Any]:
     if not is_voice(sub):
         return {"voice": None}
     transcript = None if sub.is_demo else read_transcript(sub.id)
-    # Sample rows have no transcript artifact (GET /transcript synthesises one): 0 characters.
+    # Sample rows have no transcript artifact: count the text GET /transcript synthesises for them.
     model = transcript.get("model") if transcript is not None else None
-    chars = len(transcript["text"]) if transcript is not None else 0
+    if transcript is not None:
+        chars = len(transcript["text"])
+    else:
+        sample = _sample_text(sub) if sub.is_demo else ""
+        chars = len(sample) if sample.strip() else 0
     return {
         "voice": {
             "audio_url": f"/api/submissions/{sub.id}/audio" if audio_path(sub) is not None else None,
