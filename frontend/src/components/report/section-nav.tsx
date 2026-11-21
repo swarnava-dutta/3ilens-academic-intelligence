@@ -97,7 +97,7 @@ export function SectionNav() {
   return (
     <nav
       aria-label="Report sections"
-      className="sticky top-[7.4rem] z-30 border-b border-slate-200 bg-[#f6f7f9] md:top-[4.4rem] print:hidden"
+      className="sticky top-[5.5rem] z-30 border-b border-slate-200 bg-[#f6f7f9] print:hidden"
     >
       <ol className="relative flex overflow-x-auto print:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {REPORT_SECTIONS.map((s) => {

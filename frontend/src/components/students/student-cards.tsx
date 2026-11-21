@@ -99,7 +99,7 @@ function Row({ card, onWhatsApp }: { card: StudentCard; onWhatsApp: (card: Stude
         </div>
       </th>
       <td className={TD}>
-        {done ? <UrgencyBadge urgency={card.urgency} size="sm" /> : <StatusBadge status={card.status} />}
+        {done ? <UrgencyBadge urgency={card.urgency} size="sm" /> : <StatusBadge status={card.status} className="whitespace-normal" />}
         {done && card.release_status ? (
           <p className="mt-1 text-xs text-slate-500">{card.release_status === "RELEASED" ? "Released" : "Provisional"}</p>
         ) : null}

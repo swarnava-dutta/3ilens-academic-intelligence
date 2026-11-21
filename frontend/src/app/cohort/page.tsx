@@ -4,7 +4,7 @@ import { CohortDashboard } from "@/components/cohort/cohort-dashboard";
 import { CohortSkeleton } from "@/components/cohort/states";
 
 export const metadata: Metadata = {
-  title: "Cohort Dashboard",
+  title: "Cohort dashboard",
   description:
     "Batch ranking, at-risk students, common errors, concept confusions, class interventions, operations and rubric versions.",
 };

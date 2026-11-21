@@ -49,7 +49,7 @@ export function routeLook(route: LlmRoute): ChipLook {
       text: `${stage} · cache hit`,
       title: `${stage} reused a cached result - no model call (Rs 0.00).`,
       Icon: Database,
-      tone: "bg-violet-50 text-violet-800 ring-violet-200",
+      tone: "bg-slate-100 text-slate-700",
     };
   }
   if (!route.served_provider) {

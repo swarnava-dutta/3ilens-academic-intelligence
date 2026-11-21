@@ -1,4 +1,4 @@
-import { AlertTriangle, Brain, Check, Database, FileText, Loader2, Mic, ScanLine, ScanText, TrendingUp, XCircle } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, Database, FileText, Loader2, Mic, ScanLine, ScanText, TrendingUp, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ProcessingLogEntry, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -7,7 +7,7 @@ export const PIPELINE_STAGES: { label: string; Icon: LucideIcon }[] = [
   { label: "Ingestion & queue", Icon: FileText },
   { label: "Pre-processing", Icon: ScanLine },
   { label: "OCR & structuring", Icon: ScanText },
-  { label: "Rubric evaluation", Icon: Brain },
+  { label: "Rubric evaluation", Icon: ClipboardCheck },
   { label: "Insights & ROI", Icon: TrendingUp },
   { label: "Results stored", Icon: Database },
 ];

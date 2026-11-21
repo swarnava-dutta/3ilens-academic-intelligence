@@ -10,31 +10,31 @@ export const TRANSFER_LOOK: Record<TransferClass, { label: string; Icon: LucideI
   memorisation: {
     label: "Memorisation",
     Icon: AlertTriangle,
-    chip: "bg-amber-50 text-amber-900 ring-amber-300",
+    chip: "bg-amber-50 text-amber-900",
     fill: "bg-amber-400",
   },
   transferable: {
     label: "Transferable",
     Icon: CheckCircle2,
-    chip: "bg-brand-lime-50 text-lime-800 ring-brand-lime/50",
+    chip: "bg-brand-lime-50 text-lime-800",
     fill: "bg-brand-lime",
   },
   foundational_gap: {
     label: "Foundational gap",
     Icon: AlertOctagon,
-    chip: "bg-rose-50 text-rose-700 ring-rose-200",
+    chip: "bg-red-50 text-red-700",
     fill: "bg-rose-500",
   },
   inconsistent: {
     label: "Inconsistent",
     Icon: Shuffle,
-    chip: "bg-violet-50 text-violet-800 ring-violet-200",
-    fill: "bg-violet-500",
+    chip: "bg-slate-100 text-slate-700",
+    fill: "bg-slate-500",
   },
   developing: {
     label: "Developing",
     Icon: CircleDot,
-    chip: "bg-slate-100 text-slate-700 ring-slate-300",
+    chip: "bg-slate-100 text-slate-700",
     fill: "bg-slate-400",
   },
 };
@@ -44,7 +44,7 @@ export function TransferChip({ value, className }: { value: TransferClass; class
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium",
         look.chip,
         className,
       )}
@@ -79,7 +79,7 @@ function SideBar({ label, questions, value }: { label: string; questions: number
 
 function ConceptRow({ c }: { c: ConceptTransfer }) {
   return (
-    <li className="rounded-xl border border-slate-200 p-3">
+    <li className="rounded-md border border-slate-200 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold text-brand-navy">{c.concept}</p>
         <TransferChip value={c.classification} />

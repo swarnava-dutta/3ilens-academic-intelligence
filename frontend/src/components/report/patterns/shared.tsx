@@ -1,4 +1,3 @@
-import { Info } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -21,18 +20,15 @@ export function noteFor(notes: string[] | null | undefined, pattern: RegExp, fal
 /** Muted explanation shown in place of a profile the backend could not compute. */
 export function NullProfile({ text }: { text: string }) {
   return (
-    <p className="flex items-start gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-sm text-slate-600">
-      <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
-      {text}
-    </p>
+    <p className="text-sm text-slate-500">{text}</p>
   );
 }
 
 /** Small labelled number tile. */
 export function Stat({ label, value, sub, className }: { label: string; value: ReactNode; sub?: ReactNode; className?: string }) {
   return (
-    <div className={cn("min-w-0 rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-inset ring-slate-200", className)}>
-      <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</dt>
+    <div className={cn("min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2", className)}>
+      <dt className="text-xs text-slate-500">{label}</dt>
       <dd className="mt-0.5 text-lg font-semibold tabular-nums text-brand-navy">{value}</dd>
       {sub ? <dd className="text-[11px] text-slate-500">{sub}</dd> : null}
     </div>
@@ -42,7 +38,7 @@ export function Stat({ label, value, sub, className }: { label: string; value: R
 /** Recommendation callout. */
 export function Recommendation({ children }: { children: ReactNode }) {
   return (
-    <p className="rounded-xl bg-brand-cyan-50/70 px-3 py-2.5 text-sm leading-relaxed text-slate-800 ring-1 ring-inset ring-brand-cyan/20">
+    <p className="border-l-2 border-brand-cyan pl-3 text-sm leading-relaxed text-slate-800">
       <span className="font-semibold text-brand-navy">Recommendation: </span>
       {children}
     </p>

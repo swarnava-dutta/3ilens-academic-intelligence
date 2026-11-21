@@ -77,7 +77,7 @@ export function CohortErrorCard({
 }) {
   return (
     <section role="alert" className="mx-auto max-w-2xl rounded-md border border-red-200 bg-white p-5 sm:p-6">
-      <h1 className="text-lg font-semibold text-brand-navy">Cohort Dashboard is offline</h1>
+      <h1 className="text-lg font-semibold text-brand-navy">Cohort dashboard is offline</h1>
       <p className="mt-1 text-sm text-slate-700">{message}</p>
       <p className="mt-2 text-xs text-slate-500">
         Start the FastAPI server (start.bat starts both servers; see the README). This page retries every 10 seconds and

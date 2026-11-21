@@ -7,7 +7,7 @@ import { fmtDate, fmtShortDate, pct } from "./format";
 import { btnQuiet, EmptyNote, Panel, theadCls, thCls } from "./states";
 
 /** Categorical slots in fixed order (validated default palette); a marker shape doubles the identity. */
-const SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+const SERIES = ["#0490aa", "#eb6834", "#6250d6", "#eda100", "#e87ba4", "#008300", "#1baf7a", "#e34948"];
 type Shape = "circle" | "square" | "triangle" | "diamond";
 const SHAPES: Shape[] = ["circle", "square", "triangle", "diamond"];
 

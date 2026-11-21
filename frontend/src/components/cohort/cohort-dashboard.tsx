@@ -73,7 +73,7 @@ export function CohortDashboard() {
             <RankingCard ranking={cohort.ranking ?? []} mixed={cohort.mixed_rubrics ?? false} />
             <AtRiskCard rows={cohort.at_risk ?? []} />
           </div>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-5">
             <TopicMastery topics={cohort.topic_mastery} className="lg:col-span-3" />
             <ScoreDistribution buckets={cohort.score_distribution} className="lg:col-span-2" />
           </div>

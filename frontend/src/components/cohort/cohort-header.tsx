@@ -20,7 +20,7 @@ export function CohortHeader({
   return (
     <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-semibold text-brand-navy sm:text-2xl">Cohort Dashboard</h1>
+        <h1 className="text-[22px] font-semibold text-brand-navy sm:text-2xl">Cohort dashboard</h1>
         <p className="mt-1 text-sm text-slate-600">
           <span className="sr-only">Institution: </span>
           {cohort.institution?.name ?? "Institution"}

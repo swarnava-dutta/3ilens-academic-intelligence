@@ -63,7 +63,7 @@ export function RankingCard({ ranking, mixed }: { ranking: RankingRow[]; mixed: 
       {rows.length === 0 ? (
         <p className="mt-4 text-sm text-slate-500">No completed students in this view.</p>
       ) : (
-        <div className="-mx-3 mt-2 overflow-x-auto">
+        <div className="relative -mx-3 mt-2 overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse">
             <caption className="sr-only">Batch ranking</caption>
             <thead className="border-b border-slate-200">
@@ -131,7 +131,7 @@ export function AtRiskCard({ rows }: { rows: AtRiskRow[] }) {
       {list.length === 0 ? (
         <p className="mt-4 text-sm text-slate-500">No student meets the at-risk rule here.</p>
       ) : (
-        <div className="-mx-3 mt-2 overflow-x-auto">
+        <div className="relative -mx-3 mt-2 overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse">
             <caption className="sr-only">At-risk students</caption>
             <thead className="border-b border-slate-200">

@@ -111,7 +111,7 @@ export function JourneyExplorer({ activeIndex }: { activeIndex: number }) {
 
       <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
         {/* Numbered step list */}
-        <nav aria-label="Journey steps" className="order-last lg:sticky lg:top-4 lg:order-first">
+        <nav aria-label="Journey steps" className="order-last lg:sticky lg:top-[6.5rem] lg:order-first">
           <h2 className="mb-2 text-[13px] font-medium text-slate-500 lg:sr-only">All 12 steps</h2>
           <ol className="overflow-hidden rounded-md border border-slate-200 bg-white">
             {JOURNEY_STEPS.map((s, i) => {

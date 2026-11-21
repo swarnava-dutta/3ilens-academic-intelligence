@@ -163,16 +163,16 @@ export function FatigueCard({ profile, note, className }: { profile: FatigueProf
               type="button"
               onClick={() => setTable((v) => !v)}
               aria-expanded={table}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-brand-navy ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
             >
               <Table2 className="h-3.5 w-3.5" aria-hidden />
               {table ? "Hide data table" : "Show data table"}
             </button>
             {table ? (
-              <div className="relative mt-2 max-h-64 overflow-auto rounded-lg ring-1 ring-inset ring-slate-200">
+              <div className="relative mt-2 max-h-64 overflow-auto rounded-md border border-slate-200">
                 <table className="w-full text-left text-xs">
                   <caption className="sr-only">Accuracy per question</caption>
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
                     <tr>
                       <th scope="col" className="px-2.5 py-1.5">Q</th>
                       <th scope="col" className="px-2.5 py-1.5 text-right">Accuracy</th>

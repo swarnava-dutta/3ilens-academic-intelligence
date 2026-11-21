@@ -54,7 +54,7 @@ function EffectivenessBody({ data, compact }: { data: InterventionEffectiveness;
 
   return (
     <div className="space-y-4">
-      <div className={cn(stripCls, "grid-cols-1 sm:grid-cols-3")}>
+      <div className={cn(stripCls, "grid-cols-1 sm:grid-cols-3", compact && "xl:grid-cols-1")}>
         <Figure
           label="Treated topics"
           value={data.mean_change_treated === null ? "—" : `${signed(data.mean_change_treated)} pts`}
