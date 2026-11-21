@@ -176,7 +176,9 @@ const COMPARED: (keyof RubricQuestion)[] = [
 
 function comparable(q: RubricQuestion, key: keyof RubricQuestion): string {
   const value = q[key];
-  if (Array.isArray(value)) return value.map((c) => squash(c)).filter(Boolean).join("\n");
+  if (Array.isArray(value)) {
+    return value.map((c) => squash(typeof c === "string" ? c : JSON.stringify(c))).filter(Boolean).join("\n");
+  }
   if (typeof value === "number") return String(value);
   return squash(value as string | undefined);
 }

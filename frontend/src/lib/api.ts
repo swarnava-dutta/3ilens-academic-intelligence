@@ -1,7 +1,12 @@
 import axios, { AxiosError } from "axios";
 import type {
+  ApiKey,
+  ApiKeyCreated,
+  ApiKeyInput,
   Batch,
   BatchPatchInput,
+  BloomDetectInput,
+  BloomDetection,
   Cohort,
   ConsistencyCheck,
   DashboardFilters,
@@ -13,10 +18,19 @@ import type {
   Health,
   HistoryEntry,
   IntakeBatchStatus,
+  InterventionEffectiveness,
+  InterventionInput,
+  InterventionRecord,
   LanguageHint,
+  LlmChainStatus,
+  LlmDrillInput,
+  LlmDrillResult,
+  LmsInfo,
+  LmsResultRow,
   ModelInvocation,
   OcrReviewData,
   OpsCosts,
+  OwnerDashboard,
   PageRef,
   ReevaluateInput,
   ReevaluationEstimate,
@@ -34,7 +48,11 @@ import type {
   StudyPlan,
   Submission,
   Urgency,
+  VoiceTranscript,
   WeightageMatrix,
+  WhatIfInput,
+  WhatIfOptions,
+  WhatIfResult,
 } from "./types";
 
 export const API_BASE_URL =
@@ -147,6 +165,8 @@ export async function uploadSubmission(input: {
   batchId?: number;
   /** Shared id for a folder/batch intake (letters, digits, hyphens; max 64). */
   intakeBatchId?: string;
+  /** Voice answers: the rubric question a per-question recording answers (omit for a whole-paper recording). */
+  voiceQuestion?: number;
   onProgress?: (percent: number) => void;
 }): Promise<Submission> {
   const form = new FormData();
@@ -160,6 +180,7 @@ export async function uploadSubmission(input: {
   }
   if (input.batchId !== undefined) form.append("batch_id", String(input.batchId));
   if (input.intakeBatchId) form.append("intake_batch_id", input.intakeBatchId);
+  if (input.voiceQuestion !== undefined) form.append("voice_question", String(input.voiceQuestion));
   const res = await api.post<Submission>("/api/upload", form, {
     timeout: UPLOAD_TIMEOUT_MS,
     onUploadProgress: (e) => {
@@ -184,7 +205,7 @@ export async function getCohort(filters?: DashboardQuery): Promise<Cohort> {
   return (await api.get<Cohort>("/api/cohort", { params: queryParams(filters) })).data;
 }
 
-/** POST /api/demo/seed?set=genetics|mixed|all (default genetics: the 13-row Genetics cohort). */
+/** POST /api/demo/seed?set=genetics|mixed|all|insights (default genetics: the 13-row Genetics cohort). */
 export async function seedDemoCohort(set?: DemoSet): Promise<DemoSeedResult> {
   return (await api.post<DemoSeedResult>("/api/demo/seed", null, { params: queryParams({ set }) })).data;
 }
@@ -377,4 +398,139 @@ export async function getStudentHistory(studentRef: string, demo?: boolean): Pro
 
 export async function getFilters(): Promise<DashboardFilters> {
   return (await api.get<DashboardFilters>("/api/filters")).data;
+}
+
+// =========================================================================== //
+// Wave 2 (contract v3) - API_CONTRACT.md "Wave 2 (contract v3)"
+// =========================================================================== //
+
+// --- Voice answers (FR-2.8) ------------------------------------------------- //
+/** Absolute URL of a voice submission's audio (inline; 404 no_audio for sample rows). */
+export function audioUrl(id: number): string {
+  return absolute(`/api/submissions/${id}/audio`);
+}
+
+export async function getTranscript(id: number): Promise<VoiceTranscript> {
+  return (await api.get<VoiceTranscript>(`/api/submissions/${id}/transcript`)).data;
+}
+
+// --- LLM chain (FR-3.10) and Bloom detection (FR-3.9) ----------------------- //
+export async function getLlmChain(): Promise<LlmChainStatus> {
+  return (await api.get<LlmChainStatus>("/api/ops/llm-chain")).data;
+}
+
+/** Fallback drill: makes REAL provider calls (simulate_outage skips Claude so the fallback runs). */
+export async function runLlmDrill(input: LlmDrillInput): Promise<LlmDrillResult> {
+  return (await api.post<LlmDrillResult>("/api/ops/llm-chain/drill", input, { timeout: AI_TIMEOUT_MS })).data;
+}
+
+/** Suggested Bloom K1-K5 levels for a rubric (never modifies it). mode "ai" makes a live call. */
+export async function detectBloomLevels(rubricId: number, input: BloomDetectInput): Promise<BloomDetection> {
+  return (
+    await api.post<BloomDetection>(`/api/rubrics/${rubricId}/bloom-levels`, input, { timeout: AI_TIMEOUT_MS })
+  ).data;
+}
+
+// --- Interventions (FR-4.13) and what-if (FR-4.14) -------------------------- //
+export async function createIntervention(input: InterventionInput): Promise<InterventionRecord> {
+  return (await api.post<InterventionRecord>("/api/interventions", input)).data;
+}
+
+/** Newest first. */
+export async function getInterventions(filters?: {
+  batch_id?: number | null;
+  student_ref?: string | null;
+  submission_id?: number | null;
+  institution_id?: number | null;
+}): Promise<InterventionRecord[]> {
+  return (await api.get<InterventionRecord[]>("/api/interventions", { params: queryParams(filters) })).data;
+}
+
+export async function deleteIntervention(id: number): Promise<void> {
+  await api.delete(`/api/interventions/${id}`);
+}
+
+export async function getInterventionEffectiveness(filters?: {
+  batch_id?: number | null;
+  institution_id?: number | null;
+}): Promise<InterventionEffectiveness> {
+  return (
+    await api.get<InterventionEffectiveness>("/api/interventions/effectiveness", { params: queryParams(filters) })
+  ).data;
+}
+
+export async function runWhatIf(input: WhatIfInput): Promise<WhatIfResult> {
+  return (await api.post<WhatIfResult>("/api/whatif", input)).data;
+}
+
+export async function getWhatIfOptions(filters?: {
+  batch_id?: number | null;
+  institution_id?: number | null;
+}): Promise<WhatIfOptions> {
+  return (await api.get<WhatIfOptions>("/api/whatif/options", { params: queryParams(filters) })).data;
+}
+
+// --- Owner dashboard (FR-5.9) - no login in this PoC ------------------------ //
+export async function getOwnerDashboard(institutionId?: number | null): Promise<OwnerDashboard> {
+  return (
+    await api.get<OwnerDashboard>("/api/owner/dashboard", { params: queryParams({ institution_id: institutionId }) })
+  ).data;
+}
+
+// --- LMS export (FR-5.10) --------------------------------------------------- //
+export async function getLmsInfo(): Promise<LmsInfo> {
+  return (await api.get<LmsInfo>("/api/lms/info")).data;
+}
+
+export async function getApiKeys(): Promise<ApiKey[]> {
+  return (await api.get<ApiKey[]>("/api/lms/keys")).data;
+}
+
+/** The returned secret is shown ONCE (only its SHA-256 is stored); never persist it in the browser. */
+export async function createApiKey(input: ApiKeyInput): Promise<ApiKeyCreated> {
+  return (await api.post<ApiKeyCreated>("/api/lms/keys", input)).data;
+}
+
+export async function revokeApiKey(id: number): Promise<ApiKey> {
+  return (await api.post<ApiKey>(`/api/lms/keys/${id}/revoke`)).data;
+}
+
+/** Query params of the LMS export endpoints (released results only unless include_provisional). */
+export interface LmsQuery {
+  batch_id?: number | null;
+  rubric_id?: number | null;
+  /** ISO date or datetime */
+  since?: string | null;
+  include_provisional?: boolean | null;
+  include_demo?: boolean | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+function lmsParams(query?: LmsQuery): Record<string, string> {
+  return queryParams({
+    batch_id: query?.batch_id,
+    rubric_id: query?.rubric_id,
+    since: query?.since,
+    include_provisional: query?.include_provisional,
+    include_demo: query?.include_demo,
+    limit: query?.limit,
+    offset: query?.offset,
+  });
+}
+
+/** Preview GET /api/lms/v1/results with a key (sent as X-API-Key; never stored). */
+export async function lmsPreview(secret: string, query?: LmsQuery): Promise<LmsResultRow[]> {
+  return (
+    await api.get<LmsResultRow[]>("/api/lms/v1/results", {
+      params: lmsParams(query),
+      headers: { "X-API-Key": secret },
+    })
+  ).data;
+}
+
+/** Absolute URL of an LMS export path, e.g. lmsUrl("/api/lms/v1/results.csv") - for curl examples. */
+export function lmsUrl(path: string, query?: LmsQuery): string {
+  const search = new URLSearchParams(lmsParams(query)).toString();
+  return absolute(search ? `${path}?${search}` : path);
 }

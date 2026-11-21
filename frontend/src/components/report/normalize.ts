@@ -3,6 +3,8 @@
 // trust the shape (arrays are arrays, objects exist) without crashing the demo.
 import type {
   Batch,
+  BloomLevel,
+  BloomSource,
   CalendarBlock,
   CalendarDay,
   CostSummary,
@@ -13,6 +15,7 @@ import type {
   EvaluationVersion,
   Extraction,
   HistoryEntry,
+  MarkingAward,
   OutcomeCounts,
   PlanTopic,
   Priority,
@@ -74,6 +77,16 @@ function nums(value: unknown): number[] {
 }
 
 const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
+const BLOOM_LEVELS: BloomLevel[] = ["K1", "K2", "K3", "K4", "K5"];
+const BLOOM_SOURCES: BloomSource[] = ["faculty", "ai", "heuristic"];
+
+function bloomLevel(value: unknown): BloomLevel | null {
+  return BLOOM_LEVELS.includes(value as BloomLevel) ? (value as BloomLevel) : null;
+}
+
+function bloomSource(value: unknown): BloomSource | null {
+  return BLOOM_SOURCES.includes(value as BloomSource) ? (value as BloomSource) : null;
+}
 
 export function urgencyFromPct(pct: number): Urgency {
   if (pct >= 70) return "on_track";
@@ -111,6 +124,22 @@ function normalizeQuestion(raw: unknown): QuestionEvaluation {
       .map((w) => ({ text: str(w?.text), confidence: num(w?.confidence) }))
       .filter((w) => w.text.trim() !== ""),
     corrected_by_faculty: bool(q?.corrected_by_faculty),
+    // wave 2 (contract v3)
+    question_type: q?.question_type === "mcq" ? "mcq" : "descriptive",
+    bloom_level: bloomLevel(q?.bloom_level),
+    bloom_source: bloomSource(q?.bloom_source),
+    demonstrated_level: bloomLevel(q?.demonstrated_level),
+    concept: strOrNull(q?.concept),
+    penalty: num(q?.penalty),
+    selected_option: strOrNull(q?.selected_option),
+    correct_option: strOrNull(q?.correct_option),
+    marking_breakdown: arr<Loose<MarkingAward>>(q?.marking_breakdown).map((m) => ({
+      criterion: str(m?.criterion),
+      marks: num(m?.marks),
+      awarded: num(m?.awarded),
+      required: bool(m?.required),
+    })),
+    marking_note: strOrNull(q?.marking_note),
   };
 }
 
@@ -189,6 +218,7 @@ function normalizeBatch(raw: unknown, fallbackId: number): Batch {
     days_to_exam: numOrNull(b?.days_to_exam),
     strategy_mode:
       mode === "broad" || mode === "focused" || mode === "revision" || mode === "consolidation" ? mode : null,
+    faculty_lead: strOrNull(b?.faculty_lead),
   };
 }
 
@@ -626,5 +656,10 @@ export function normalizeResult(r: Result): Result {
       })),
     deliveries: arr<Delivery>(r.deliveries).filter((d) => typeof d?.id === "number").map(normalizeDelivery),
     study_plan: normalizeStudyPlan(r.study_plan, batch, pct),
+    // wave 2 (contract v3): guarded on the server too; default when an older API omits them
+    llm_routes: arr(r.llm_routes),
+    patterns: r.patterns ?? { negative_marking: null, fatigue: null, transfer: null, bloom_profile: [], notes: [] },
+    interventions: arr(r.interventions),
+    voice: r.voice ?? null,
   };
 }

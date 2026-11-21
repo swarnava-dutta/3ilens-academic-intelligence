@@ -39,6 +39,7 @@ function batchOf(v: unknown): Batch {
     days_to_exam: numOrNull(b?.days_to_exam),
     strategy_mode:
       mode === "broad" || mode === "focused" || mode === "revision" || mode === "consolidation" ? mode : null,
+    faculty_lead: typeof b?.faculty_lead === "string" && b.faculty_lead.trim() ? b.faculty_lead : null,
   };
 }
 
