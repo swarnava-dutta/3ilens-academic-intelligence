@@ -120,6 +120,8 @@ export interface Health {
   /** The fallback model name (e.g. "gpt-4o", announced shutdown 2027-01-14), or "off". */
   llm_fallback: string;
   lms_api_enabled: boolean;
+  /** INTERVENTION_DEFAULT_HOURS: default study hours for a logged intervention (0.5-40). */
+  intervention_default_hours: number;
 }
 
 /** One step of a per-question marking scheme (FR-3.8). Step marks add up to max_marks. */
@@ -500,6 +502,17 @@ export interface EvaluationVersion {
   current: boolean;
 }
 
+/** GET /api/results/{id}/versions (archived versions + the current one, oldest first). */
+export interface ResultVersion {
+  version: number;
+  created_at: string;
+  rubric_id: number;
+  rubric_version: string;
+  total_score: number;
+  total_marks: number;
+  current: boolean;
+}
+
 export interface Delivery {
   id: number;
   submission_id: number;
@@ -661,6 +674,10 @@ export interface Result {
   interventions: InterventionRecord[];
   /** Null for document uploads. */
   voice: VoiceInfo | null;
+  /** True on an archived snapshot from GET /api/results/{id}/versions/{version}. */
+  superseded?: boolean;
+  /** Version number that replaced this snapshot (null when unknown or current). */
+  superseded_by?: number | null;
 }
 
 /** Body of a 202 from GET /api/results/{id} (pending, processing, human review, failed). */

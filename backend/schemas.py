@@ -400,6 +400,7 @@ class HealthOut(BaseModel):
     accepted_voice_types: list[str] = Field(default_factory=list)
     llm_fallback: str = "gpt-4o"  # the fallback model name, or "off"
     lms_api_enabled: bool = True
+    intervention_default_hours: float = 3.0
 
 
 class RubricOut(BaseModel):
@@ -754,6 +755,16 @@ class EvaluationVersionOut(BaseModel):
     total_marks: float
     created_at: datetime
     superseded_at: datetime | None = None
+    current: bool
+
+
+class ResultVersionOut(BaseModel):
+    version: int
+    created_at: datetime
+    rubric_id: int
+    rubric_version: str
+    total_score: float
+    total_marks: float
     current: bool
 
 
@@ -1122,6 +1133,8 @@ class ResultOut(BaseModel):
     patterns: StudentPatterns = Field(default_factory=StudentPatterns)
     interventions: list[InterventionRecordOut] = Field(default_factory=list)
     voice: VoiceInfo | None = None
+    superseded: bool = False  # true on an archived snapshot (GET /api/results/{id}/versions/{v})
+    superseded_by: int | None = None  # the version that replaced it
 
 
 class ResultPendingOut(BaseModel):

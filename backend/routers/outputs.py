@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import analytics
 import cohort as cohort_module
+import provenance
 import report_meta
 import reports
 import result_view
@@ -54,6 +55,7 @@ from schemas import (
     ReleaseInfo,
     ReleaseInput,
     ResultOut,
+    ResultVersionOut,
     StudentCard,
     TestOption,
 )
@@ -299,6 +301,28 @@ def report_pdf(
     else:
         pdf, name = student_pdf(db, sub)
     return _attachment(pdf, name)
+
+
+@router.get("/api/results/{submission_id}/versions", response_model=list[ResultVersionOut])
+def result_versions(submission_id: int, db: DbSession) -> list[dict]:
+    """Archived versions + the current result, oldest first."""
+    sub = _load(db, submission_id)
+    return provenance.version_rows(db, sub, sub.result, sub.rubric, always=True)
+
+
+@router.get("/api/results/{submission_id}/versions/{version}", response_model=ResultOut)
+def result_version(submission_id: int, version: int, db: DbSession) -> ResultOut:
+    """One version as a full Result; an archived one has superseded=true (404 unknown_version)."""
+    sub = _load(db, submission_id)
+    if sub.result is not None and version == (sub.result.version or 1) and result_view.is_completed(sub):
+        return result_view.build_result(db, sub)
+    archived = result_view.find_version(db, sub, version)
+    if archived is None:
+        raise ApiError(404, f"Submission {sub.id} has no evaluation version {version}.", "unknown_version")
+    result, rubric = result_view.archived_result(db, archived, sub)
+    newer = [row["version"] for row in provenance.version_rows(db, sub, sub.result, sub.rubric) if row["version"] > version]
+    out = result_view.build_result_for(db, sub, result, rubric=rubric)
+    return out.model_copy(update={"superseded": True, "superseded_by": min(newer, default=None)})
 
 
 @router.get(

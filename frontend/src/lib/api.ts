@@ -17,6 +17,7 @@ import type {
   ExamOption,
   Health,
   HistoryEntry,
+  Institution,
   IntakeBatchStatus,
   InterventionEffectiveness,
   InterventionInput,
@@ -37,6 +38,7 @@ import type {
   ReleaseInfo,
   ReleaseInput,
   Result,
+  ResultVersion,
   ResultPending,
   ReviewInput,
   Rubric,
@@ -199,6 +201,20 @@ export async function getResult(id: number | string): Promise<ResultResponse> {
   const res = await api.get<Result | ResultPending>(`/api/results/${id}`);
   if (res.status === 202) return { kind: "pending", pending: res.data as ResultPending };
   return { kind: "ready", result: res.data as Result };
+}
+
+/** Archived versions + the current one, oldest first. */
+export async function getResultVersions(id: number | string): Promise<ResultVersion[]> {
+  return (await api.get<ResultVersion[]>(`/api/results/${id}/versions`)).data;
+}
+
+/** An archived (superseded) snapshot of a result: superseded is true on it. */
+export async function getResultVersion(id: number | string, version: number): Promise<Result> {
+  return (await api.get<Result>(`/api/results/${id}/versions/${version}`)).data;
+}
+
+export async function getInstitutions(): Promise<Institution[]> {
+  return (await api.get<Institution[]>("/api/institutions")).data;
 }
 
 export async function getCohort(filters?: DashboardQuery): Promise<Cohort> {

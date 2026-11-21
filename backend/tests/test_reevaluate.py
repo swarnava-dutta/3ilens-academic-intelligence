@@ -245,3 +245,30 @@ def test_concurrent_bulk_reevaluation_completes_every_sheet(upload, fake_ai, cli
     assert all(r["status"] == "COMPLETED" and r["rubric_id"] == body["rubric"]["id"] for r in rows)
     assert all(r["total_score"] == 12 for r in rows)
     assert fake_ai.calls["ocr"] == 6 and fake_ai.calls["evaluation"] == 12
+
+
+def test_version_endpoints_list_and_serve_archived_snapshots(client, forbid_ai):
+    client.post("/api/demo/seed")
+    demo = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
+    only = client.get(f"/api/results/{demo['id']}/versions").json()
+    assert [(v["version"], v["current"]) for v in only] == [(1, True)]
+    before = client.get(f"/api/results/{demo['id']}").json()
+    v2 = new_version(client, genetics_id(client), v2_content(add_q6=True))["rubric"]
+    client.post(f"/api/submissions/{demo['id']}/reevaluate", json={"rubric_id": v2["id"]})
+
+    rows = client.get(f"/api/results/{demo['id']}/versions").json()
+    assert [(v["version"], v["rubric_version"], v["current"]) for v in rows] == [(1, "v1", False), (2, "v2", True)]
+    old = client.get(f"/api/results/{demo['id']}/versions/1").json()
+    assert old["superseded"] is True and old["superseded_by"] == 2
+    assert old["total_marks"] == before["total_marks"] and old["rubric"]["version"] == "v1"
+    current = client.get(f"/api/results/{demo['id']}/versions/2").json()
+    assert current["superseded"] is False and current["total_marks"] == 24
+    missing = client.get(f"/api/results/{demo['id']}/versions/9")
+    assert missing.status_code == 404 and missing.json()["code"] == "unknown_version"
+    assert client.get("/api/results/99999/versions").status_code == 404
+
+
+def test_institutions_and_health_defaults(client):
+    assert client.get("/api/health").json()["intervention_default_hours"] == 3.0
+    institutions = client.get("/api/institutions").json()
+    assert institutions and set(institutions[0]) == {"id", "name"}

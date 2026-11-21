@@ -354,6 +354,7 @@ def health(db: DbSession) -> HealthOut:
         accepted_voice_types=accepted_voice_types(settings),
         llm_fallback=llm_fallback_label(settings),
         lms_api_enabled=settings.lms_api_enabled,
+        intervention_default_hours=settings.default_intervention_hours,
     )
 
 

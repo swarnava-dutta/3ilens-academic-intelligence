@@ -41,6 +41,7 @@ HEALTH_KEYS = {
     "whatsapp_mode", "max_upload_mb", "accepted_upload_types",
     # contract v3
     "voice_enabled", "voice_ready", "transcription_model", "accepted_voice_types", "llm_fallback", "lms_api_enabled",
+    "intervention_default_hours",
 }
 BATCH_KEYS = {
     "id", "name", "exam_type", "exam", "exam_date", "exam_date_assumed", "days_to_exam", "strategy_mode",

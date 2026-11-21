@@ -342,11 +342,13 @@ def _latency(sub: StudentSubmission) -> dict[str, Any]:
     }
 
 
-def _versions(db: Session, sub: StudentSubmission, result: EvaluationResult, rubric: Rubric) -> list[dict[str, Any]]:
-    """Archived versions + the current result, oldest first. [] while the result has never been
-    re-run (no history to show)."""
+def version_rows(
+    db: Session, sub: StudentSubmission, result: EvaluationResult | None, rubric: Rubric, *, always: bool = False
+) -> list[dict[str, Any]]:
+    """Archived versions + the current result (if any), oldest first. Unless `always`, [] while the
+    result has never been re-run (no history to show)."""
     archived = results_store.versions(db, sub.id)
-    if not archived:
+    if not archived and not always:
         return []
     rubrics: dict[int, Rubric | None] = {rubric.id: rubric}
 
@@ -372,6 +374,8 @@ def _versions(db: Session, sub: StudentSubmission, result: EvaluationResult, rub
             "superseded_at": version.superseded_at,
             "current": False,
         })
+    if result is None:
+        return out
     current_rubric_id = result.rubric_id or sub.rubric_id
     owner = rubric_for(current_rubric_id) or rubric
     current_version = result.version or (max((v["version"] for v in out), default=0) + 1)
@@ -398,7 +402,7 @@ def result_extras(
         "extraction": _extraction(sub, result, db),
         "cost": _cost(db, sub, result),
         "latency": _latency(sub),
-        "versions": _versions(db, sub, result, rubric),
+        "versions": version_rows(db, sub, result, rubric),
     }
 
 
