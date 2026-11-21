@@ -10,6 +10,7 @@ import {
   FileText,
   Fingerprint,
   Loader2,
+  Mic,
   RotateCcw,
   ShieldAlert,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { reportPdfUrl } from "@/lib/api";
 import type { Submission } from "@/lib/types";
 import { cn, formatConfidence, formatDateTime, formatScore } from "@/lib/utils";
 import { codeLabel } from "./intake/codes";
-import { formatInr, formatRelative, PIPELINE_STEP_COUNT, pipelineStepIndex, shortHash, toUtcIso } from "./format";
+import { formatClock, formatInr, formatRelative, PIPELINE_STEP_COUNT, pipelineStepIndex, shortHash, toUtcIso } from "./format";
 
 export const QUEUE_COLUMNS = ["Student", "File", "Status", "Current step", "OCR", "Score", "Cost", "Uploaded", "Action"];
 /** Columns hidden on phones (the status badge moves under the student name there). */
@@ -98,6 +99,11 @@ export function QueueRow({
   const attemptsLabel = attempts > maxAttempts ? `attempt ${attempts}` : `attempts ${attempts}/${maxAttempts}`;
   const flaggedPages = s.flagged_pages ?? [];
   const languages = (s.language_hints ?? []).filter((l) => l !== "en");
+  const isVoice = s.input_kind === "voice";
+  const duration = isVoice ? formatClock(s.audio_seconds) : null;
+  const voiceTitle = isVoice
+    ? `Voice answer${duration ? ` (${duration})` : ""}${s.voice_question ? ` for Q${s.voice_question}` : " - whole recording, AI-mapped"}`
+    : undefined;
 
   return (
     <>
@@ -127,16 +133,33 @@ export function QueueRow({
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1 md:hidden">
             <StatusBadge status={s.status} />
+            {isVoice ? (
+              <Chip className="bg-violet-50 text-violet-800 ring-violet-200" title={voiceTitle}>
+                <Mic className="h-3 w-3" aria-hidden />
+                Voice{duration ? ` ${duration}` : ""}
+              </Chip>
+            ) : null}
             {completed ? <UrgencyBadge urgency={s.urgency} size="sm" /> : null}
           </div>
         </td>
 
         <td className={cn("max-w-[11rem] px-4 py-3.5 xl:max-w-[13rem] 2xl:max-w-[15rem]", DESKTOP_CELL)}>
           <span className="flex items-center gap-1.5 text-slate-600" title={s.original_filename}>
-            <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            {isVoice ? (
+              <Mic className="h-4 w-4 shrink-0 text-violet-700" aria-hidden />
+            ) : (
+              <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            )}
             <span className="truncate">{s.original_filename}</span>
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-1">
+            {isVoice ? (
+              <Chip className="bg-violet-50 text-violet-800 ring-violet-200" title={voiceTitle}>
+                <Mic className="h-3 w-3" aria-hidden />
+                Voice{duration ? ` · ${duration}` : ""}
+                {s.voice_question ? ` · Q${s.voice_question}` : ""}
+              </Chip>
+            ) : null}
             {s.file_sha256 ? (
               <span className="inline-flex items-center gap-0.5 font-mono text-[10px] text-slate-400" title={`SHA-256 ${s.file_sha256}`}>
                 <Fingerprint className="h-3 w-3" aria-hidden />

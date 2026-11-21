@@ -11,15 +11,17 @@ import {
   Fingerprint,
   Info,
   Loader2,
+  Mic,
   Send,
   X,
   XCircle,
 } from "lucide-react";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash } from "../format";
+import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { DropZone } from "./drop-zone";
 import type { SingleIntake, SingleUploadSettings } from "./use-single-intake";
+import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
 const inputClass =
   "block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 transition-colors focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
@@ -30,11 +32,16 @@ export function SingleSheetPanel({
   maxMb,
   knownHashes,
   ocrCacheEnabled,
+  voice,
+  questions,
 }: {
   intake: SingleIntake;
   maxMb: number;
   knownHashes: Map<string, Submission>;
   ocrCacheEnabled: boolean;
+  voice: VoiceSettings;
+  /** Questions of the chosen rubric (for a per-question voice recording). */
+  questions: VoiceQuestionOption[];
 }) {
   const ids = useId();
   const { file } = intake;
@@ -51,6 +58,7 @@ export function SingleSheetPanel({
         hasFile={file !== null}
         error={intake.fileMessage?.tone === "error"}
         maxMb={maxMb}
+        voiceEnabled={voice.enabled}
         hintId={`${ids}-hint`}
         onFiles={(files, meta) => {
           const first = files[0];
@@ -67,7 +75,11 @@ export function SingleSheetPanel({
 
       {file ? (
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-          {intake.previewUrl ? (
+          {intake.isVoice ? (
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+              <Mic className="h-6 w-6" aria-hidden />
+            </span>
+          ) : intake.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
             <img src={intake.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
           ) : (
@@ -76,8 +88,9 @@ export function SingleSheetPanel({
             </span>
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-800" title={file.name}>
-              {file.name}
+            <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-800" title={file.name}>
+              <span className="truncate">{file.name}</span>
+              {intake.isVoice ? <VoiceChip className="shrink-0" /> : null}
             </p>
             <p className="text-xs text-slate-500">
               {fileKindLabel(file)} · {formatBytes(file.size)}
@@ -107,6 +120,26 @@ export function SingleSheetPanel({
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
+        </div>
+      ) : null}
+
+      {file && intake.isVoice ? (
+        <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-3">
+          {intake.previewUrl ? (
+            <audio controls preload="metadata" src={intake.previewUrl} className="h-9 w-full" aria-label={`Preview ${file.name}`} />
+          ) : null}
+          <VoiceQuestionSelect
+            id={`${ids}-voice-q`}
+            value={intake.voiceQuestion}
+            onChange={intake.setVoiceQuestion}
+            questions={questions}
+            disabled={intake.uploading}
+          />
+          <p className="-mt-2 text-xs text-slate-600">
+            Whole recording: Claude maps the transcript onto the rubric questions. Pick a question when the student
+            recorded one answer.
+          </p>
+          <VoiceNotes voice={voice} />
         </div>
       ) : null}
 

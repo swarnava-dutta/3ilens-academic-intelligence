@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { CloudUpload, FolderOpen } from "lucide-react";
+import { CloudUpload, FolderOpen, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCEPT_ATTR } from "../format";
 import { collectFromDrop, collectFromInput, type PickedFile } from "./collect";
@@ -13,6 +13,8 @@ interface DropZoneProps {
   hasFile?: boolean;
   error?: boolean;
   maxMb: number;
+  /** Health.voice_enabled: list the audio types as accepted (voice answers). */
+  voiceEnabled?: boolean;
   hintId?: string;
   onFiles: (files: PickedFile[], meta: { hadFolder: boolean; fromDrop: boolean }) => void;
 }
@@ -21,7 +23,7 @@ interface DropZoneProps {
  * Drag-and-drop zone + file pickers. Single mode: one file. Batch mode: several files, a
  * "Choose folder" picker (webkitdirectory) and dropped folders (walked recursively).
  */
-export function DropZone({ mode, disabled, hasFile, error, maxMb, hintId, onFiles }: DropZoneProps) {
+export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled = true, hintId, onFiles }: DropZoneProps) {
   const [dragActive, setDragActive] = useState(false);
   const [reading, setReading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,7 +122,7 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, hintId, onFile
             <span className="font-medium text-brand-cyan underline-offset-2 group-hover:underline">
               {batch ? "choose files" : "browse your files"}
             </span>{" "}
-            · PDF, image or Word
+            · PDF, image or Word{voiceEnabled ? " - or a voice answer" : ""}
           </span>
         </span>
         <span id={hintId} className="flex flex-wrap justify-center gap-1.5">
@@ -132,6 +134,15 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, hintId, onFile
               {t}
             </span>
           ))}
+          {voiceEnabled ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 ring-1 ring-inset ring-violet-200"
+              title="Voice answers: transcribed by OpenAI (not residency-approved, PoC only)"
+            >
+              <Mic className="h-3 w-3" aria-hidden />
+              MP3 · WAV · M4A · OGG
+            </span>
+          ) : null}
           <span className="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
             ≤ {maxMb} MB each
           </span>

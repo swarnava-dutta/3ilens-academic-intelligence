@@ -5,6 +5,7 @@ import {
   Database,
   FileOutput,
   Layers,
+  Mic,
   Repeat2,
   ScanLine,
   ScanText,
@@ -34,7 +35,14 @@ interface Step {
 }
 
 /** Eight stages: the seven processing steps plus "Report & delivery". */
-export function PipelineStrip({ ocrAdapter }: { ocrAdapter?: string | null }) {
+export function PipelineStrip({
+  ocrAdapter,
+  voiceModel,
+}: {
+  ocrAdapter?: string | null;
+  /** Health.transcription_model when voice answers are on (null = voice off). */
+  voiceModel?: string | null;
+}) {
   const steps: Step[] = [
     { title: "Ingest", caption: "Magic bytes · SHA-256 · local (S3)", Icon: CloudUpload, ai: false },
     { title: "Queue", caption: "BackgroundTasks (SQS) · retry 3× → DLQ", Icon: Layers, ai: false },
@@ -108,6 +116,17 @@ export function PipelineStrip({ ocrAdapter }: { ocrAdapter?: string | null }) {
           </li>
         ))}
       </ol>
+
+      {voiceModel ? (
+        <p className="mt-3 flex items-start gap-2 rounded-xl bg-violet-50/60 px-3 py-2 text-xs text-violet-900 ring-1 ring-inset ring-violet-200">
+          <Mic className="mt-px h-4 w-4 shrink-0 text-violet-700" aria-hidden />
+          <span>
+            <span className="font-semibold">Voice answers</span> skip pre-processing: step 4 becomes
+            &ldquo;Transcription&rdquo; (OpenAI {voiceModel}, stand-in for Whisper large-v3 / Sarvam - not
+            residency-approved) and Claude maps the transcript onto the rubric questions before grading.
+          </span>
+        </p>
+      ) : null}
 
       {/* Loop: a rubric edit re-runs Evaluate -> Report from the stored OCR (stages 5-8). */}
       <div className="mt-3 lg:grid lg:grid-cols-8">

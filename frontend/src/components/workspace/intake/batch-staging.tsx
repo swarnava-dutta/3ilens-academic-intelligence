@@ -12,6 +12,7 @@ import {
   Fingerprint,
   Info,
   Loader2,
+  Mic,
   RefreshCw,
   Replace,
   Send,
@@ -20,9 +21,10 @@ import {
 } from "lucide-react";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ACCEPT_ATTR, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash } from "../format";
+import { ACCEPT_ATTR, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { codeLabel } from "./codes";
 import {
+  isVoiceRow,
   QUEUE_API_NOTE_THRESHOLD,
   summarize,
   UPLOAD_CONCURRENCY,
@@ -30,6 +32,7 @@ import {
   type RowView,
   type UploadContext,
 } from "./use-batch-intake";
+import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
 const cellInput =
   "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
@@ -94,9 +97,12 @@ interface BatchStagingProps {
   /** SHA-256 -> earlier submission (from the queue) for the "seen before" hint. */
   knownHashes: Map<string, Submission>;
   ocrCacheEnabled: boolean;
+  voice: VoiceSettings;
+  /** Questions of the chosen rubric (for per-question voice recordings). */
+  questions: VoiceQuestionOption[];
 }
 
-export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled }: BatchStagingProps) {
+export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled, voice, questions }: BatchStagingProps) {
   const ids = useId();
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceKeyRef = useRef<string | null>(null);
@@ -113,6 +119,7 @@ export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled }: 
   const groups = summarize(views, skipped);
   const checking = views.some((v) => v.row.phase === "checking");
   const shortId = intake.intakeBatchId ? intake.intakeBatchId.slice(0, 4) : null;
+  const voiceRows = views.filter((v) => isVoiceRow(v.row)).length;
 
   function pickReplacement(key: string) {
     replaceKeyRef.current = key;
@@ -171,6 +178,19 @@ export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled }: 
         </p>
       ) : null}
 
+      {voiceRows > 0 ? (
+        <div className="flex items-start gap-2 rounded-xl bg-violet-50/60 px-3 py-2 ring-1 ring-inset ring-violet-200">
+          <Mic className="mt-0.5 h-4 w-4 shrink-0 text-violet-700" aria-hidden />
+          <div className="min-w-0 text-xs">
+            <p className="font-medium text-violet-900">
+              {voiceRows} voice {voiceRows === 1 ? "answer" : "answers"} staged. Pick every language spoken in the
+              answer-language chips above.
+            </p>
+            <VoiceNotes voice={voice} className="mt-0.5" />
+          </div>
+        </div>
+      ) : null}
+
       {attempted.length > 0 ? (
         <div className="space-y-1.5" aria-live="polite">
           <div className="flex items-center justify-between gap-2 text-xs">
@@ -217,6 +237,8 @@ export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled }: 
                 context={context}
                 seenBefore={view.row.hash ? (knownHashes.get(view.row.hash) ?? null) : null}
                 ocrCacheEnabled={ocrCacheEnabled}
+                questions={questions}
+                voiceReady={voice.ready}
                 onReplace={() => pickReplacement(view.row.key)}
               />
             ))}
@@ -297,6 +319,8 @@ function StagedRowItem({
   context,
   seenBefore,
   ocrCacheEnabled,
+  questions,
+  voiceReady,
   onReplace,
 }: {
   view: RowView;
@@ -305,6 +329,8 @@ function StagedRowItem({
   context: UploadContext | null;
   seenBefore: Submission | null;
   ocrCacheEnabled: boolean;
+  questions: VoiceQuestionOption[];
+  voiceReady: boolean;
   onReplace: () => void;
 }) {
   const ids = useId();
@@ -313,6 +339,7 @@ function StagedRowItem({
   const canRetry = row.phase === "rejected" && !blocked;
   const canReplace = row.phase !== "uploading" && row.phase !== "queued";
   const original = duplicateOf !== null ? views[duplicateOf] : null;
+  const isVoice = isVoiceRow(row);
 
   return (
     <li
@@ -364,9 +391,14 @@ function StagedRowItem({
       {/* File */}
       <div className="mt-2 min-w-0 text-sm lg:mt-0">
         <p className="flex items-center gap-1.5 text-slate-700" title={row.path}>
-          <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          {isVoice ? (
+            <Mic className="h-4 w-4 shrink-0 text-violet-700" aria-hidden />
+          ) : (
+            <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          )}
           <span className="truncate">{row.file.name}</span>
         </p>
+        {isVoice ? <VoiceChip className="mt-1" /> : null}
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
           <span>{formatBytes(row.file.size)}</span>
           {row.signature?.kind ? <span className="uppercase">· {row.signature.kind}</span> : null}
@@ -377,6 +409,24 @@ function StagedRowItem({
             <Cloud className="mt-px h-3 w-3 shrink-0" aria-hidden />
             Production: S3 presigned multipart (resumable). PoC: single streamed upload
           </p>
+        ) : null}
+        {isVoice ? (
+          <div className="mt-2 max-w-[16rem]">
+            <VoiceQuestionSelect
+              id={`${ids}-voice-q`}
+              value={row.voiceQuestion}
+              onChange={(q) => intake.updateRow(row.key, { voiceQuestion: q })}
+              questions={questions}
+              disabled={locked}
+              compact
+            />
+            {!voiceReady ? (
+              <p className="mt-1 flex items-start gap-1 text-[11px] font-medium text-amber-900">
+                <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-700" aria-hidden />
+                OPENAI_API_KEY missing - this voice answer will fail at transcription
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {/blurry/i.test(row.file.name) ? (
           <p className="mt-1 text-[11px] text-amber-800" title="Mock OCR confidence 65% (below the 70% gate): held for faculty review, no AI call.">

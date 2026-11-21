@@ -10,9 +10,35 @@ export const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".docx"] as const;
 export const ACCEPTED_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", DOCX_MIME] as const;
-export const ACCEPT_ATTR = [...ACCEPTED_EXTENSIONS, ...ACCEPTED_MIME_TYPES].join(",");
+/** Voice answers (FR-2.8): accepted when the server has VOICE_ANSWERS on (Health.voice_enabled). */
+export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg"] as const;
+export const ACCEPT_ATTR = [...ACCEPTED_EXTENSIONS, ...ACCEPTED_MIME_TYPES, ...AUDIO_EXTENSIONS, "audio/*"].join(",");
 /** Human list used in copy ("PDF, image or Word"). */
-export const ACCEPTED_LABEL = "PDF, image (JPG, PNG, WEBP) or Word (.docx)";
+export const ACCEPTED_LABEL = "PDF, image (JPG, PNG, WEBP), Word (.docx) or a voice answer (MP3, WAV, M4A, OGG)";
+export const VOICE_DISABLED_TEXT = "Voice answers are switched off on this server";
+
+/** Voice-answer settings from /api/health (null health = assume on; the server decides). */
+export interface VoiceSettings {
+  enabled: boolean;
+  /** enabled AND an OpenAI key is configured. */
+  ready: boolean;
+  /** e.g. "gpt-transcribe". */
+  model: string;
+}
+
+export const DEFAULT_VOICE: VoiceSettings = { enabled: true, ready: true, model: "gpt-transcribe" };
+
+/** True for an audio file by extension or browser-reported MIME type. */
+export function isAudio(file: File): boolean {
+  return (AUDIO_EXTENSIONS as readonly string[]).includes(extensionOf(file.name)) || file.type.startsWith("audio/");
+}
+
+/** 75 -> "1:15" (m:ss); null/invalid -> null. */
+export function formatClock(seconds: number | null | undefined): string | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return null;
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
 /** "NEET-A" + "Mock-07" -> "NEET-A Mock-07" (tolerates either field already holding the full label). */
 export function batchLabel(batch: Batch | null | undefined): string | null {
@@ -45,11 +71,12 @@ export function isDocx(file: File): boolean {
   return file.type === DOCX_MIME || extensionOf(file.name) === ".docx";
 }
 
-/** True when the extension or the browser-reported MIME type is one the API accepts. */
+/** True when the extension or the browser-reported MIME type is one the API accepts (documents or audio). */
 export function hasAcceptedType(file: File): boolean {
   return (
     (ACCEPTED_EXTENSIONS as readonly string[]).includes(extensionOf(file.name)) ||
-    (ACCEPTED_MIME_TYPES as readonly string[]).includes(file.type)
+    (ACCEPTED_MIME_TYPES as readonly string[]).includes(file.type) ||
+    isAudio(file)
   );
 }
 
@@ -57,6 +84,7 @@ export function hasAcceptedType(file: File): boolean {
 export function fileKindLabel(file: File): string {
   if (isPdf(file)) return "PDF document";
   if (isDocx(file)) return "Word document (read via PDF -> vision)";
+  if (isAudio(file)) return "Voice answer (audio)";
   return "Image";
 }
 
@@ -64,10 +92,11 @@ export function fileKindLabel(file: File): string {
  * Client-side guard mirroring the API rules (type + size). Returns an error message or null.
  * The server still decides by the file's bytes (magic-number sniffing), not by its name.
  */
-export function validateAnswerSheet(file: File, maxBytes: number = MAX_UPLOAD_BYTES): string | null {
+export function validateAnswerSheet(file: File, maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled = true): string | null {
   if (!hasAcceptedType(file)) {
     return `"${file.name}" is not supported. Upload a ${ACCEPTED_LABEL} answer sheet.`;
   }
+  if (isAudio(file) && !voiceEnabled) return `"${file.name}" was not attached: ${VOICE_DISABLED_TEXT}.`;
   if (file.size === 0) return `"${file.name}" is empty.`;
   if (file.size > maxBytes) {
     return `"${file.name}" is ${formatBytes(file.size)} - the limit is ${formatBytes(maxBytes)}.`;

@@ -6,13 +6,15 @@ import { RubricDraftWorkbench, RubricSourceControl } from "@/components/rubrics/
 import { useRubricSource } from "@/components/rubrics/use-rubric-source";
 import type { Health, LanguageHint, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MAX_UPLOAD_BYTES } from "./format";
+import { DEFAULT_VOICE, MAX_UPLOAD_BYTES, type VoiceSettings } from "./format";
 import { BatchStaging } from "./intake/batch-staging";
 import { DropZone } from "./intake/drop-zone";
 import { BatchSelect, LanguageChips } from "./intake/intake-options";
 import { SingleSheetPanel, SingleSubmit } from "./intake/single-sheet";
 import { QUEUE_API_NOTE_THRESHOLD, UPLOAD_CONCURRENCY, useBatchIntake, type UploadContext } from "./intake/use-batch-intake";
+import { isVoiceRow } from "./intake/use-batch-intake";
 import { useSingleIntake } from "./intake/use-single-intake";
+import { rubricQuestionOptions } from "./intake/voice-fields";
 
 type Mode = "single" | "batch";
 
@@ -46,11 +48,22 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
   const maxMb = health?.max_upload_mb && health.max_upload_mb > 0 ? health.max_upload_mb : MAX_UPLOAD_BYTES / (1024 * 1024);
   const maxBytes = Math.round(maxMb * 1024 * 1024);
   const ocrCacheEnabled = health?.ocr_cache_enabled ?? false;
+  // Voice answers (FR-2.8): unknown health = assume on (the server enforces voice_disabled).
+  const voice: VoiceSettings = health
+    ? {
+        enabled: health.voice_enabled ?? DEFAULT_VOICE.enabled,
+        ready: health.voice_ready ?? DEFAULT_VOICE.ready,
+        model: health.transcription_model || DEFAULT_VOICE.model,
+      }
+    : DEFAULT_VOICE;
 
   const rubric = useRubricSource(apiOnline);
-  const single = useSingleIntake(onUploaded, maxBytes);
-  const batch = useBatchIntake(maxBytes);
+  const single = useSingleIntake(onUploaded, maxBytes, voice.enabled);
+  const batch = useBatchIntake(maxBytes, voice.enabled);
   const busy = single.uploading || batch.running;
+  const questions = rubricQuestionOptions(rubric);
+  const questionNumbers = questions.map((q) => q.question);
+  const voiceStaged = mode === "single" ? single.isVoice : batch.views.some((v) => isVoiceRow(v.row));
 
   // A file dropped just outside the drop zone must not make the browser navigate away from the demo.
   useEffect(() => {
@@ -70,6 +83,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
     rubricJson: rubric.choice?.rubricJson,
     languages,
     batchId,
+    questionNumbers,
   };
   const batchContext: UploadContext | null = rubric.choice
     ? { ...settings, onUploaded, onIntakeStarted }
@@ -91,8 +105,8 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
               Answer sheet intake
             </h2>
             <p className="text-sm text-slate-500">
-              PDF (up to 10 pages), photo/scan or Word · max {Math.round(maxMb)} MB per file · checked by magic bytes and
-              SHA-256
+              PDF (up to 10 pages), photo/scan or Word{voice.enabled ? ", or a voice answer (MP3/WAV/M4A/OGG)" : ""} ·
+              max {Math.round(maxMb)} MB per file · checked by magic bytes and SHA-256
             </p>
           </div>
         </div>
@@ -136,6 +150,8 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                 maxMb={Math.round(maxMb)}
                 knownHashes={knownHashes}
                 ocrCacheEnabled={ocrCacheEnabled}
+                voice={voice}
+                questions={questions}
               />
             ) : (
               <>
@@ -143,6 +159,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                   mode="batch"
                   disabled={batch.running}
                   maxMb={Math.round(maxMb)}
+                  voiceEnabled={voice.enabled}
                   hintId={`${ids}-batch-hint`}
                   onFiles={(files) => void batch.addFiles(files)}
                 />
@@ -171,7 +188,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
           {/* ---------------- Settings shared by both modes ---------------- */}
           <div className="flex min-w-0 flex-col gap-5 lg:col-span-2">
             <RubricSourceControl state={rubric} disabled={busy} />
-            <LanguageChips value={languages} onChange={setLanguages} disabled={busy} />
+            <LanguageChips value={languages} onChange={setLanguages} disabled={busy} voice={voiceStaged} />
             <BatchSelect value={batchId} onChange={setBatchId} fallback={health?.batch ?? null} disabled={busy} />
             {mode === "single" ? (
               <div className="mt-auto">
@@ -193,6 +210,8 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
             context={batchContext}
             knownHashes={knownHashes}
             ocrCacheEnabled={ocrCacheEnabled}
+            voice={voice}
+            questions={questions}
           />
         ) : null}
       </div>

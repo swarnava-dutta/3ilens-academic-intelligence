@@ -9,6 +9,7 @@ import type { PickedFile } from "./collect";
 import {
   checkSignature,
   deriveStudentName,
+  isVoiceKind,
   randomId,
   readHead,
   rollNoProblem,
@@ -16,6 +17,7 @@ import {
   skipReason,
   type SignatureCheck,
 } from "./inspect";
+import { voiceQuestionFor } from "./voice-fields";
 
 /** Concurrent uploadSubmission calls in a batch run. */
 export const UPLOAD_CONCURRENCY = 3;
@@ -44,6 +46,13 @@ export interface StagedRow {
   errorDetail: string | null;
   /** Upload even though the bytes duplicate an earlier row. */
   includeDuplicate: boolean;
+  /** Voice answers: the rubric question a per-question recording answers (null = whole recording). */
+  voiceQuestion: number | null;
+}
+
+/** The staged file is a voice answer (its bytes are MP3 / WAV / M4A / OGG). */
+export function isVoiceRow(row: StagedRow): boolean {
+  return isVoiceKind(row.signature?.kind);
 }
 
 export interface SkippedFile {
@@ -56,6 +65,8 @@ export interface UploadContext {
   rubricJson?: string;
   languages: LanguageHint[];
   batchId: number | null;
+  /** Question numbers of the chosen rubric (a voice_question outside them is not sent). */
+  questionNumbers?: number[];
   onUploaded: (submission: Submission) => void;
   onIntakeStarted?: (intakeBatchId: string) => void;
 }
@@ -80,7 +91,7 @@ function clientBlock(row: StagedRow, maxBytes: number): { code: string; message:
   if (row.file.size > maxBytes) {
     return { code: "too_large", message: `Larger than the ${Math.round(maxBytes / (1024 * 1024))} MB limit.` };
   }
-  if (row.signature?.error) return { code: "unsupported_signature", message: row.signature.error };
+  if (row.signature?.error) return { code: row.signature.code ?? "unsupported_signature", message: row.signature.error };
   return null;
 }
 
@@ -154,7 +165,7 @@ async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<vo
  * (magic bytes + SHA-256), then upload with a pool of 3 concurrent requests that share one
  * intake_batch_id. A rejected file never blocks the others.
  */
-export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
+export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled = true) {
   const [rows, setRows] = useState<StagedRow[]>([]);
   const [skipped, setSkipped] = useState<SkippedFile[]>([]);
   const [intakeBatchId, setIntakeBatchId] = useState<string | null>(null);
@@ -173,7 +184,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
     let signature: SignatureCheck | null = null;
     let hash: string | null = null;
     try {
-      signature = checkSignature(file.name, await readHead(file));
+      signature = checkSignature(file.name, await readHead(file), voiceEnabled);
     } catch {
       signature = { kind: null, detected: "unreadable", error: "the browser could not read this file", warning: null };
     }
@@ -219,12 +230,13 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
         errorCode: null,
         errorDetail: null,
         includeDuplicate: false,
+        voiceQuestion: null,
       });
     }
     setRows((prev) => [...prev, ...newRows]);
     setSkipped((prev) => [...prev, ...newSkipped]);
     if (picked.length > 0 && newRows.length === 0) {
-      setMessage("None of those files is an answer sheet (PDF, JPG, PNG, WEBP or DOCX).");
+      setMessage("None of those files is an answer sheet (PDF, JPG, PNG, WEBP or DOCX) or a voice answer (MP3, WAV, M4A, OGG).");
     }
     // Inspect one file at a time: hashing reads the whole file into memory.
     for (const row of newRows) {
@@ -232,7 +244,10 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
     }
   }
 
-  function updateRow(key: string, patch: Pick<Partial<StagedRow>, "studentName" | "rollNo" | "includeDuplicate">) {
+  function updateRow(
+    key: string,
+    patch: Pick<Partial<StagedRow>, "studentName" | "rollNo" | "includeDuplicate" | "voiceQuestion">,
+  ) {
     patchRow(key, patch);
   }
 
@@ -245,7 +260,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
     const current = rows.find((r) => r.key === key);
     if (!current || current.phase === "uploading" || current.phase === "queued") return;
     if (!hasAcceptedType(file)) {
-      setMessage(`"${file.name}" is not an answer sheet (PDF, JPG, PNG, WEBP or DOCX).`);
+      setMessage(`"${file.name}" is not an answer sheet (PDF, JPG, PNG, WEBP or DOCX) or a voice answer (MP3, WAV, M4A, OGG).`);
       return;
     }
     const version = current.version + 1;
@@ -281,6 +296,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES) {
         languageHints: ctx.languages,
         batchId: ctx.batchId ?? undefined,
         intakeBatchId: intakeId,
+        voiceQuestion: isVoiceRow(row) ? voiceQuestionFor(row.voiceQuestion, ctx.questionNumbers) : undefined,
         onProgress: (percent) => patchRow(row.key, { percent }),
       });
       patchRow(row.key, { phase: "queued", percent: 100, submission });

@@ -59,7 +59,10 @@ export function FacultyWorkspace() {
         onUploaded={handleUploaded}
         onIntakeStarted={handleIntakeStarted}
       />
-      <PipelineStrip ocrAdapter={healthState.health?.ocr_adapter ?? null} />
+      <PipelineStrip
+        ocrAdapter={healthState.health?.ocr_adapter ?? null}
+        voiceModel={healthState.health?.voice_enabled ? healthState.health.transcription_model || "gpt-transcribe" : null}
+      />
       {/* The queue reads batch/test/urgency filters from the URL (useSearchParams). */}
       <Suspense fallback={<QueueSkeletonCard />}>
         <ProcessingQueue

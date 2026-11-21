@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Languages } from "lucide-react";
+import { Languages, Mic } from "lucide-react";
 import { getFilters } from "@/lib/api";
 import type { Batch, LanguageHint } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -20,10 +20,13 @@ export function LanguageChips({
   value,
   onChange,
   disabled,
+  voice = false,
 }: {
   value: LanguageHint[];
   onChange: (next: LanguageHint[]) => void;
   disabled?: boolean;
+  /** A voice answer is attached/staged: the chips become the transcription languages. */
+  voice?: boolean;
 }) {
   const ids = useId();
   function toggle(code: LanguageHint) {
@@ -34,10 +37,14 @@ export function LanguageChips({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className={cn("space-y-1.5", voice && "rounded-xl bg-violet-50/60 p-3 ring-1 ring-inset ring-violet-200")}>
       <span id={`${ids}-label`} className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-        <Languages className="h-4 w-4 text-slate-400" aria-hidden />
-        Answer language
+        {voice ? (
+          <Mic className="h-4 w-4 text-violet-700" aria-hidden />
+        ) : (
+          <Languages className="h-4 w-4 text-slate-400" aria-hidden />
+        )}
+        {voice ? "Languages spoken" : "Answer language"}
       </span>
       <div role="group" aria-labelledby={`${ids}-label`} className="flex flex-wrap gap-1.5">
         {LANGUAGES.map(({ code, label, native }) => {
@@ -64,9 +71,13 @@ export function LanguageChips({
           );
         })}
       </div>
-      <p className="text-xs text-slate-500">
-        Passed to OCR as a hint. Indian-script accuracy not benchmarked.
-      </p>
+      {voice ? (
+        <p className="text-xs font-medium text-violet-900">
+          Pick every language spoken - passed to transcription as a hint (code-mixed Hindi/English is common).
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500">Passed to OCR as a hint. Indian-script accuracy not benchmarked.</p>
+      )}
     </div>
   );
 }

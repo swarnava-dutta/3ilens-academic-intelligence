@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
 import type { LanguageHint, Submission } from "@/lib/types";
-import { MAX_UPLOAD_BYTES, validateAnswerSheet } from "../format";
+import { isAudio, MAX_UPLOAD_BYTES, validateAnswerSheet } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
-import { checkSignature, deriveStudentName, readHead, rollNoProblem, sha256Hex, type SignatureCheck } from "./inspect";
+import { checkSignature, deriveStudentName, isVoiceKind, readHead, rollNoProblem, sha256Hex, type SignatureCheck } from "./inspect";
+import { voiceQuestionFor } from "./voice-fields";
 
 export type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
 
@@ -14,13 +15,19 @@ export interface SingleUploadSettings {
   rubricJson?: string;
   languages: LanguageHint[];
   batchId: number | null;
+  /** Question numbers of the chosen rubric (a voice_question outside them is not sent). */
+  questionNumbers?: number[];
 }
 
 /**
  * One answer sheet, one student: pick or drop a file, check its signature and SHA-256 in the
  * browser, then POST /api/upload with progress. The server repeats every check on the bytes.
  */
-export function useSingleIntake(onUploaded: (submission: Submission) => void, maxBytes: number = MAX_UPLOAD_BYTES) {
+export function useSingleIntake(
+  onUploaded: (submission: Submission) => void,
+  maxBytes: number = MAX_UPLOAD_BYTES,
+  voiceEnabled = true,
+) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [signature, setSignature] = useState<SignatureCheck | null>(null);
@@ -32,6 +39,8 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
   const [nameTouched, setNameTouched] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [rollNo, setRollNo] = useState("");
+  /** Voice answers: the rubric question a per-question recording answers (null = whole recording). */
+  const [voiceQuestion, setVoiceQuestion] = useState<number | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -54,7 +63,7 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
   async function chooseFile(next: File | null, extraNote?: string) {
     setNotice(null);
     if (!next) return;
-    const problem = validateAnswerSheet(next, maxBytes);
+    const problem = validateAnswerSheet(next, maxBytes, voiceEnabled);
     if (problem) {
       setFileMessage({ tone: "error", text: problem });
       return;
@@ -65,7 +74,7 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
     setHash(null);
     setChecking(true);
     setFileMessage(extraNote ? { tone: "info", text: extraNote } : null);
-    setPreviewUrl(next.type.startsWith("image/") ? URL.createObjectURL(next) : null);
+    setPreviewUrl(next.type.startsWith("image/") || isAudio(next) ? URL.createObjectURL(next) : null);
     if (!nameTouched || !studentName.trim()) {
       setStudentNameState(deriveStudentName(next.name));
       setNameTouched(false);
@@ -73,7 +82,7 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
 
     let check: SignatureCheck;
     try {
-      check = checkSignature(next.name, await readHead(next));
+      check = checkSignature(next.name, await readHead(next), voiceEnabled);
     } catch {
       check = { kind: null, detected: "unreadable", error: "the browser could not read this file", warning: null };
     }
@@ -105,14 +114,18 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
     setHash(null);
     setChecking(false);
     setFileMessage(null);
+    setVoiceQuestion(null);
   }
+
+  /** The attached file is a voice answer (by its bytes once checked, else by its name/type). */
+  const isVoice = file !== null && (signature?.kind ? isVoiceKind(signature.kind) : isAudio(file));
 
   async function submit(settings: SingleUploadSettings) {
     if (uploading) return;
     const name = studentName.trim();
     let invalid = false;
     if (!file) {
-      setFileMessage({ tone: "error", text: "Choose an answer sheet (PDF, image or Word) to upload." });
+      setFileMessage({ tone: "error", text: "Choose an answer sheet (PDF, image or Word) or a voice answer to upload." });
       invalid = true;
     }
     if (!name) {
@@ -138,6 +151,7 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
         rubricJson: settings.rubricJson,
         languageHints: settings.languages,
         batchId: settings.batchId ?? undefined,
+        voiceQuestion: isVoice ? voiceQuestionFor(voiceQuestion, settings.questionNumbers) : undefined,
         onProgress: setProgress,
       });
       setNotice({
@@ -161,6 +175,9 @@ export function useSingleIntake(onUploaded: (submission: Submission) => void, ma
 
   return {
     file,
+    isVoice,
+    voiceQuestion,
+    setVoiceQuestion,
     previewUrl,
     signature,
     hash,
