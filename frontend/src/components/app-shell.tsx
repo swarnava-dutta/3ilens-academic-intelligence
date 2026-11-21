@@ -12,7 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Building2, CalendarClock, LayoutDashboard, Route, Upload, Users } from "lucide-react";
+import { Building2, CalendarClock, LayoutDashboard, Plug, Route, Upload, Users } from "lucide-react";
 import { errorMessage, getHealth } from "@/lib/api";
 import type { Health } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -100,6 +100,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Intake", short: "Intake", Icon: Upload },
   { href: "/cohort", label: "Cohort", short: "Cohort", Icon: LayoutDashboard },
   { href: "/owner", label: "Owner", short: "Owner", Icon: Building2 },
+  { href: "/integrations", label: "Integrations", short: "LMS/AI", Icon: Plug },
   { href: "/journey", label: "How it works", short: "Journey", Icon: Route },
 ] as const;
 
@@ -120,7 +121,7 @@ function NavList({ pathname }: { pathname: string | null }) {
               href={href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-1 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+                "flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-1 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm md:px-2 2xl:px-3",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
                 active
                   ? "bg-white text-brand-navy shadow-sm ring-1 ring-slate-200 md:bg-brand-cyan-50 md:text-brand-navy md:shadow-none md:ring-brand-cyan/30"
@@ -256,7 +257,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <HealthContext value={healthState}>
       <header className="sticky top-0 z-40 print:hidden border-b border-slate-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/75">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6 lg:px-8 2xl:gap-x-6">
           <Link
             href="/"
             className="group flex items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2"
@@ -292,10 +293,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="text-brand-navy">{batch}</span>
               {exam && typeof days === "number" ? (
                 <>
-                  <span className="text-slate-300" aria-hidden>
+                  {/* Six nav items: the days-to-exam segment shows on 2xl only (the Cohort page shows the exam date). */}
+                  <span className="hidden text-slate-300 2xl:inline" aria-hidden>
                     ·
                   </span>
-                  <span className="inline-flex items-center gap-1 text-slate-600" title={examTitle}>
+                  <span className="hidden items-center gap-1 text-slate-600 2xl:inline-flex" title={examTitle}>
                     <CalendarClock className="h-3.5 w-3.5 text-brand-cyan" aria-hidden />
                     {exam} in {days}d{assumed ? <span className="text-slate-400">*</span> : null}
                   </span>
