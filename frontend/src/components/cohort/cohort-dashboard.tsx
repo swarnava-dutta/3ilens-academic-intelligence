@@ -14,8 +14,10 @@ import { Toast, type ToastMessage } from "./dialog";
 import { CohortEmptyState } from "./empty-state";
 import { ExamDateCard } from "./exam-date-card";
 import { hasResults } from "./format";
+import { InterventionEffect } from "./intervention-effect";
 import { KpiGrid } from "./kpi-cards";
 import { OperationsCard, ReleaseCard } from "./operations";
+import { ExamBehaviourCard } from "./patterns";
 import { PipelineHealth } from "./pipeline-health";
 import { Priorities } from "./priorities";
 import { ScoreDistribution } from "./score-distribution";
@@ -80,6 +82,12 @@ export function CohortDashboard() {
               <ConfusionsCard clusters={cohort.confusion_clusters ?? []} denominator={denominator} />
               <InterventionsCard interventions={cohort.interventions ?? []} />
             </div>
+          </div>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <div className="min-w-0 xl:col-span-2">
+              <ExamBehaviourCard patterns={cohort.patterns} />
+            </div>
+            <InterventionEffect batchId={filters.batch_id} />
           </div>
           <Priorities priorities={cohort.top_priorities} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

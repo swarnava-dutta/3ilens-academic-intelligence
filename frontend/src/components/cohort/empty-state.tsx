@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ChartColumn, FlaskConical, Loader2, Upload } from "lucide-react";
 import { errorMessage, seedDemoCohort } from "@/lib/api";
-import type { Cohort } from "@/lib/types";
+import type { Cohort, DemoSet } from "@/lib/types";
 import { plural } from "./format";
 
 export function CohortEmptyState({
@@ -14,23 +14,24 @@ export function CohortEmptyState({
   cohort: Cohort;
   onSeeded: () => Promise<void>;
 }) {
-  const [seeding, setSeeding] = useState(false);
+  const [seeding, setSeeding] = useState<DemoSet | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inPipeline = cohort.total_submissions ?? 0;
 
-  async function loadDemo() {
-    setSeeding(true);
+  /** set=all: Genetics + mixed demo cohorts; set=insights: the wave-2 sample (NEET-C, MCQ papers, interventions). */
+  async function loadDemo(set: DemoSet) {
+    setSeeding(set);
     setError(null);
     setMessage(null);
     try {
-      const res = await seedDemoCohort("all");
+      const res = await seedDemoCohort(set);
       setMessage(res?.message || "Demo cohort loaded.");
       await onSeeded();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setSeeding(false);
+      setSeeding(null);
     }
   }
 
@@ -67,22 +68,36 @@ export function CohortEmptyState({
         </Link>
         <button
           type="button"
-          onClick={loadDemo}
-          disabled={seeding}
+          onClick={() => void loadDemo("all")}
+          disabled={seeding !== null}
           className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-amber-800 ring-1 ring-inset ring-amber-300 transition hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-wait disabled:opacity-70"
         >
-          {seeding ? (
+          {seeding === "all" ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           ) : (
             <FlaskConical className="h-4 w-4" aria-hidden />
           )}
-          {seeding ? "Loading demo cohort…" : "Load demo cohort"}
+          {seeding === "all" ? "Loading demo cohort…" : "Load demo cohort"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void loadDemo("insights")}
+          disabled={seeding !== null}
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-violet-800 ring-1 ring-inset ring-violet-300 transition hover:bg-violet-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-wait disabled:opacity-70"
+        >
+          {seeding === "insights" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <FlaskConical className="h-4 w-4" aria-hidden />
+          )}
+          {seeding === "insights" ? "Loading wave-2 sample…" : "Load wave-2 sample (MCQ papers, interventions)"}
         </button>
       </div>
 
       <p className="mx-auto mt-4 max-w-md text-xs text-slate-500">
-        The demo cohort is synthetic sample data, inserted without any AI calls. It stays clearly
-        labelled as demo data on every screen.
+        The demo cohort and the wave-2 sample (NEET-C (sample), NEET MCQ papers, logged interventions) are
+        synthetic sample data, inserted without any AI calls. They stay clearly labelled as demo data on every
+        screen.
       </p>
 
       <div aria-live="polite" className="mt-3 min-h-5 text-sm">
