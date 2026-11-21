@@ -196,15 +196,15 @@ export function AiProvidersCard() {
                     <td className="px-3 py-2 pl-5 font-semibold capitalize text-brand-navy sm:pl-6">{p.role}</td>
                     <td className="px-3 py-2">
                       <span className="text-slate-800">{p.provider}</span>
-                      <span className="block font-mono text-xs text-slate-700">{p.model}</span>
+                      <span className="block whitespace-nowrap font-mono text-xs text-slate-700">{p.model}</span>
                     </td>
                     <td className="px-3 py-2">
                       {p.configured ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-lime-800">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-lime-800">
                           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Configured
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-600">
                           <XCircle className="h-3.5 w-3.5" aria-hidden /> Not configured
                         </span>
                       )}
@@ -214,7 +214,10 @@ export function AiProvidersCard() {
                       {p.deprecation ? (
                         <p className="mb-1 flex items-start gap-1 rounded-lg bg-amber-50 px-2 py-1 font-medium text-amber-900 ring-1 ring-inset ring-amber-300">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                          {p.deprecation}
+                          <span>
+                            {p.model}: {p.deprecation}
+                            {p.role === "fallback" ? " - set LLM_FALLBACK_MODEL in .env before then." : ""}
+                          </span>
                         </p>
                       ) : null}
                       <p className="text-slate-700">{p.residency_note}</p>
