@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Clock3, Layers, Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { getIntakeBatch } from "@/lib/api";
 import type { IntakeBatchStatus, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -130,25 +130,10 @@ export function IntakeBanner({
   const shortId = intakeBatchId.slice(0, 4);
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "rounded-xl px-3.5 py-3 ring-1 ring-inset",
-        finished ? "bg-brand-lime-50 ring-brand-lime/50" : "bg-brand-cyan-50 ring-brand-cyan/30",
-      )}
-    >
+    <div role="status" aria-live="polite" className="rounded-md border border-slate-200 px-3 py-2.5">
       <div className="flex items-start gap-3">
-        <span
-          className={cn(
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-            finished ? "bg-white text-brand-lime-600" : "bg-white text-brand-cyan",
-          )}
-        >
-          {finished ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : <Layers className="h-4 w-4" aria-hidden />}
-        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-brand-navy">
+          <p className="text-sm font-semibold tabular-nums text-brand-navy">
             Batch <span className="font-mono">{shortId}</span>: {done}/{status.total} done
             {finished ? (
               <>
@@ -166,26 +151,22 @@ export function IntakeBanner({
               </>
             )}
           </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-slate-600">
             <span>{status.completed} completed</span>
             {status.human_review > 0 ? <span className="text-amber-800">{status.human_review} in faculty review</span> : null}
             {status.failed > 0 ? <span className="text-rose-700">{status.failed} failed (retry below)</span> : null}
             {status.processing > 0 ? (
-              <span className="inline-flex items-center gap-1 text-brand-cyan-600">
-                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                {status.processing} in the pipeline
-              </span>
+              <span className="text-brand-cyan-600">{status.processing} in the pipeline</span>
             ) : null}
             {withinTarget !== null && finished ? (
-              <span className={cn("inline-flex items-center gap-1", withinTarget ? "text-lime-700" : "text-rose-700")}>
-                <Clock3 className="h-3 w-3" aria-hidden />
+              <span className={withinTarget ? "text-lime-700" : "text-rose-700"}>
                 {withinTarget ? "within the 30-min acceptance target" : "over the acceptance target"}
               </span>
             ) : null}
             {!fromApi ? <span className="text-slate-400">counted from the queue</span> : null}
           </p>
           <div
-            className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white"
+            className="mt-2 h-1.5 w-full overflow-hidden rounded-sm bg-slate-100"
             role="progressbar"
             aria-label={`Intake batch ${shortId} progress`}
             aria-valuemin={0}
@@ -193,7 +174,7 @@ export function IntakeBanner({
             aria-valuenow={done}
           >
             <div
-              className={cn("h-full rounded-full transition-[width] duration-500", finished ? "bg-brand-lime-600" : "bg-brand-cyan")}
+              className={cn("h-full rounded-sm", finished ? "bg-brand-lime-600" : "bg-brand-cyan")}
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -201,7 +182,7 @@ export function IntakeBanner({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
           aria-label="Hide the intake batch banner"
         >
           <X className="h-4 w-4" aria-hidden />

@@ -7,8 +7,8 @@ import { PARTIAL_CREDIT_LABELS } from "./marking-policy-fields";
 import { MARK_STEPS, MAX_SCHEME_STEPS, OPTION_LETTERS, isMcq, schemeTotal } from "./rubric-utils";
 
 const fieldClass =
-  "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
-const labelClass = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500";
+  "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 const iconBtn =
   "grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-40";
 
@@ -144,7 +144,7 @@ function McqFields({
           type="button"
           onClick={() => onChange({ options: [...options, ""] })}
           disabled={disabled || options.length >= OPTION_LETTERS.length}
-          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/30 hover:bg-brand-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden />
           Add option
@@ -337,7 +337,7 @@ function DescriptiveFields({
           type="button"
           onClick={() => setSteps([...steps, { criterion: "", marks: steps.length ? 1 : Number.isFinite(q.max_marks) ? q.max_marks : 1 }])}
           disabled={disabled || steps.length >= MAX_SCHEME_STEPS}
-          className="mt-1.5 inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/30 hover:bg-brand-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+          className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden />
           {steps.length ? "Add step" : "Add marking scheme"}

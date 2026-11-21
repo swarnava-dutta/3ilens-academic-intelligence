@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { CloudUpload, FolderOpen, Mic } from "lucide-react";
+import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCEPT_ATTR } from "../format";
 import { collectFromDrop, collectFromInput, type PickedFile } from "./collect";
@@ -79,14 +79,14 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled =
         onDragLeave={(e) => handleDrag(e, false)}
         onDrop={handleDrop}
         className={cn(
-          "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-all",
-          batch ? "min-h-48" : "min-h-56",
+          "group relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-center transition-colors duration-150",
+          batch ? "min-h-40" : "min-h-44",
           "has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand-cyan has-[input:focus-visible]:ring-offset-2",
           dragActive
-            ? "scale-[1.01] border-brand-cyan bg-brand-cyan-50"
+            ? "border-brand-cyan bg-brand-cyan-50"
             : error
-              ? "border-rose-300 bg-rose-50/40 hover:border-rose-400"
-              : "border-slate-300 bg-slate-50/60 hover:border-brand-cyan hover:bg-brand-cyan-50/50",
+              ? "border-rose-400 bg-white hover:border-rose-500"
+              : "border-slate-300 bg-slate-50 hover:border-brand-cyan",
           (disabled || reading) && "pointer-events-none opacity-60",
         )}
       >
@@ -105,47 +105,23 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled =
             if (files.length) onFiles(files, { hadFolder: false, fromDrop: false });
           }}
         />
-        <span
-          className={cn(
-            "flex h-14 w-14 items-center justify-center rounded-2xl shadow-sm ring-1 transition-colors",
-            dragActive
-              ? "bg-brand-cyan text-white ring-brand-cyan"
-              : "bg-white text-brand-cyan ring-slate-200 group-hover:ring-brand-cyan/40",
-          )}
-        >
-          <CloudUpload className="h-7 w-7" aria-hidden />
-        </span>
+        <Upload className={cn("h-5 w-5", dragActive ? "text-brand-cyan-600" : "text-slate-400")} aria-hidden />
         <span className="space-y-1">
-          <span className="block text-base font-semibold text-brand-navy">{reading ? "Reading the folder…" : prompt}</span>
+          <span className="block text-[15px] font-medium text-brand-navy">{reading ? "Reading the folder…" : prompt}</span>
           <span className="block text-sm text-slate-500">
             or{" "}
-            <span className="font-medium text-brand-cyan underline-offset-2 group-hover:underline">
+            <span className="font-medium text-brand-cyan-600 underline underline-offset-2">
               {batch ? "choose files" : "browse your files"}
             </span>{" "}
             · PDF, image or Word{voiceEnabled ? " - or a voice answer" : ""}
           </span>
         </span>
-        <span id={hintId} className="flex flex-wrap justify-center gap-1.5">
-          {["PDF", "JPG", "PNG", "WEBP", "DOCX"].map((t) => (
-            <span
-              key={t}
-              className="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200"
-            >
-              {t}
-            </span>
-          ))}
-          {voiceEnabled ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 ring-1 ring-inset ring-violet-200"
-              title="Voice answers: transcribed by OpenAI (not residency-approved, PoC only)"
-            >
-              <Mic className="h-3 w-3" aria-hidden />
-              MP3 · WAV · M4A · OGG
-            </span>
-          ) : null}
-          <span className="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
-            ≤ {maxMb} MB each
-          </span>
+        <span
+          id={hintId}
+          className="text-xs text-slate-500"
+          title={voiceEnabled ? "Voice answers: transcribed by OpenAI (not residency-approved, PoC only)" : undefined}
+        >
+          PDF, JPG, PNG, WEBP, DOCX{voiceEnabled ? ", MP3, WAV, M4A, OGG" : ""} · up to {maxMb} MB each
         </span>
       </label>
 
@@ -169,9 +145,8 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled =
             type="button"
             onClick={() => folderInputRef.current?.click()}
             disabled={disabled || reading}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-brand-navy ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-60"
+            className="inline-flex h-9 items-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-1 disabled:opacity-60"
           >
-            <FolderOpen className="h-4 w-4 text-brand-cyan" aria-hidden />
             Choose folder
           </button>
           <span className="text-xs text-slate-500">

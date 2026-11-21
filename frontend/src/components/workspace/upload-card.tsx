@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { CloudUpload, FileStack, FolderOpen, Gauge, Info, Upload } from "lucide-react";
 import { RubricDraftWorkbench, RubricSourceControl } from "@/components/rubrics/rubric-source";
 import { useRubricSource } from "@/components/rubrics/use-rubric-source";
 import type { Health, LanguageHint, Submission } from "@/lib/types";
@@ -18,9 +17,9 @@ import { rubricQuestionOptions } from "./intake/voice-fields";
 
 type Mode = "single" | "batch";
 
-const MODES: { value: Mode; label: string; Icon: typeof Upload }[] = [
-  { value: "single", label: "Single sheet", Icon: Upload },
-  { value: "batch", label: "Batch / folder", Icon: FolderOpen },
+const MODES: { value: Mode; label: string }[] = [
+  { value: "single", label: "Single sheet" },
+  { value: "batch", label: "Batch / folder" },
 ];
 
 interface UploadCardProps {
@@ -93,25 +92,22 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
     <section
       id="upload"
       aria-labelledby={`${ids}-title`}
-      className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="scroll-mt-24 rounded-md border border-slate-200 bg-white"
     >
-      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-cyan-50 text-brand-cyan">
-            <CloudUpload className="h-5 w-5" aria-hidden />
-          </span>
           <div>
-            <h2 id={`${ids}-title`} className="text-lg font-semibold text-brand-navy">
+            <h2 id={`${ids}-title`} className="text-base font-semibold text-brand-navy">
               Answer sheet intake
             </h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-xs text-slate-500">
               PDF (up to 10 pages), photo/scan or Word{voice.enabled ? ", or a voice answer (MP3/WAV/M4A/OGG)" : ""} ·
               max {Math.round(maxMb)} MB per file · checked by magic bytes and SHA-256
             </p>
           </div>
         </div>
-        <div role="radiogroup" aria-label="Intake mode" className="inline-flex shrink-0 rounded-xl bg-slate-100 p-1">
-          {MODES.map(({ value, label, Icon }) => {
+        <div role="radiogroup" aria-label="Intake mode" className="inline-flex shrink-0 rounded-md border border-slate-300 bg-white p-0.5">
+          {MODES.map(({ value, label }) => {
             const active = mode === value;
             return (
               <button
@@ -122,15 +118,14 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                 disabled={busy}
                 onClick={() => setMode(value)}
                 className={cn(
-                  "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "inline-flex h-8 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 text-sm font-medium transition-colors duration-150",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-60",
-                  active ? "bg-white text-brand-navy shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:text-brand-navy",
+                  active ? "bg-brand-navy text-white" : "text-slate-600 hover:bg-slate-50 hover:text-brand-navy",
                 )}
               >
-                <Icon className={cn("h-4 w-4", active ? "text-brand-cyan" : "text-slate-400")} aria-hidden />
                 {label}
                 {value === "batch" && batch.views.length > 0 ? (
-                  <span className="rounded-full bg-brand-cyan-50 px-1.5 text-xs tabular-nums text-brand-cyan-600">
+                  <span className={cn("text-xs tabular-nums", active ? "text-white/80" : "text-slate-500")}>
                     {batch.views.length}
                   </span>
                 ) : null}
@@ -140,7 +135,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
         </div>
       </div>
 
-      <div className="space-y-6 p-5 sm:p-6">
+      <div className="space-y-6 p-4 sm:p-5">
         <div className="grid gap-6 lg:grid-cols-5">
           {/* ---------------- Files ---------------- */}
           <div className="min-w-0 space-y-3 lg:col-span-3">
@@ -163,20 +158,17 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                   hintId={`${ids}-batch-hint`}
                   onFiles={(files) => void batch.addFiles(files)}
                 />
-                <ul className="space-y-1.5 text-xs text-slate-500">
-                  <li className="flex items-start gap-1.5">
-                    <FileStack className="mt-px h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                <ul className="list-disc space-y-1 pl-4 text-xs text-slate-500">
+                  <li>
                     Each file becomes one student row: the name comes from the file name
                     (&ldquo;answer_sheet_aarav_sharma.png&rdquo; &rarr; Aarav Sharma) or its sub-folder. Non-answer files
                     (notes.txt, Thumbs.db) are listed as skipped.
                   </li>
-                  <li className="flex items-start gap-1.5">
-                    <Gauge className="mt-px h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                  <li>
                     Uploads {UPLOAD_CONCURRENCY} at a time under one intake batch; a rejected file never blocks the
                     rest. Target: 50 sheets processed in 30 min.
                   </li>
-                  <li className="flex items-start gap-1.5">
-                    <Info className="mt-px h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                  <li>
                     Above {QUEUE_API_NOTE_THRESHOLD} files production uses the queue API; this PoC uploads from the
                     browser.
                   </li>
@@ -195,7 +187,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                 <SingleSubmit intake={single} settings={settings} />
               </div>
             ) : (
-              <p className="mt-auto rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+              <p className="mt-auto text-xs text-slate-500">
                 Rubric, answer language and batch apply to every staged sheet. Review the rows below, then upload.
               </p>
             )}

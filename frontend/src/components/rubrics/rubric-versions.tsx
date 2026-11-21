@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { ChevronDown, GitBranch, History, Loader2, RefreshCcw, Save, ScanText, Sparkles } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { btnPrimary, btnSecondary, Dialog, fieldClass, type ToastMessage } from "@/components/cohort/dialog";
 import {
   createRubricVersion,
@@ -198,32 +198,29 @@ export function RubricVersionsPanel({
   const family = selected && rubrics ? lineage(selected, rubrics) : [];
 
   return (
-    <section aria-labelledby={`${ids}-title`} className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section aria-labelledby={`${ids}-title`} className="min-w-0 rounded-md border border-slate-200 bg-white">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={`${ids}-panel`}
-        className="flex w-full items-start justify-between gap-3 rounded-2xl p-5 text-left focus-visible:outline-2 focus-visible:outline-brand-cyan sm:p-6"
+        className="flex w-full items-start justify-between gap-3 rounded-md px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan sm:px-5"
       >
         <span className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
-            <GitBranch className="h-4.5 w-4.5" aria-hidden />
-          </span>
           <span className="min-w-0">
             <span id={`${ids}-title`} className="block text-base font-semibold text-brand-navy">
               Rubric versions · edit &amp; re-run
             </span>
-            <span className="mt-0.5 block text-sm text-slate-500">
+            <span className="mt-0.5 block text-xs text-slate-500">
               Fix the answer key or marks, save it as the next version and re-grade every report from the stored OCR
               (no new vision calls).
             </span>
           </span>
         </span>
-        <ChevronDown className={cn("mt-2 h-5 w-5 shrink-0 text-slate-400 transition-transform", open && "rotate-180")} aria-hidden />
+        <ChevronDown className={cn("mt-1 h-4 w-4 shrink-0 text-slate-500", open && "rotate-180")} aria-hidden />
       </button>
 
-      <div id={`${ids}-panel`} hidden={!open} className="space-y-5 border-t border-slate-100 p-5 sm:p-6">
+      <div id={`${ids}-panel`} hidden={!open} className="space-y-5 border-t border-slate-200 p-4 sm:p-5">
         {!rubrics ? (
           loadError ? (
             <p role="alert" className="text-sm text-rose-700">
@@ -231,7 +228,7 @@ export function RubricVersionsPanel({
             </p>
           ) : (
             <p className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading rubrics…
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> Loading rubrics…
             </p>
           )
         ) : rubrics.length === 0 || !selected || !editing ? (
@@ -268,16 +265,15 @@ export function RubricVersionsPanel({
               </div>
               {family.length > 0 ? (
                 <div className="space-y-1.5">
-                  <p className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                    <History className="h-4 w-4 text-slate-400" aria-hidden />
+                  <p className="text-sm font-medium text-slate-700">
                     Version history
                   </p>
                   <ol className="space-y-1 text-xs">
                     {family.map((r) => (
                       <li key={r.id} className={cn("flex flex-wrap items-baseline gap-x-2", r.id === selected.id && "font-semibold")}>
                         <span className="text-brand-navy">{versionLabel(r.version)}</span>
-                        <span className="text-slate-400">{formatDate(r.created_at)}</span>
-                        <span className={r.status === "FACULTY_APPROVED" ? "text-lime-700" : "text-violet-700"}>
+                        <span className="tabular-nums text-slate-500">{formatDate(r.created_at)}</span>
+                        <span className={r.status === "FACULTY_APPROVED" ? "text-lime-700" : "text-slate-600"}>
                           {r.status === "FACULTY_APPROVED" ? "approved" : "draft"}
                         </span>
                         {r.change_note ? <span className="font-normal text-slate-500">- {r.change_note}</span> : null}
@@ -325,8 +321,8 @@ export function RubricVersionsPanel({
             {/* Preview of what the re-run will do */}
             <div
               className={cn(
-                "rounded-xl px-4 py-3 text-sm ring-1 ring-inset",
-                anyChange ? "bg-violet-50/60 text-slate-700 ring-violet-200" : "bg-slate-50 text-slate-500 ring-slate-200",
+                "rounded-md border border-slate-200 px-4 py-3 text-sm",
+                anyChange ? "text-slate-700" : "text-slate-500",
               )}
               aria-live="polite"
             >
@@ -335,12 +331,11 @@ export function RubricVersionsPanel({
               ) : (
                 <>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium text-brand-navy">
-                    <RefreshCcw className="h-4 w-4 text-violet-600" aria-hidden />
                     {students !== null
                       ? `${plural(students, "report")} will regenerate; OCR reused for ${students}`
                       : "Every completed report on this rubric will regenerate; OCR is reused"}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">
-                      <ScanText className="h-3 w-3" aria-hidden />0 OCR calls
+                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                      0 OCR calls
                     </span>
                   </p>
                   {diff ? (
@@ -364,7 +359,7 @@ export function RubricVersionsPanel({
             </div>
 
             {saveError ? (
-              <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 ring-1 ring-inset ring-rose-200">
+              <p role="alert" className="border-l-2 border-rose-600 pl-3 text-sm text-rose-800">
                 {saveError}
               </p>
             ) : null}
@@ -382,11 +377,10 @@ export function RubricVersionsPanel({
                 Discard edits
               </button>
               <button type="button" onClick={() => void save(false)} disabled={!canSave} className={btnSecondary}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+                {saving ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
                 Save version only
               </button>
               <button type="button" onClick={() => setConfirmOpen(true)} disabled={!canSave} className={btnPrimary}>
-                <Sparkles className="h-4 w-4" aria-hidden />
                 Save &amp; re-run reports…
               </button>
             </div>
@@ -408,7 +402,7 @@ export function RubricVersionsPanel({
               Cancel
             </button>
             <button type="button" onClick={() => void save(true)} disabled={saving || !canSave} className={btnPrimary}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCcw className="h-4 w-4" aria-hidden />}
+              {saving ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
               {students !== null ? `Re-run ${plural(students, "report")}` : "Re-run reports"}
             </button>
           </div>
@@ -416,16 +410,16 @@ export function RubricVersionsPanel({
       >
         {est ? (
           <div className="space-y-3 text-sm">
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <dl className="grid grid-cols-2 divide-slate-200 overflow-hidden rounded-md border border-slate-200 sm:grid-cols-4 sm:divide-x">
               {[
                 ["Students", String(est.students), `${est.live_students} live · ${est.demo_students} demo`],
                 ["Grading calls", String(est.evaluation_calls), "one per live student"],
                 ["OCR calls", String(est.ocr_calls), "stored OCR reused"],
                 ["Estimated cost", inr(est.estimated_cost_inr), `${inr(est.estimated_cost_per_student_inr)} per student`],
               ].map(([label, value, hint]) => (
-                <div key={label} className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-inset ring-slate-200">
-                  <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-                  <dd className="text-lg font-bold tabular-nums text-brand-navy">{value}</dd>
+                <div key={label} className="border-b border-slate-200 px-3 py-2 sm:border-b-0">
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="text-base font-semibold tabular-nums text-brand-navy">{value}</dd>
                   <dd className="text-xs text-slate-500">{hint}</dd>
                 </div>
               ))}
@@ -437,7 +431,7 @@ export function RubricVersionsPanel({
               </p>
             ) : null}
             {est.students === 0 ? (
-              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
+              <p className="border-l-2 border-amber-500 pl-3 text-xs text-amber-900">
                 No completed report uses this rubric yet - the new version is saved and nothing is re-run.
               </p>
             ) : null}
@@ -453,7 +447,7 @@ export function RubricVersionsPanel({
           </div>
         )}
         {saveError ? (
-          <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 ring-1 ring-inset ring-rose-200">
+          <p role="alert" className="mt-3 border-l-2 border-rose-600 pl-3 text-sm text-rose-800">
             {saveError}
           </p>
         ) : null}

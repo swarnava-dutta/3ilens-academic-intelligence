@@ -5,8 +5,8 @@ import type { MarkingPolicy, PartialCreditMode } from "@/lib/types";
 import { MARK_STEPS } from "./rubric-utils";
 
 const fieldClass =
-  "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
-const labelClass = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500";
+  "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 export const PARTIAL_CREDIT_LABELS: Record<PartialCreditMode, string> = {
   steps: "Steps (round to the mark step)",
@@ -75,7 +75,7 @@ export function MarkingPolicyFields({
   }
 
   return (
-    <fieldset className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" disabled={disabled}>
+    <fieldset className="rounded-md border border-slate-200 bg-slate-50 p-3" disabled={disabled}>
       <legend className="px-1 text-sm font-semibold text-brand-navy">Marking policy</legend>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-end">
         <div>

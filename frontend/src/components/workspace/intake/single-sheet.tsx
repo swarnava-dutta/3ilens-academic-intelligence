@@ -2,20 +2,7 @@
 
 import Link from "next/link";
 import { useId } from "react";
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  Cloud,
-  FileText,
-  Fingerprint,
-  Info,
-  Loader2,
-  Mic,
-  Send,
-  X,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
@@ -24,7 +11,7 @@ import type { SingleIntake, SingleUploadSettings } from "./use-single-intake";
 import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
 const inputClass =
-  "block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 transition-colors focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
+  "block w-full rounded-md border border-slate-300 bg-white h-9 px-3 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
 
 /** Left column of single-sheet mode: drop zone, attached-file chip with custody hash, name + roll no. */
 export function SingleSheetPanel({
@@ -74,19 +61,11 @@ export function SingleSheetPanel({
       />
 
       {file ? (
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-          {intake.isVoice ? (
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
-              <Mic className="h-6 w-6" aria-hidden />
-            </span>
-          ) : intake.previewUrl ? (
+        <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3">
+          {!intake.isVoice && intake.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
-            <img src={intake.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
-          ) : (
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-cyan-50 text-brand-cyan">
-              <FileText className="h-6 w-6" aria-hidden />
-            </span>
-          )}
+            <img src={intake.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-sm border border-slate-200 object-cover" />
+          ) : null}
           <div className="min-w-0 flex-1">
             <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-800" title={file.name}>
               <span className="truncate">{file.name}</span>
@@ -96,8 +75,7 @@ export function SingleSheetPanel({
               {fileKindLabel(file)} · {formatBytes(file.size)}
               {intake.signature?.kind ? ` · bytes: ${intake.signature.kind.toUpperCase()}` : ""}
             </p>
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
-              <Fingerprint className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+            <p className="mt-0.5 text-xs text-slate-500">
               {intake.checking ? (
                 <span>Checking signature and hashing…</span>
               ) : intake.hash ? (
@@ -115,7 +93,7 @@ export function SingleSheetPanel({
             type="button"
             onClick={intake.clearFile}
             disabled={intake.uploading}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
             aria-label={`Remove ${file.name}`}
           >
             <X className="h-4 w-4" aria-hidden />
@@ -124,7 +102,7 @@ export function SingleSheetPanel({
       ) : null}
 
       {file && intake.isVoice ? (
-        <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-3">
+        <div className="space-y-3 rounded-md border border-slate-200 p-3">
           {intake.previewUrl ? (
             <audio controls preload="metadata" src={intake.previewUrl} className="h-9 w-full" aria-label={`Preview ${file.name}`} />
           ) : null}
@@ -144,8 +122,7 @@ export function SingleSheetPanel({
       ) : null}
 
       {file && file.size > MULTIPART_THRESHOLD_BYTES ? (
-        <p className="flex items-start gap-1.5 rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs text-sky-800 ring-1 ring-inset ring-sky-200">
-          <Cloud className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+        <p className="text-xs text-slate-500">
           Production: S3 presigned multipart (resumable). PoC: single streamed upload
         </p>
       ) : null}
@@ -157,7 +134,6 @@ export function SingleSheetPanel({
       ) : null}
       {seenBefore ? (
         <p className="flex items-start gap-1.5 text-xs text-slate-600">
-          <Info className="mt-px h-3.5 w-3.5 shrink-0 text-brand-cyan" aria-hidden />
           Same bytes as #{seenBefore.id} ({seenBefore.student_name}).
           {ocrCacheEnabled ? " OCR cache can reuse it: no vision call (Rs 0.00)." : ""}
         </p>
@@ -165,12 +141,10 @@ export function SingleSheetPanel({
 
       {intake.fileMessage?.tone === "error" ? (
         <p className="flex items-start gap-2 text-sm text-rose-700" role="alert">
-          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" aria-hidden />
           {intake.fileMessage.text}
         </p>
       ) : intake.fileMessage?.tone === "info" ? (
         <p className="flex items-start gap-2 text-sm text-slate-600">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-cyan" aria-hidden />
           {intake.fileMessage.text}
         </p>
       ) : null}
@@ -222,10 +196,9 @@ export function SingleSheetPanel({
       </p>
 
       {isBlurryDemo ? (
-        <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+        <p className="border-l-2 border-amber-500 pl-3 text-sm text-amber-900">
           <span>
-            <span className="font-semibold">Human-review demo:</span> this file name contains &ldquo;blurry&rdquo;, so
+            <span className="font-medium">Human-review demo:</span> this file name contains &ldquo;blurry&rdquo;, so
             OCR confidence is set to 65% (below the 70% gate) and the sheet is held for faculty review before any AI
             call.
           </span>
@@ -256,14 +229,14 @@ export function SingleSubmit({
         onClick={() => void intake.submit(settings)}
         disabled={uploading || intake.checking}
         className={cn(
-          "relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors",
-          "bg-brand-cyan hover:bg-brand-cyan-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
-          "disabled:cursor-wait disabled:bg-brand-cyan-600",
+          "relative flex h-10 w-full items-center justify-center gap-2 overflow-hidden rounded-md px-4 text-sm font-medium text-white transition-colors duration-150",
+          "bg-brand-navy hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
+          "disabled:cursor-wait disabled:bg-brand-navy-700",
         )}
       >
         {uploading ? (
           <span
-            className="absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-300"
+            className="absolute inset-y-0 left-0 bg-white/20"
             style={{ width: `${progress}%` }}
             aria-hidden
           />
@@ -271,58 +244,52 @@ export function SingleSubmit({
         <span className="relative flex items-center gap-2">
           {uploading ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
               {progress < 100 ? `Uploading… ${progress}%` : "Validating & queuing…"}
             </>
           ) : intake.checking ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
               Checking the file…
             </>
           ) : (
-            <>
-              <Send className="h-4 w-4" aria-hidden />
-              Upload &amp; start AI evaluation
-            </>
+            "Upload and evaluate"
           )}
         </span>
       </button>
       {uploading ? (
         <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+          className="h-1.5 w-full overflow-hidden rounded-sm bg-slate-100"
           role="progressbar"
           aria-label="Upload progress"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={progress}
         >
-          <div className="h-full rounded-full bg-brand-lime transition-[width] duration-300" style={{ width: `${progress}%` }} />
+          <div className="h-full bg-brand-cyan" style={{ width: `${progress}%` }} />
         </div>
       ) : null}
 
       <div aria-live="polite">
         {notice?.kind === "success" ? (
-          <p className="flex items-start gap-2 rounded-xl bg-brand-lime-50 px-3 py-2.5 text-sm font-medium text-brand-navy ring-1 ring-inset ring-brand-lime/50">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-lime-600" aria-hidden />
+          <p className="text-sm text-slate-800">
             <span className="min-w-0">
               {notice.message}
               {notice.submission ? (
                 <Link
                   href={`/report/${notice.submission.id}`}
-                  className="ml-2 inline-flex items-center gap-1 font-semibold text-brand-cyan-600 hover:underline"
+                  className="ml-2 font-medium text-brand-cyan-600 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
                 >
                   Follow it
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                 </Link>
               ) : null}
             </span>
           </p>
         ) : notice?.kind === "error" ? (
           <p
-            className="flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-800 ring-1 ring-inset ring-rose-200"
+            className="border-l-2 border-rose-600 pl-3 text-sm text-rose-800"
             role="alert"
           >
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" aria-hidden />
             {notice.message}
           </p>
         ) : null}

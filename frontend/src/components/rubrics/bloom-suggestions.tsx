@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, Sparkles, X } from "lucide-react";
+import { Check, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import { BloomBadge } from "@/components/shared/bloom-badge";
 import { detectBloomLevels, errorCode, errorMessage, errorStatus } from "@/lib/api";
@@ -91,7 +91,7 @@ export function BloomSuggestions({
   const current = new Map(content.questions.map((q) => [q.question, q]));
 
   return (
-    <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3">
+    <div className="rounded-md border border-slate-200 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-700">
           <span className="font-semibold text-brand-navy">Bloom levels (K1-K5)</span> · suggestions never change the
@@ -101,16 +101,16 @@ export function BloomSuggestions({
           type="button"
           onClick={() => void run()}
           disabled={disabled || state.kind === "loading"}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-medium text-violet-800 ring-1 ring-inset ring-violet-300 hover:bg-violet-50 focus-visible:outline-2 focus-visible:outline-brand-cyan disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan disabled:opacity-60"
         >
-          {state.kind === "loading" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
+          {state.kind === "loading" ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
           {state.kind === "loading" ? "Analysing questions… (~10-30 s)" : "Suggest Bloom levels (AI)"}
         </button>
       </div>
 
       <div aria-live="polite">
         {state.kind === "error" ? (
-          <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 ring-1 ring-inset ring-rose-200">
+          <p role="alert" className="mt-2 border-l-2 border-rose-600 pl-3 text-sm text-rose-800">
             {state.message}
           </p>
         ) : null}
@@ -120,8 +120,8 @@ export function BloomSuggestions({
             <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
               <span
                 className={cn(
-                  "rounded-full px-2 py-0.5 font-semibold ring-1 ring-inset",
-                  state.fallback ? "bg-amber-50 text-amber-900 ring-amber-300" : "bg-white text-violet-800 ring-violet-200",
+                  "rounded-sm px-1.5 py-0.5 font-medium",
+                  state.fallback ? "bg-amber-50 text-amber-900" : "bg-slate-100 text-slate-700",
                 )}
               >
                 {state.fallback ? "heuristic - no AI key" : "AI suggestion"}
@@ -132,10 +132,10 @@ export function BloomSuggestions({
                 </span>
               ))}
             </p>
-            <div className="relative overflow-x-auto rounded-lg bg-white ring-1 ring-inset ring-slate-200">
+            <div className="relative overflow-x-auto rounded-md border border-slate-200 bg-white">
               <table className="w-full min-w-[36rem] text-left text-sm">
                 <caption className="sr-only">Suggested Bloom levels per question</caption>
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                <thead className="bg-slate-50 text-[11px] text-slate-500">
                   <tr>
                     <th scope="col" className="w-12 px-3 py-2">
                       <span className="sr-only">Apply</span>
@@ -183,7 +183,7 @@ export function BloomSuggestions({
               <button
                 type="button"
                 onClick={() => setState({ kind: "idle" })}
-                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-white focus-visible:outline-2 focus-visible:outline-brand-cyan"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
               >
                 <X className="h-4 w-4" aria-hidden />
                 Dismiss
@@ -192,7 +192,7 @@ export function BloomSuggestions({
                 type="button"
                 onClick={apply}
                 disabled={state.selected.size === 0}
-                className="inline-flex items-center gap-1 rounded-full bg-brand-navy px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-navy-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md bg-brand-navy px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-navy-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan disabled:opacity-50"
               >
                 <Check className="h-4 w-4" aria-hidden />
                 Apply selected ({state.selected.size})

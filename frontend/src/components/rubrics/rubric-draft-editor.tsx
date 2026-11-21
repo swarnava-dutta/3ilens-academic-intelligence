@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { AlertTriangle, ChevronDown, Plus, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react";
 import type { MarkingPolicy, RubricContent, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { BloomField } from "./bloom-field";
@@ -10,9 +10,9 @@ import { QuestionMarkingFields, QuestionTypeField } from "./question-marking-fie
 import { blankQuestion, compareContents, isMcq, totalMarks, validateContent } from "./rubric-utils";
 
 const fieldClass =
-  "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
-const labelClass = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500";
+const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 function numberValue(value: number): number | "" {
   return Number.isFinite(value) ? value : "";
@@ -103,7 +103,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
       />
 
       {warnings.length > 0 ? (
-        <ul className="space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+        <ul className="space-y-1 border-l-2 border-amber-500 pl-3 text-sm text-amber-900">
           {warnings.map((w, i) => (
             <li key={i} className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
@@ -115,12 +115,11 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
         <span>
-          <span className="font-semibold text-slate-700">{value.questions.length}</span> questions ·{" "}
-          <span className="font-semibold text-slate-700">{totalMarks(value)}</span> marks
+          <span className="font-semibold tabular-nums text-slate-700">{value.questions.length}</span> questions ·{" "}
+          <span className="font-semibold tabular-nums text-slate-700">{totalMarks(value)}</span> marks
         </span>
         {drafted.size > 0 ? (
-          <span className="inline-flex items-center gap-1 text-violet-700">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          <span className="inline-flex items-center gap-1 text-slate-600">
             {drafted.size} AI-drafted answer {drafted.size === 1 ? "key" : "keys"}: teacher review pending
           </span>
         ) : null}
@@ -133,7 +132,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
 
       {/* Column header (desktop) */}
       <div
-        className="hidden grid-cols-[4.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_4.5rem_4.5rem_2.25rem] gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 lg:grid"
+        className="hidden grid-cols-[4.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_4.5rem_4.5rem_2.25rem] gap-2 px-3 text-xs font-medium text-slate-500 lg:grid"
         aria-hidden
       >
         <span>Q #</span>
@@ -173,7 +172,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
           type="button"
           onClick={add}
           disabled={disabled || value.questions.length >= 60}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/30 hover:bg-brand-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden />
           Add question
@@ -218,7 +217,7 @@ function QuestionRow({
   return (
     <li
       className={cn(
-        "rounded-xl border bg-white p-3 shadow-sm",
+        "rounded-md border bg-white p-3",
         problems.length ? "border-rose-200" : changeTag ? "border-amber-300" : "border-slate-200",
       )}
     >
@@ -317,7 +316,7 @@ function QuestionRow({
               type="button"
               onClick={onRemove}
               disabled={disabled}
-              className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+              className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
               aria-label={`Remove question ${Number.isFinite(q.question) ? q.question : ""}`}
             >
               <Trash2 className="h-4 w-4" aria-hidden />
@@ -361,7 +360,7 @@ function QuestionRow({
         </div>
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">
         <div className="grid gap-2 sm:grid-cols-3">
           <QuestionTypeField idPrefix={idPrefix} question={q} disabled={disabled} onChange={onChange} />
           <BloomField idPrefix={idPrefix} question={q} disabled={disabled} onChange={onChange} />
@@ -382,13 +381,12 @@ function QuestionRow({
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAnswer && "rotate-180")} aria-hidden />
           Expected answer{mcq ? " (optional for MCQs)" : ""}
           {aiDrafted ? (
-            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-inset ring-violet-200">
-              <Sparkles className="h-3 w-3" aria-hidden />
+            <span className="ml-1.5 inline-flex items-center gap-1 rounded-sm bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
               Draft - teacher review pending
             </span>
           ) : null}
           {changeTag ? (
-            <span className="ml-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-inset ring-amber-200">
+            <span className="ml-1.5 rounded-sm bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
               {changeTag}
             </span>
           ) : null}
@@ -400,7 +398,7 @@ function QuestionRow({
           <textarea
             id={`${idPrefix}-answer`}
             rows={3}
-            className={cn(fieldClass, "resize-y", aiDrafted && "border-violet-300 bg-violet-50/40")}
+            className={cn(fieldClass, "resize-y", aiDrafted && "border-slate-300 bg-slate-50")}
             value={q.expected_answer}
             maxLength={10000}
             disabled={disabled}

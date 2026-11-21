@@ -4,7 +4,7 @@ import { FacultyWorkspace } from "@/components/workspace/faculty-workspace";
 export const metadata: Metadata = {
   title: "Intake · Faculty Workspace",
   description:
-    "Upload handwritten answer sheets one at a time or as a folder, author rubrics, and track AI OCR, rubric evaluation and insights in real time.",
+    "Upload handwritten answer sheets singly or as a folder, manage rubrics, and track OCR, grading and reports.",
 };
 
 export default function Page() {

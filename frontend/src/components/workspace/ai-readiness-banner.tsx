@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, RefreshCw, ScanText, ServerCrash, Terminal } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { HealthState } from "@/components/app-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -28,14 +28,12 @@ function RetryButton({ onRetry, tone }: { onRetry: () => Promise<void>; tone: "r
         }
       }}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium ring-1 ring-inset transition-colors disabled:opacity-60",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-        tone === "rose"
-          ? "bg-white text-rose-700 ring-rose-200 hover:bg-rose-100 focus-visible:ring-rose-500"
-          : "bg-white text-amber-800 ring-amber-300 hover:bg-amber-100 focus-visible:ring-amber-500",
+        "inline-flex h-9 shrink-0 items-center gap-1.5 self-start rounded-md border border-slate-300 bg-white px-3 text-sm font-medium transition-colors duration-150 hover:bg-slate-50 disabled:opacity-60",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
+        tone === "rose" ? "text-rose-700" : "text-amber-800",
       )}
     >
-      <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} aria-hidden />
+      <RefreshCw className={cn("h-4 w-4", busy && "motion-safe:animate-spin")} aria-hidden />
       {busy ? "Checking…" : "Check again"}
     </button>
   );
@@ -47,25 +45,19 @@ export function AiReadinessBanner({ health, error, loading, refresh }: HealthSta
     return (
       <section
         role="alert"
-        className="flex flex-col gap-4 rounded-2xl border border-rose-200 bg-rose-50 p-5 shadow-sm sm:flex-row sm:items-start"
+        className="flex flex-col gap-4 rounded-md border border-slate-200 border-l-4 border-l-rose-600 bg-white p-4 sm:flex-row sm:items-start"
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
-          <ServerCrash className="h-5 w-5" aria-hidden />
-        </span>
         <div className="min-w-0 flex-1 space-y-2">
-          <h2 className="font-semibold text-rose-900">The 3iLens API is not reachable</h2>
-          <p className="text-sm text-rose-800">{error}</p>
-          <p className="text-sm text-rose-800">
-            Start both servers with <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs">start.bat</code>{" "}
-            in the project root, or start the backend manually:
+          <h2 className="text-[15px] font-semibold text-rose-800">API not reachable</h2>
+          <p className="text-sm text-slate-700">{error}</p>
+          <p className="text-sm text-slate-700">
+            Run <code className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-xs">start.bat</code> in the project
+            root, or start the backend:
           </p>
-          <pre className="flex items-center gap-2 overflow-x-auto rounded-xl bg-brand-navy px-3 py-2 font-mono text-xs text-slate-100">
-            <Terminal className="h-3.5 w-3.5 shrink-0 text-brand-cyan" aria-hidden />
-            <span>{BACKEND_COMMAND}</span>
+          <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800">
+            {BACKEND_COMMAND}
           </pre>
-          {health && (
-            <p className="text-xs text-rose-700/80">Showing the last data received; the page reconnects automatically.</p>
-          )}
+          {health && <p className="text-xs text-slate-500">Showing the last data received; reconnecting automatically.</p>}
         </div>
         <RetryButton onRetry={refresh} tone="rose" />
       </section>
@@ -79,12 +71,9 @@ export function AiReadinessBanner({ health, error, loading, refresh }: HealthSta
     return (
       <p
         role="status"
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-600 shadow-sm"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"
       >
-        <span className="inline-flex items-center gap-1.5 font-medium text-brand-navy">
-          <ScanText className="h-4 w-4 text-brand-cyan" aria-hidden />
-          OCR adapter:
-        </span>
+        <span className="font-medium text-slate-700">OCR adapter:</span>
         <span>{adapter || `${health.vision_provider || "anthropic"} vision`}</span>
         <span className="text-slate-300" aria-hidden>
           ·
@@ -111,14 +100,11 @@ export function AiReadinessBanner({ health, error, loading, refresh }: HealthSta
   return (
     <section
       role="status"
-      className="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:flex-row sm:items-start"
+      className="flex flex-col gap-4 rounded-md border border-slate-200 border-l-4 border-l-amber-500 bg-white p-4 sm:flex-row sm:items-start"
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-        <KeyRound className="h-5 w-5" aria-hidden />
-      </span>
       <div className="min-w-0 flex-1 space-y-2">
-        <h2 className="font-semibold text-amber-900">AI providers are not configured yet</h2>
-        <p className="text-sm text-amber-900/90">
+        <h2 className="text-[15px] font-semibold text-amber-900">AI providers not configured</h2>
+        <p className="text-sm text-slate-700">
           Live OCR and rubric evaluation need real AI keys (vision provider:{" "}
           <span className="font-medium">{health.vision_provider || "anthropic"}</span>). Missing:
         </p>
@@ -126,23 +112,23 @@ export function AiReadinessBanner({ health, error, loading, refresh }: HealthSta
           {missing.map((item) => (
             <li
               key={item}
-              className="rounded-lg bg-white px-2 py-1 font-mono text-xs text-amber-900 ring-1 ring-inset ring-amber-200"
+              className="rounded-sm border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-800"
             >
               {item}
             </li>
           ))}
         </ul>
         {adapter ? (
-          <p className="text-sm text-amber-900/90">
+          <p className="text-sm text-slate-700">
             OCR adapter: <span className="font-medium">{adapter}</span>. The vision LLM is a PoC stand-in for the
             BRD&apos;s Google Vision OCR.
           </p>
         ) : null}
-        <p className="text-sm text-amber-900/90">
-          Add the keys to the project-root <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs">.env</code>{" "}
+        <p className="text-sm text-slate-700">
+          Add the keys to the project-root <code className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-xs">.env</code>{" "}
           file and restart the backend. Until then, live answer sheets cannot be read or graded.
         </p>
-        <p className="text-sm text-amber-900/90">
+        <p className="text-sm text-slate-700">
           <span className="font-medium">Works without keys:</span> the{" "}
           <span className="font-medium">&ldquo;blurry&rdquo;</span> human-review demo (any file name containing
           &ldquo;blurry&rdquo;) and the synthetic demo cohort.

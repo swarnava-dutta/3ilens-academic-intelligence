@@ -1,37 +1,25 @@
 "use client";
 
 import { useId, useRef } from "react";
-import {
-  CheckCircle2,
-  ClipboardPaste,
-  Download,
-  FileJson,
-  FileText,
-  FileUp,
-  Library,
-  Loader2,
-  Sparkles,
-  X,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Download, Loader2, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RubricDraftEditor } from "./rubric-draft-editor";
 import { downloadJson, normalizeContent, rubricLabel, rubricStatusLabel, validateContent } from "./rubric-utils";
 import type { RubricMode, RubricSourceState } from "./use-rubric-source";
 
-const MODES: { value: RubricMode; label: string; Icon: typeof Library }[] = [
-  { value: "saved", label: "Saved", Icon: Library },
-  { value: "paste", label: "Paste text", Icon: ClipboardPaste },
-  { value: "upload", label: "PDF/DOCX", Icon: FileUp },
-  { value: "json", label: "JSON", Icon: FileJson },
+const MODES: { value: RubricMode; label: string }[] = [
+  { value: "saved", label: "Saved" },
+  { value: "paste", label: "Paste text" },
+  { value: "upload", label: "PDF/DOCX" },
+  { value: "json", label: "JSON" },
 ];
 
 const inputClass =
-  "block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 transition-colors focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
+  "block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
 
 const fileInputClass = cn(
-  "block w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/60 text-sm text-slate-500 transition-colors hover:border-brand-cyan",
-  "file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-white file:px-3 file:py-2.5 file:text-sm file:font-medium file:text-brand-navy file:shadow-sm",
+  "block w-full cursor-pointer rounded-md border border-slate-300 bg-white text-sm text-slate-500 transition-colors duration-150 hover:border-slate-400",
+  "file:mr-3 file:cursor-pointer file:border-0 file:border-r file:border-slate-300 file:bg-slate-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-navy",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:cursor-not-allowed disabled:opacity-60",
 );
 
@@ -68,9 +56,9 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
       <div
         role="radiogroup"
         aria-labelledby={`${ids}-label`}
-        className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1"
+        className="grid grid-cols-4 gap-0.5 rounded-md border border-slate-300 bg-white p-0.5"
       >
-        {MODES.map(({ value, label, Icon }) => {
+        {MODES.map(({ value, label }) => {
           const active = mode === value;
           return (
             <button
@@ -81,12 +69,11 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
               disabled={disabled}
               onClick={() => state.setMode(value)}
               className={cn(
-                "flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors sm:flex-row sm:justify-center sm:gap-1 sm:text-xs",
+                "flex h-8 min-w-0 items-center justify-center rounded-sm px-1 text-xs font-medium transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-60",
-                active ? "bg-white text-brand-navy shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:text-brand-navy",
+                active ? "bg-brand-navy text-white" : "text-slate-600 hover:bg-slate-50 hover:text-brand-navy",
               )}
             >
-              <Icon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-brand-cyan" : "text-slate-400")} aria-hidden />
               <span className="truncate">{label}</span>
             </button>
           );
@@ -122,10 +109,10 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
               </span>
               <span
                 className={cn(
-                  "rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                  "rounded-sm px-1.5 py-0.5 text-xs font-medium",
                   selectedRubric.status === "FACULTY_APPROVED"
-                    ? "bg-brand-lime-50 text-lime-800 ring-brand-lime/50"
-                    : "bg-violet-50 text-violet-700 ring-violet-200",
+                    ? "bg-brand-lime-50 text-lime-800"
+                    : "bg-slate-100 text-slate-600",
                 )}
               >
                 {rubricStatusLabel(selectedRubric.status)}
@@ -159,8 +146,7 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
             Question paper or marking scheme (PDF or DOCX)
           </label>
           {state.sourceFile ? (
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-              <FileText className="h-5 w-5 shrink-0 text-brand-cyan" aria-hidden />
+            <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3">
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800" title={state.sourceFile.name}>
                 {state.sourceFile.name}
               </p>
@@ -168,7 +154,7 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
                 type="button"
                 onClick={() => state.setSourceFile(null)}
                 disabled={disabled || state.parsing}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
                 aria-label="Remove the question paper"
               >
                 <X className="h-4 w-4" aria-hidden />
@@ -194,8 +180,7 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
       {mode === "json" ? (
         <div className="space-y-1.5">
           {state.custom ? (
-            <div className="flex items-center gap-3 rounded-xl border border-brand-cyan/40 bg-brand-cyan-50 p-3">
-              <FileJson className="h-5 w-5 shrink-0 text-brand-cyan" aria-hidden />
+            <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-brand-navy" title={state.custom.fileName}>
                   {state.custom.name}
@@ -211,7 +196,7 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
                   if (jsonInputRef.current) jsonInputRef.current.value = "";
                 }}
                 disabled={disabled}
-                className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
                 aria-label="Remove custom rubric"
               >
                 <X className="h-4 w-4" aria-hidden />
@@ -249,10 +234,8 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
         {state.notice && !state.content ? (
           <p
             className={cn(
-              "flex items-start gap-2 rounded-lg px-2.5 py-2 text-xs ring-1 ring-inset",
-              state.notice.kind === "success"
-                ? "bg-brand-lime-50 text-brand-navy ring-brand-lime/50"
-                : "bg-rose-50 text-rose-800 ring-rose-200",
+              "flex items-start gap-1.5 text-xs",
+              state.notice.kind === "success" ? "text-slate-700" : "text-rose-800",
             )}
             role={state.notice.kind === "error" ? "alert" : "status"}
           >
@@ -297,15 +280,15 @@ function ParseControls({ state, disabled, ids }: { state: RubricSourceState; dis
           type="button"
           onClick={() => void state.runParse()}
           disabled={disabled || state.parsing}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-brand-navy px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-brand-navy px-3 text-sm font-medium text-white transition-colors duration-150 hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
         >
-          {state.parsing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
+          {state.parsing ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
           {state.parsing ? "Drafting…" : state.content ? "Draft again" : "Draft rubric"}
         </button>
       </div>
       <p className="text-xs text-slate-500">
         One Claude call turns it into an editable draft. Answer keys the AI had to write are marked{" "}
-        <span className="font-medium text-violet-700">Draft - teacher review pending</span>.
+        <span className="font-medium text-slate-600">Draft - teacher review pending</span>.
       </p>
       {state.parseError ? (
         <p className="flex items-start gap-1.5 text-xs text-rose-700" role="alert">
@@ -326,12 +309,11 @@ export function RubricDraftWorkbench({ state, disabled }: { state: RubricSourceS
   return (
     <section
       aria-label="Review the drafted rubric"
-      className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4 sm:p-5"
+      className="rounded-md border border-slate-200 bg-white p-4 sm:p-5"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 text-base font-semibold text-brand-navy">
-            <Sparkles className="h-4 w-4 text-violet-600" aria-hidden />
+          <h3 className="text-[15px] font-semibold text-brand-navy">
             Review the drafted rubric
           </h3>
           <p className="text-sm text-slate-600">
@@ -359,20 +341,19 @@ export function RubricDraftWorkbench({ state, disabled }: { state: RubricSourceS
 
       {state.notice?.kind === "error" ? (
         <p
-          className="mt-4 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 ring-1 ring-inset ring-rose-200"
+          className="mt-4 border-l-2 border-rose-600 pl-3 text-sm text-rose-800"
           role="alert"
         >
-          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" aria-hidden />
           {state.notice.message}
         </p>
       ) : null}
 
-      <div className="mt-5 flex flex-col-reverse gap-2 border-t border-violet-200 pt-4 sm:flex-row sm:items-center sm:justify-end">
+      <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-end">
         <button
           type="button"
           onClick={state.discardDraft}
           disabled={state.saving}
-          className="inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-60"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-1 disabled:opacity-60"
         >
           Discard draft
         </button>
@@ -380,9 +361,9 @@ export function RubricDraftWorkbench({ state, disabled }: { state: RubricSourceS
           type="button"
           onClick={() => void state.approveAndSave()}
           disabled={disabled || state.saving || issues.count > 0}
-          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-lime-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-lime-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-lime focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-brand-navy px-4 text-sm font-medium text-white transition-colors duration-150 hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {state.saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
+          {state.saving ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
           Approve &amp; save as new rubric
         </button>
       </div>

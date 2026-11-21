@@ -6,8 +6,8 @@ import type { BloomLevel, RubricQuestion } from "@/lib/types";
 const LEVELS: BloomLevel[] = ["K1", "K2", "K3", "K4", "K5"];
 
 const fieldClass =
-  "block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
-const labelClass = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500";
+  "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 /**
  * Bloom level (FR-3.9) and concept for one question. "Auto" leaves the level to the server's

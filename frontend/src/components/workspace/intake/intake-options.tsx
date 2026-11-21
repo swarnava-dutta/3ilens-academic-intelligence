@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Languages, Mic } from "lucide-react";
 import { getFilters } from "@/lib/api";
 import type { Batch, LanguageHint } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -37,13 +36,8 @@ export function LanguageChips({
   }
 
   return (
-    <div className={cn("space-y-1.5", voice && "rounded-xl bg-violet-50/60 p-3 ring-1 ring-inset ring-violet-200")}>
-      <span id={`${ids}-label`} className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-        {voice ? (
-          <Mic className="h-4 w-4 text-violet-700" aria-hidden />
-        ) : (
-          <Languages className="h-4 w-4 text-slate-400" aria-hidden />
-        )}
+    <div className="space-y-1.5">
+      <span id={`${ids}-label`} className="block text-sm font-medium text-slate-700">
         {voice ? "Languages spoken" : "Answer language"}
       </span>
       <div role="group" aria-labelledby={`${ids}-label`} className="flex flex-wrap gap-1.5">
@@ -58,21 +52,21 @@ export function LanguageChips({
               onClick={() => toggle(code)}
               title={label}
               className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors",
+                "inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-60",
                 on
-                  ? "bg-brand-navy text-white ring-brand-navy"
-                  : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50",
+                  ? "border-brand-navy bg-brand-navy text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
               )}
             >
               <span>{native}</span>
-              <span className={cn("text-[10px] uppercase", on ? "text-white/70" : "text-slate-400")}>{code}</span>
+              <span className={cn("font-mono text-[11px]", on ? "text-white/80" : "text-slate-500")}>{code}</span>
             </button>
           );
         })}
       </div>
       {voice ? (
-        <p className="text-xs font-medium text-violet-900">
+        <p className="text-xs text-slate-600">
           Pick every language spoken - passed to transcription as a hint (code-mixed Hindi/English is common).
         </p>
       ) : (
@@ -131,7 +125,7 @@ export function BatchSelect({
         value={value ?? ""}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-        className="block w-full appearance-auto rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 pr-8 text-sm text-slate-800 shadow-sm focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50"
+        className="block w-full appearance-auto rounded-md border border-slate-300 bg-white h-9 px-3 pr-8 text-sm text-slate-800 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50"
       >
         <option value="">Default ({batchLabel(fallback ?? batches[0]) ?? "first batch"})</option>
         {batches.map((b) => (
