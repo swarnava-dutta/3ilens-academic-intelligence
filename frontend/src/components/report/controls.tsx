@@ -175,10 +175,18 @@ export function ProvenanceGatesCard({ result }: { result: Result }) {
 /** Scoring controls: marking rule, rubric version/hash and the item-sum = total parity check. */
 export function ScoringControlsNote({ result }: { result: Result }) {
   const sc = result.scoring_controls;
+  const penalty = result.question_evaluations.reduce((sum, q) => sum + Math.max(0, q.penalty || 0), 0);
   return (
     <SectionCard id="scoring-controls" title="Scoring controls" description="How the total was computed." icon={Scale}>
       <dl className="grid gap-3 sm:grid-cols-2">
-        <Fact label="Marking rule">{sc.marking_rule}</Fact>
+        <Fact label="Marking rule">
+          {sc.marking_rule}
+          {penalty > 0 ? (
+            <span className="mt-1 block text-xs font-medium text-rose-700">
+              {fmtNumber(-penalty)} marks from negative marking (MCQ penalties); the total is net.
+            </span>
+          ) : null}
+        </Fact>
         <Fact label="Rubric">
           {sc.rubric_version || "—"} · {sc.rubric_status}
           {sc.rubric_hash ? (

@@ -1,9 +1,25 @@
 "use client";
 
-import { CheckCircle2, ClipboardCheck, FileImage, Quote, ScanText, Target, UserCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDashed,
+  CircleHelp,
+  ClipboardCheck,
+  FileImage,
+  Info,
+  ListChecks,
+  Lock,
+  MinusCircle,
+  Quote,
+  ScanText,
+  Target,
+  UserCheck,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { BloomBadge } from "@/components/shared/bloom-badge";
 import type { QuestionEvaluation } from "@/lib/types";
 import { cn, formatConfidence } from "@/lib/utils";
-import { OUTCOME_LOOK, TONE, confidenceTone, fmtNumber, ratioPct, toneFor } from "./format";
+import { NET_TOTAL_TITLE, OUTCOME_LOOK, TONE, confidenceTone, fmtNumber, fmtSigned, ratioPct, toneFor } from "./format";
 import { Eyebrow, MeterBar, Pill, SectionCard } from "./primitives";
 import { openSourcePage } from "./report-events";
 import { UncertainText } from "./uncertain-text";
@@ -31,6 +47,79 @@ export function OutcomeBadge({ outcome, className }: { outcome: QuestionEvaluati
   return <Pill className={cn("text-[11px]", look.pill, className)}>{look.label}</Pill>;
 }
 
+/** MCQ outcome line: "Marked B · Correct B · +4", "Marked C · Correct B · −1", "Not attempted · 0"... */
+export function mcqOutcome(q: QuestionEvaluation): { text: string; Icon: LucideIcon; look: string } {
+  const sel = (q.selected_option ?? "").trim().toUpperCase();
+  const correct = (q.correct_option ?? "").trim().toUpperCase();
+  const marks = fmtSigned(q.estimated_marks);
+  if (!sel) return { text: `Not attempted · ${marks}`, Icon: CircleDashed, look: "bg-slate-50 text-slate-700 ring-slate-300" };
+  if (sel === "MULTI") {
+    return { text: `More than one option · ${marks}`, Icon: MinusCircle, look: "bg-rose-50 text-rose-800 ring-rose-200" };
+  }
+  if (sel === "UNKNOWN") {
+    return { text: `Option unclear · ${marks} (check sheet)`, Icon: CircleHelp, look: "bg-amber-50 text-amber-900 ring-amber-300" };
+  }
+  const right = correct !== "" && sel === correct;
+  return {
+    text: `Marked ${sel} · Correct ${correct || "?"} · ${marks}`,
+    Icon: right ? CheckCircle2 : MinusCircle,
+    look: right ? "bg-brand-lime-50 text-lime-800 ring-brand-lime/50" : "bg-rose-50 text-rose-800 ring-rose-200",
+  };
+}
+
+/** Compact marking-scheme table: criterion, awarded / marks, required lock. */
+function MarkingBreakdown({ q }: { q: QuestionEvaluation }) {
+  return (
+    <div className="mt-4">
+      <Eyebrow icon={ListChecks} className="mb-1.5">
+        Marking scheme
+      </Eyebrow>
+      <div className="overflow-x-auto rounded-lg ring-1 ring-inset ring-slate-200">
+        <table className="w-full text-left text-xs">
+          <caption className="sr-only">Marks awarded per marking-scheme step for question {q.question}</caption>
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th scope="col" className="px-2.5 py-1.5 font-semibold">
+                Step
+              </th>
+              <th scope="col" className="whitespace-nowrap px-2.5 py-1.5 text-right font-semibold">
+                Awarded
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {q.marking_breakdown.map((m, i) => {
+              const missed = m.required && m.marks > 0 && m.awarded < m.marks / 2;
+              return (
+                <tr key={i} className="border-t border-slate-100">
+                  <td className="px-2.5 py-1.5 text-slate-700">
+                    {m.criterion}
+                    {m.required ? (
+                      <span
+                        className={cn(
+                          "ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-semibold ring-1 ring-inset",
+                          missed ? "bg-rose-50 text-rose-700 ring-rose-200" : "bg-slate-50 text-slate-600 ring-slate-200",
+                        )}
+                        title="Required step: below 50% of its marks the whole question scores 0"
+                      >
+                        <Lock className="h-2.5 w-2.5" aria-hidden />
+                        required{missed ? " - missed" : ""}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-slate-800">
+                    {fmtNumber(m.awarded, 2)} / {fmtNumber(m.marks, 2)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function QuestionCard({
   q,
   prompt,
@@ -47,6 +136,9 @@ function QuestionCard({
   const ocrTone = TONE[confidenceTone(q.confidence, threshold)];
   const answer = (q.student_answer ?? "").trim();
   const lowOcr = typeof q.confidence === "number" && q.confidence > 0 && q.confidence < threshold;
+  const isMcq = q.question_type === "mcq";
+  const mcq = isMcq ? mcqOutcome(q) : null;
+  const negative = q.estimated_marks < 0;
 
   return (
     <article
@@ -64,6 +156,8 @@ function QuestionCard({
           </h3>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <OutcomeBadge outcome={q.outcome} />
+            {isMcq ? <Pill className="bg-slate-50 text-[11px] text-slate-700 ring-slate-300">MCQ</Pill> : null}
+            <BloomBadge level={q.bloom_level} source={q.bloom_source} demonstrated={q.demonstrated_level} size="sm" />
             {q.corrected_by_faculty ? (
               <Pill className="bg-violet-50 text-[11px] text-violet-700 ring-violet-200">
                 <UserCheck className="h-3 w-3" aria-hidden />
@@ -75,8 +169,10 @@ function QuestionCard({
             ))}
           </div>
         </div>
-        <p className="shrink-0 text-right">
-          <span className="text-2xl font-semibold tabular-nums text-brand-navy">{fmtNumber(q.estimated_marks)}</span>
+        <p className="shrink-0 text-right" title={negative ? NET_TOTAL_TITLE : undefined}>
+          <span className={cn("text-2xl font-semibold tabular-nums", negative ? "text-rose-700" : "text-brand-navy")}>
+            {fmtNumber(q.estimated_marks)}
+          </span>
           <span className="text-sm text-slate-500"> / {fmtNumber(q.max_marks)}</span>
           <span className="block text-[11px] uppercase tracking-wider text-slate-400">marks</span>
         </p>
@@ -92,6 +188,19 @@ function QuestionCard({
       />
 
       {prompt ? <p className="mt-4 text-sm leading-relaxed text-slate-600">{prompt}</p> : null}
+
+      {mcq ? (
+        <p
+          className={cn(
+            "mt-4 flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold ring-1 ring-inset tabular-nums",
+            mcq.look,
+          )}
+        >
+          <mcq.Icon className="h-4 w-4 shrink-0" aria-hidden />
+          {mcq.text}
+          {q.penalty > 0 ? <span className="sr-only"> (negative marking: {fmtNumber(q.penalty)} deducted)</span> : null}
+        </p>
+      ) : null}
 
       <div className="mt-4">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -121,6 +230,15 @@ function QuestionCard({
           </p>
         ) : null}
       </div>
+
+      {!isMcq && q.marking_breakdown.length > 0 ? <MarkingBreakdown q={q} /> : null}
+
+      {q.marking_note ? (
+        <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
+          <Info className="mt-px h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden />
+          {q.marking_note}
+        </p>
+      ) : null}
 
       {q.evidence ? (
         <div className="mt-4">

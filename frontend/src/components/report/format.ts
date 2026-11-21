@@ -66,10 +66,20 @@ export function ratioPct(score: unknown, max: unknown): number {
   return m > 0 ? clampPct((safeNumber(score) / m) * 100) : 0;
 }
 
+/** Locale number; negatives carry a real minus sign (U+2212), e.g. "−3" for net marks. */
 export function fmtNumber(n: unknown, maxDigits = 1): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  return n.toLocaleString(undefined, { maximumFractionDigits: maxDigits });
+  return n.toLocaleString(undefined, { maximumFractionDigits: maxDigits }).replace(/^-/, "−");
 }
+
+/** Signed marks: +4, −1, 0 (real minus sign). */
+export function fmtSigned(n: unknown, maxDigits = 1): string {
+  const v = safeNumber(n);
+  return v > 0 ? `+${fmtNumber(v, maxDigits)}` : fmtNumber(v, maxDigits);
+}
+
+/** Tooltip for a net total that went below zero. */
+export const NET_TOTAL_TITLE = "Net of negative marking";
 
 export function fmtHours(h: unknown): string {
   return typeof h === "number" && Number.isFinite(h) ? `${fmtNumber(h, 1)} h` : "—";

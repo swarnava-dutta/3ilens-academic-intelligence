@@ -5,7 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Priority, Result } from "@/lib/types";
 import { cn, formatConfidence, formatMastery } from "@/lib/utils";
-import { OUTCOME_LOOK, TONE, clampPct, fmtInr, fmtNumber, fmtSeconds, safeNumber, toneFor } from "./format";
+import { NET_TOTAL_TITLE, OUTCOME_LOOK, TONE, clampPct, fmtInr, fmtNumber, fmtSeconds, safeNumber, toneFor } from "./format";
 import { MeterBar, Pill, RadialGauge } from "./primitives";
 
 function Tile({
@@ -37,6 +37,11 @@ function Tile({
       {caption ? <p className="mt-3 text-xs leading-snug text-slate-500">{caption}</p> : null}
     </div>
   );
+}
+
+/** Marks deducted by negative marking across the paper (MCQ penalties). */
+export function totalPenalty(result: Result): number {
+  return result.question_evaluations.reduce((sum, q) => sum + Math.max(0, safeNumber(q.penalty)), 0);
 }
 
 export function topPriority(priorities: Priority[]): Priority | null {
@@ -105,10 +110,12 @@ export function StatCards({ result }: { result: Result }) {
   const costOk = cost.within_target ?? (costValue === null ? null : costValue <= cost.target_inr);
   const latOk = lat.within_target ?? (lat.seconds === null ? null : lat.seconds <= lat.target_seconds);
   const topicCount = result.topic_mastery.length;
+  const penalty = totalPenalty(result);
+  const markingRule = result.scoring_controls?.marking_rule || "Partial credit in 0.5 steps; totals summed server-side.";
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-3">
-      <Tile label="Score" icon={Award} accent="bg-brand-cyan" caption="Partial credit in 0.5 steps; totals summed server-side.">
+      <Tile label="Score" icon={Award} accent="bg-brand-cyan" caption={markingRule}>
         <div className="flex items-center gap-4">
           <RadialGauge percent={pct} label={`Score ${fmtNumber(score)} out of ${fmtNumber(total)} marks`} size={88} strokeWidth={8}>
             <span className="leading-none">
@@ -117,10 +124,18 @@ export function StatCards({ result }: { result: Result }) {
             </span>
           </RadialGauge>
           <div className="min-w-0">
-            <p className="text-3xl font-semibold tabular-nums tracking-tight text-brand-navy">
-              {fmtNumber(score)}/{fmtNumber(total)}
+            <p
+              className={cn("text-3xl font-semibold tabular-nums tracking-tight", score < 0 ? "text-rose-700" : "text-brand-navy")}
+              title={score < 0 || penalty > 0 ? NET_TOTAL_TITLE : undefined}
+            >
+              {fmtNumber(score)} / {fmtNumber(total)}
             </p>
             <p className="mt-0.5 text-sm tabular-nums text-slate-500">({fmtNumber(pct)}%)</p>
+            {penalty > 0 ? (
+              <p className="mt-1 text-xs font-medium text-rose-700" title={NET_TOTAL_TITLE}>
+                {fmtNumber(-penalty)} from negative marking
+              </p>
+            ) : null}
           </div>
         </div>
       </Tile>
