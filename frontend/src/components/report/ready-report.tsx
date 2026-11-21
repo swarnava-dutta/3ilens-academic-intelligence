@@ -1,6 +1,6 @@
 "use client";
 
-import { History, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Delivery, ReleaseInfo, Result } from "@/lib/types";
 import { ActionPlanTable, ConfusionsCard, InterventionChooser } from "./action-plan";
@@ -45,7 +45,16 @@ export { normalizeResult } from "./normalize";
  * (so print includes everything) with a sticky section nav. Release and delivery changes made
  * on the page update the banner, chips and print footer without a reload.
  */
-export function ReadyReport({ result: raw, onReload }: { result: Result; onReload?: () => void }) {
+export function ReadyReport({
+  result: raw,
+  version,
+  onReload,
+}: {
+  result: Result;
+  /** Set when an archived version is open. */
+  version?: number;
+  onReload?: () => void;
+}) {
   const base = useMemo(() => normalizeResult(raw), [raw]);
   const prompts = rubricPrompts(useRubric(base.rubric.id));
   const [release, setRelease] = useState<ReleaseInfo>(base.release);
@@ -56,25 +65,30 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
   const deliveries = [...sent, ...base.deliveries.filter((d) => !sentIds.has(d.id))];
   const result: Result = { ...base, release, deliveries };
   const isDemo = result.submission.is_demo;
-  const superseded = result.versions.filter((v) => !v.current).length;
-  const currentVersion = result.versions.find((v) => v.current)?.version;
+  const archived = version !== undefined || raw.superseded === true;
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="space-y-8 print:space-y-4">
       <SairHeader
         result={result}
         release={release}
+        version={version}
         onWhatsApp={() => setWhatsAppOpen(true)}
         onReevaluated={() => onReload?.()}
       />
       <ProvisionalBanner release={release} rubric={result.rubric} isDemo={isDemo} />
-      {superseded > 0 ? (
-        <Notice tone="info" className="flex items-center gap-2">
-          <History className="h-4 w-4 shrink-0" aria-hidden />
-          <span>
-            Re-evaluated: this is version {currentVersion ?? superseded + 1}; {superseded} earlier{" "}
-            {superseded === 1 ? "version was" : "versions were"} superseded (see Version history under Question evidence &amp; controls).
-          </span>
+      {archived ? (
+        <Notice tone="info">
+          <span className="font-medium text-slate-800">
+            Superseded{raw.superseded_by ? ` by version ${raw.superseded_by}` : ""}.
+          </span>{" "}
+          This is archived version {version}; actions and release apply to the current version only.{" "}
+          <Link
+            href={`/report/${result.submission.id}`}
+            className="rounded-sm font-medium text-brand-cyan-600 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+          >
+            Open the current version
+          </Link>
         </Notice>
       ) : null}
 
@@ -139,13 +153,15 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
           <ScoringControlsNote result={result} />
         </div>
         <ProvenanceGatesCard result={result} />
-        <ReleaseGateCard
-          submissionId={result.submission.id}
-          release={release}
-          rubric={result.rubric}
-          isDemo={isDemo}
-          onChange={setRelease}
-        />
+        {archived ? null : (
+          <ReleaseGateCard
+            submissionId={result.submission.id}
+            release={release}
+            rubric={result.rubric}
+            isDemo={isDemo}
+            onChange={setRelease}
+          />
+        )}
         <InvocationsCard result={result} />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 print:grid-cols-2">
           <ConsistencyCheckCard result={result} />
@@ -184,8 +200,7 @@ export function ReadyReport({ result: raw, onReload }: { result: Result; onReloa
         )}
       </ReportSection>
 
-      <p className="flex items-start justify-center gap-2 px-2 text-center text-xs leading-relaxed text-slate-400">
-        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
         AI-assisted evaluation. Marks are validated against rubric bounds and totals; mastery, urgency and ROI are
         computed deterministically by the 3iLens insights engine. Nothing here is official NEET scoring.
       </p>

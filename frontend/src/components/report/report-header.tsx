@@ -1,40 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ArrowLeft,
-  BookOpen,
-  CalendarClock,
-  Download,
-  FileText,
-  GraduationCap,
-  Hash,
-  MessageCircle,
-  Printer,
-  RefreshCcw,
-} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Download, MessageCircle, Printer, RefreshCcw } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
-import { errorCode, errorMessage, getRubrics, reevaluateSubmission, reportPdfUrl } from "@/lib/api";
-import type { ReleaseInfo, Result, Rubric, Submission } from "@/lib/types";
+import {
+  errorCode,
+  errorMessage,
+  getResultVersions,
+  getRubrics,
+  reevaluateSubmission,
+  reportPdfUrl,
+} from "@/lib/api";
+import type { ReleaseInfo, Result, ResultVersion, Rubric, Submission } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
 import { fmtIST } from "./format";
 import { ReleaseChip } from "./release-gate";
 import { rubricLabel } from "./use-rubric";
-
-function MetaChip({ icon: Icon, children, title }: { icon: typeof Hash; children: ReactNode; title?: string }) {
-  return (
-    <span
-      title={title}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-100 ring-1 ring-inset ring-white/15"
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0 text-brand-cyan" aria-hidden />
-      <span className="truncate">{children}</span>
-    </span>
-  );
-}
 
 export function BackToWorkspace({ className }: { className?: string }) {
   return (
@@ -42,7 +27,7 @@ export function BackToWorkspace({ className }: { className?: string }) {
       href="/"
       className={
         className ??
-        "inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-cyan-100 transition hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan print:hidden"
+        "inline-flex items-center gap-1.5 rounded-sm text-[13px] font-medium text-brand-cyan-600 transition-colors duration-150 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan print:hidden"
       }
     >
       <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -51,16 +36,25 @@ export function BackToWorkspace({ className }: { className?: string }) {
   );
 }
 
-function Glow() {
+/** Report metadata as a definition list under the title row. */
+function MetaList({ items }: { items: { term: string; value: ReactNode; mono?: boolean; title?: string }[] }) {
   return (
-    <>
-      <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-brand-cyan/30 blur-3xl print:hidden" />
-      <div aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-brand-lime/20 blur-3xl print:hidden" />
-    </>
+    <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-slate-200 px-4 py-3 sm:px-6">
+      {items.map((it) => (
+        <div key={it.term} className="min-w-0 max-w-full">
+          <dt className="text-xs text-slate-500">{it.term}</dt>
+          <dd title={it.title} className={cn("truncate text-sm text-slate-800", it.mono && "font-mono text-[13px]")}>
+            {it.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
-/** Navy hero header used by the status views (pending, processing, review, failed). */
+const quietTag = "inline-flex items-center rounded-sm border border-slate-300 px-1.5 py-0.5 text-xs text-slate-600";
+
+/** Header used by the status views (pending, processing, review, failed). */
 export function ReportHeader({
   submission,
   rubricLabel: label,
@@ -73,52 +67,41 @@ export function ReportHeader({
   showPrint?: boolean;
 }) {
   return (
-    <header className="relative overflow-hidden rounded-2xl bg-brand-navy p-5 text-white shadow-sm [print-color-adjust:exact] sm:p-8">
-      <Glow />
-      <div className="relative">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <BackToWorkspace />
-          {showPrint ? (
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white ring-1 ring-inset ring-white/20 transition hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan print:hidden"
-            >
-              <Printer className="h-4 w-4" aria-hidden />
-              Print report
-            </button>
-          ) : null}
-        </div>
-
-        <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <header className="rounded-md border border-slate-200 bg-white">
+      <div className="px-4 py-4 sm:px-6 sm:py-5">
+        <BackToWorkspace />
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-cyan">
-              <GraduationCap className="h-4 w-4" aria-hidden />
-              Student Academic Intelligence Report
-            </p>
-            <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
+            <p className="text-[13px] text-slate-500">Student academic intelligence report</p>
+            <h1 className="mt-0.5 break-words text-2xl font-semibold text-brand-navy">
               {submission.student_name || "Unnamed student"}
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {submission.is_demo ? (
-              <span className="inline-flex items-center rounded-full bg-brand-lime px-3 py-1 text-xs font-semibold text-brand-navy">
-                Demo data
-              </span>
-            ) : null}
+            {submission.is_demo ? <span className={quietTag}>Demo data</span> : null}
             <StatusBadge status={submission.status} />
+            {showPrint ? (
+              <button type="button" onClick={() => window.print()} className={cn(btnSecondary, "print:hidden")}>
+                <Printer className="h-4 w-4" aria-hidden />
+                Print
+              </button>
+            ) : null}
           </div>
         </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <MetaChip icon={BookOpen}>{label}</MetaChip>
-          <MetaChip icon={FileText} title={submission.original_filename}>
-            {submission.original_filename || "Unknown file"}
-          </MetaChip>
-          <MetaChip icon={CalendarClock}>{dateLabel}</MetaChip>
-          <MetaChip icon={Hash}>Submission {submission.id}</MetaChip>
-        </div>
       </div>
+      <MetaList
+        items={[
+          { term: "Rubric", value: label },
+          {
+            term: "Source file",
+            value: submission.original_filename || "Unknown file",
+            mono: true,
+            title: submission.original_filename,
+          },
+          { term: "Date", value: dateLabel },
+          { term: "Submission", value: submission.id, mono: true },
+        ]}
+      />
     </header>
   );
 }
@@ -126,9 +109,6 @@ export function ReportHeader({
 export function evaluatedLabel(submission: Submission): string {
   return `Evaluated ${formatDateTime(submission.updated_at)}`;
 }
-
-const heroBtn =
-  "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
 
 /** Question numbers of a rubric that the current result does not have, and vice versa. */
 function questionDiff(rubric: Rubric | undefined, result: Result): { added: number[]; removed: number[] } {
@@ -203,8 +183,7 @@ function RerunDialog({
     <Modal
       open={open}
       onClose={onClose}
-      eyebrow="FR-5.7 · re-run without OCR"
-      title="Re-run with rubric…"
+      title="Re-run with another rubric"
       description={`${result.submission.student_name} · currently ${rubricLabel(result.rubric)}`}
       footer={
         <div className="flex justify-end gap-2">
@@ -258,18 +237,64 @@ function RerunDialog({
   );
 }
 
+/** Stored evaluations, newest first. Picking one opens ?version=N; the current one drops the param. */
+function VersionSelect({ submissionId, viewing }: { submissionId: number; viewing?: number }) {
+  const router = useRouter();
+  const [versions, setVersions] = useState<ResultVersion[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getResultVersions(submissionId)
+      .then((list) => {
+        if (!cancelled) setVersions(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setVersions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [submissionId]);
+
+  if (!versions || versions.length < 2) return null;
+  const current = versions.find((v) => v.current)?.version;
+  return (
+    <label className="inline-flex items-center gap-2 text-[13px] text-slate-500">
+      Version
+      <select
+        value={viewing ?? current}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          router.push(v === current ? `/report/${submissionId}` : `/report/${submissionId}?version=${v}`);
+        }}
+        className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+      >
+        {[...versions].reverse().map((v) => (
+          <option key={v.version} value={v.version}>
+            v{v.version} · {v.total_score}/{v.total_marks} · {formatDateTime(v.created_at)}
+            {v.current ? " (current)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /**
- * SAIR header: breadcrumb, title, the student's urgency and release status, and the report actions
- * (PDF, simulated WhatsApp, re-run with another rubric, print).
+ * SAIR header: breadcrumb, student, urgency and release status, run metadata, version picker and
+ * the report actions (PDF, simulated WhatsApp, re-run with another rubric, print). An archived
+ * version (`version` set) only offers print: the other actions act on the current result.
  */
 export function SairHeader({
   result,
   release,
+  version,
   onWhatsApp,
   onReevaluated,
 }: {
   result: Result;
   release: ReleaseInfo;
+  version?: number;
   onWhatsApp: () => void;
   onReevaluated: () => void;
 }) {
@@ -277,89 +302,83 @@ export function SairHeader({
   const { submission, report_meta: meta } = result;
   const batch = meta.batch;
   return (
-    <header className="relative overflow-hidden rounded-2xl bg-brand-navy p-5 text-white shadow-sm [print-color-adjust:exact] sm:p-8 print:rounded-none print:p-5">
-      <Glow />
-      <div className="relative">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <nav aria-label="Breadcrumb" className="min-w-0 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100/90">
-            <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-              <li>3i Academic Intelligence</li>
-              <li aria-hidden className="text-white/40">/</li>
-              <li>{meta.institution.name}</li>
-              <li aria-hidden className="text-white/40">/</li>
-              <li className="text-brand-cyan">
-                {batch.name}
-                {batch.exam_type ? ` · ${batch.exam_type}` : ""}
-              </li>
-            </ol>
-          </nav>
-          <BackToWorkspace />
-        </div>
+    <header className="rounded-md border border-slate-200 bg-white">
+      <div className="px-4 py-4 sm:px-6 sm:py-5">
+        <nav aria-label="Breadcrumb" className="text-[13px] text-slate-500">
+          <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <li>
+              <Link
+                href="/"
+                className="rounded-sm font-medium text-brand-cyan-600 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+              >
+                Workspace
+              </Link>
+            </li>
+            <li aria-hidden>/</li>
+            <li>{meta.institution.name}</li>
+            <li aria-hidden>/</li>
+            <li className="text-slate-700">
+              {batch.name}
+              {batch.exam_type ? ` · ${batch.exam_type}` : ""}
+            </li>
+          </ol>
+        </nav>
 
-        <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-cyan">
-              <GraduationCap className="h-4 w-4" aria-hidden />
-              Student Academic Intelligence Report
+            <p className="text-[13px] text-slate-500">
+              Student academic intelligence report · {submission.input_kind === "voice" ? "voice answer" : "answer sheet"}
             </p>
-            <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
+            <h1 className="mt-0.5 break-words text-2xl font-semibold text-brand-navy">
               {submission.student_name || "Unnamed student"}
             </h1>
-            <p className="mt-1 text-sm text-slate-300">
-              Question-linked academic diagnostic from the uploaded{" "}
-              {submission.input_kind === "voice" ? "voice answer" : "answer sheet"}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <UrgencyBadge urgency={result.urgency} reasons={result.urgency_reasons} />
+              <ReleaseChip release={release} />
+              {submission.is_demo ? <span className={quietTag}>Synthetic demo record</span> : null}
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {submission.is_demo ? (
-              <span className="inline-flex items-center rounded-full bg-brand-lime px-3 py-1 text-xs font-semibold text-brand-navy">
-                Synthetic demo record
-              </span>
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <VersionSelect submissionId={submission.id} viewing={version} />
+            {version === undefined ? (
+              <>
+                <a href={reportPdfUrl(submission.id)} className={btnPrimary}>
+                  <Download className="h-4 w-4" aria-hidden />
+                  Download PDF
+                </a>
+                <button type="button" onClick={onWhatsApp} className={btnSecondary}>
+                  <MessageCircle className="h-4 w-4" aria-hidden />
+                  Send via WhatsApp
+                  <span className="text-xs font-normal text-slate-500">(simulated)</span>
+                </button>
+                <button type="button" onClick={() => setRerunOpen(true)} className={btnSecondary}>
+                  <RefreshCcw className="h-4 w-4" aria-hidden />
+                  Re-run…
+                </button>
+              </>
             ) : null}
-            <UrgencyBadge urgency={result.urgency} reasons={result.urgency_reasons} />
-            <ReleaseChip release={release} />
+            <button type="button" onClick={() => window.print()} className={btnSecondary}>
+              <Printer className="h-4 w-4" aria-hidden />
+              Print
+            </button>
           </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <MetaChip icon={BookOpen}>
-            {rubricLabel(result.rubric)} · {result.rubric.status}
-          </MetaChip>
-          <MetaChip icon={FileText} title={submission.original_filename}>
-            {submission.original_filename || "Unknown file"}
-          </MetaChip>
-          <MetaChip icon={CalendarClock}>Executed {fmtIST(meta.executed_at)}</MetaChip>
-          <MetaChip icon={Hash}>{meta.run_id}</MetaChip>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2 print:hidden">
-          <a href={reportPdfUrl(submission.id)} className={cn(heroBtn, "bg-brand-cyan text-brand-navy hover:bg-cyan-300")}>
-            <Download className="h-4 w-4" aria-hidden />
-            Download PDF
-          </a>
-          <button type="button" onClick={onWhatsApp} className={cn(heroBtn, "bg-white/10 text-white ring-1 ring-inset ring-white/20 hover:bg-white/20")}>
-            <MessageCircle className="h-4 w-4" aria-hidden />
-            Send via WhatsApp
-            <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-semibold uppercase text-amber-950">Simulated</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setRerunOpen(true)}
-            className={cn(heroBtn, "bg-white/10 text-white ring-1 ring-inset ring-white/20 hover:bg-white/20")}
-          >
-            <RefreshCcw className="h-4 w-4" aria-hidden />
-            Re-run with rubric…
-          </button>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className={cn(heroBtn, "bg-white/10 text-white ring-1 ring-inset ring-white/20 hover:bg-white/20")}
-          >
-            <Printer className="h-4 w-4" aria-hidden />
-            Print
-          </button>
         </div>
       </div>
+
+      <MetaList
+        items={[
+          { term: "Rubric", value: `${rubricLabel(result.rubric)} · ${result.rubric.status}` },
+          {
+            term: "Source file",
+            value: submission.original_filename || "Unknown file",
+            mono: true,
+            title: submission.original_filename,
+          },
+          { term: "Executed", value: fmtIST(meta.executed_at) },
+          { term: "Run ID", value: meta.run_id, mono: true },
+          ...(version !== undefined ? [{ term: "Version", value: `${version} (archived)` }] : []),
+        ]}
+      />
       <RerunDialog open={rerunOpen} onClose={() => setRerunOpen(false)} result={result} onQueued={onReevaluated} />
     </header>
   );

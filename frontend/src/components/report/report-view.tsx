@@ -1,9 +1,9 @@
 "use client";
 
 import { isAxiosError } from "axios";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { errorMessage, getResult } from "@/lib/api";
+import { errorMessage, getResult, getResultVersion } from "@/lib/api";
 import type { Result, ResultPending, SubmissionStatus } from "@/lib/types";
 import { ReadyReport } from "./ready-report";
 import { ReportErrorBoundary } from "./report-error-boundary";
@@ -31,18 +31,21 @@ export function ReportView() {
   const params = useParams<{ id: string }>();
   const raw = params?.id;
   const id = Array.isArray(raw) ? raw[0] : raw;
+  const v = useSearchParams()?.get("version");
+  const version = v && /^\d+$/.test(v) ? Number(v) : undefined;
 
   if (!id || !/^\d+$/.test(id)) return <ReportNotFound id={id} />;
 
-  // Keyed by id so navigating between reports starts from a clean loading state.
+  // Keyed by id and version so switching reports starts from a clean loading state.
   return (
-    <ReportErrorBoundary key={id}>
-      <ReportLoader id={id} />
+    <ReportErrorBoundary key={`${id}-${version ?? "current"}`}>
+      <ReportLoader id={id} version={version} />
     </ReportErrorBoundary>
   );
 }
 
-function ReportLoader({ id }: { id: string }) {
+/** `version` opens an archived snapshot (GET /api/results/{id}/versions/{version}); it never polls. */
+function ReportLoader({ id, version }: { id: string; version?: number }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -55,7 +58,10 @@ function ReportLoader({ id }: { id: string }) {
 
     async function load() {
       try {
-        const res = await getResult(id);
+        const res =
+          version === undefined
+            ? await getResult(id)
+            : { kind: "ready" as const, result: await getResultVersion(id, version) };
         if (cancelled) return;
         if (res.kind === "ready") {
           if (!res.result?.submission) throw new Error("The API returned an incomplete report.");
@@ -89,7 +95,7 @@ function ReportLoader({ id }: { id: string }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [id, attempt]);
+  }, [id, version, attempt]);
 
   const retry = () => {
     setState({ kind: "loading" });
@@ -119,6 +125,6 @@ function ReportLoader({ id }: { id: string }) {
         </div>
       );
     case "ready":
-      return <ReadyReport key={`${id}-${attempt}`} result={state.result} onReload={reload} />;
+      return <ReadyReport key={`${id}-${attempt}`} result={state.result} version={version} onReload={reload} />;
   }
 }
