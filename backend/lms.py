@@ -33,7 +33,6 @@ from database import (
     Batch,
     ReleaseStatus,
     StudentSubmission,
-    SubmissionStatus,
     utc_iso,
     utcnow,
 )
