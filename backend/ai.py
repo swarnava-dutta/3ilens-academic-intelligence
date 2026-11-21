@@ -494,10 +494,10 @@ def run_ocr(
             f"VISION_PROVIDER must be 'anthropic' or 'openai' (got '{provider}'). "
             "Fix it in the .env file in the project root and restart the backend."
         )
-    if provider == "anthropic":
-        _require_anthropic_key(settings)
-    else:
+    if provider == "openai":
         _require_openai_key(settings)
+    elif not _simulating(settings, None, "ocr"):
+        _require_anthropic_key(settings)
     if not pages:
         raise AIServiceError("No answer-sheet pages were available to send for OCR.", code="no_pages")
 
@@ -505,14 +505,29 @@ def run_ocr(
     hints = clean_language_hints(language_hints)
     instruction = _ocr_instruction(rubric_content, len(pages), hints)
     if provider == "anthropic":
-        request = _claude_ocr_request(settings, pages, instruction)
-        extraction, response, raw_text = _claude_structured(
-            settings, request, step="OCR", usage_purpose="ocr", on_usage=on_usage,
-            image_count=len(pages), parse_model=OcrExtraction,
+        def primary() -> tuple[OcrExtraction, str, str, str]:
+            request = _claude_ocr_request(settings, pages, instruction)
+            extraction, response, raw_text = _claude_structured(
+                settings, request, step="OCR", usage_purpose="ocr", on_usage=on_usage,
+                image_count=len(pages), parse_model=OcrExtraction,
+            )
+            model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
+            return extraction, raw_text, "anthropic", model
+
+        def fallback() -> tuple[OcrExtraction, str, str, str]:
+            extraction, raw_text, model = _run_openai_ocr(
+                settings, pages, instruction, model=settings.llm_fallback_model, fell_back=True, on_usage=on_usage
+            )
+            return extraction, raw_text, "openai", model
+
+        extraction, raw_text, served_provider, model_used = _with_fallback(
+            settings, purpose="ocr", primary=primary, fallback=fallback, on_usage=on_usage
         )
-        model_used = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
-    else:
-        extraction, raw_text, model_used = _run_openai_ocr(settings, pages, instruction, on_usage=on_usage)
+    else:  # VISION_PROVIDER=openai: OpenAI is the primary; there is no reverse fallback
+        extraction, raw_text, model_used = _run_openai_ocr(
+            settings, pages, instruction, model=settings.openai_vision_model, fell_back=False, on_usage=on_usage
+        )
+        served_provider = "openai"
 
     answers, dropped = _normalise_ocr_answers(extraction.answers, rubric_content, len(pages))
     page_assessments = _normalise_page_assessments(extraction.page_assessments, len(pages))
@@ -520,12 +535,12 @@ def run_ocr(
     logger.info(
         "OCR structured %d answer(s) from %d page(s) via %s/%s; overall confidence %.2f; "
         "%d page assessment(s); dropped question number(s): %s",
-        len(answers), len(pages), provider, model_used, overall, len(page_assessments), dropped or "none",
+        len(answers), len(pages), served_provider, model_used, overall, len(page_assessments), dropped or "none",
     )
     return OcrResult(
         answers=answers,
         overall_confidence=overall,
-        provider=provider,
+        provider=served_provider,
         model=model_used,
         raw_response=raw_text,
         page_assessments=page_assessments,
@@ -550,13 +565,26 @@ def run_evaluation(
     answer_medium ("handwriting" | "speech") and simulate_outage (FR-3.10 drill) are part of the
     wave-2 interface; they are accepted and not used yet (W2-1)."""
     settings = get_settings()
-    _require_anthropic_key(settings)
+    purpose = purpose or "evaluation"
+    if not _simulating(settings, simulate_outage, purpose):
+        _require_anthropic_key(settings)
 
     answers = [a if isinstance(a, OcrAnswer) else OcrAnswer.model_validate(a) for a in answers]
-    request = _claude_evaluation_request(settings, answers, rubric_content)
-    evaluation, _response, _text = _claude_structured(
-        settings, request, step="evaluation", usage_purpose=purpose or "evaluation", on_usage=on_usage,
-        image_count=0, parse_model=EvaluationOutput,
+
+    def primary() -> EvaluationOutput:
+        request = _claude_evaluation_request(settings, answers, rubric_content)
+        parsed, _response, _text = _claude_structured(
+            settings, request, step="evaluation", usage_purpose=purpose, on_usage=on_usage,
+            image_count=0, parse_model=EvaluationOutput,
+        )
+        return parsed
+
+    def fallback() -> EvaluationOutput:
+        return _run_openai_evaluation(settings, answers, rubric_content, on_usage, purpose, answer_medium)
+
+    evaluation = _with_fallback(
+        settings, purpose=purpose, primary=primary, fallback=fallback, on_usage=on_usage,
+        simulate_outage=simulate_outage,
     )
     evaluation = _postprocess_evaluation(evaluation, rubric_content)
     logger.info(
@@ -575,12 +603,93 @@ def run_evaluation(
 FALLBACK_TRIGGER_CODES: tuple[str, ...] = (
     "timeout", "connection", "provider_unavailable", "rate_limited", "refusal", "empty_response", "simulated_outage",
 )
+# Never sent cross-vendor: a consistency re-grade must use the same model as the original grade,
+# rubric parsing uses Claude-only PDF document blocks, and Bloom detection is a faculty aid.
+NO_FALLBACK_PURPOSES: tuple[str, ...] = ("consistency", "rubric_parse", "bloom_detect")
+# Announced shutdown dates from the openai 3.57 type stubs (prefix-matched on the model id).
+KNOWN_DEPRECATIONS: dict[str, str] = {
+    "gpt-4o-mini-transcribe": "2027-02-26",
+    "gpt-4o-transcribe": "2027-02-26",
+    "whisper-1": "2027-02-26",
+    "gpt-4o-mini": "2027-01-14",
+    "gpt-4o": "2027-01-14",
+}
+SIMULATED_OUTAGE_MESSAGE = "Simulated Claude outage (LLM_SIMULATE_PRIMARY_OUTAGE)."
 VOICE_SHORT_ANSWER_CHARS = 20
+
+_T = TypeVar("_T")
+
+
+def deprecation_for(model: str | None) -> str | None:
+    """'2027-01-14' for gpt-4o / gpt-4o-2024-08-06 ..., None for models without an announced shutdown.
+    The longest matching prefix wins, so gpt-4o-transcribe is not reported as gpt-4o."""
+    name = str(model or "").strip().lower()
+    for prefix in sorted(KNOWN_DEPRECATIONS, key=len, reverse=True):
+        if name == prefix or name.startswith(prefix + "-"):
+            return KNOWN_DEPRECATIONS[prefix]
+    return None
 
 
 def fallback_available(settings: Settings | None = None) -> bool:
-    """True when a call can fall back to the OpenAI model (LLM_FALLBACK on + OPENAI key). Stub: False."""
-    return False
+    """True when a call can fall back to the OpenAI model (LLM_FALLBACK on + OPENAI key)."""
+    settings = settings or get_settings()
+    return bool(settings.llm_fallback_enabled and settings.openai_api_key)
+
+
+def _simulating(settings: Settings, simulate_outage: bool | None, purpose: str) -> bool:
+    """True when this Claude call is skipped by the outage drill (never for no-fallback purposes)."""
+    simulate = settings.llm_simulate_outage if simulate_outage is None else bool(simulate_outage)
+    return simulate and purpose not in NO_FALLBACK_PURPOSES
+
+
+def _with_fallback(
+    settings: Settings,
+    *,
+    purpose: str,
+    primary: Callable[[], _T],
+    fallback: Callable[[], _T] | None,
+    on_usage: UsageCallback | None,
+    simulate_outage: bool | None = None,
+) -> _T:
+    """Claude first; on a FALLBACK_TRIGGER_CODES failure the same call is retried once on the
+    OpenAI fallback model (FR-3.10). A failing fallback re-raises the ORIGINAL Claude error, so the
+    pipeline's retry / dead-letter logic sees the same code and transient flag as without a fallback.
+    AIConfigurationError (missing Anthropic key) never falls back."""
+    allowed = fallback is not None and purpose not in NO_FALLBACK_PURPOSES
+    if allowed and _simulating(settings, simulate_outage, purpose):
+        # Demo switch: the Anthropic client is never constructed; the skipped call is recorded.
+        _emit_usage(
+            on_usage,
+            ModelUsage(
+                purpose=purpose, provider="anthropic", model_requested=settings.anthropic_model,
+                status="error", error_code="simulated_outage", latency_ms=0,
+            ),
+        )
+        error = AIServiceError(SIMULATED_OUTAGE_MESSAGE, transient=True, code="simulated_outage")
+        logger.warning("Claude %s skipped (simulated outage)", purpose)
+    else:
+        try:
+            return primary()
+        except AIServiceError as exc:
+            if not allowed or exc.code not in FALLBACK_TRIGGER_CODES or not fallback_available(settings):
+                raise
+            error = exc
+    if not fallback_available(settings):
+        raise AIServiceError(
+            f"{SIMULATED_OUTAGE_MESSAGE} No fallback model is available (LLM_FALLBACK is off or "
+            "OPENAI_API_KEY is not set).",
+            transient=True, code="simulated_outage",
+        )
+    logger.warning("Claude %s failed (%s) - falling back to %s", purpose, error.code, settings.llm_fallback_model)
+    try:
+        return fallback()  # type: ignore[misc]
+    except (AIServiceError, AIConfigurationError) as fallback_error:
+        logger.warning(
+            "Fallback %s for %s also failed (%s); raising the original Claude error (%s)",
+            settings.llm_fallback_model, purpose, getattr(fallback_error, "code", type(fallback_error).__name__),
+            error.code,
+        )
+        raise error from fallback_error
 
 
 def structure_transcript(
@@ -777,7 +886,7 @@ def has_examiner_note(text: Any) -> bool:
     return bool(NOTE_TO_EXAMINER.search(str(text or "")))
 
 
-def _evaluation_answers_block(answers: list[OcrAnswer]) -> str:
+def _evaluation_answers_block(answers: list[OcrAnswer], answer_medium: str = "handwriting") -> str:
     answers_view = [
         {"question": a.question, "answer": strip_examiner_notes(a.answer)}
         for a in sorted(answers, key=lambda a: a.question)
@@ -945,7 +1054,7 @@ def _claude_usage(
 
 
 def _openai_usage(
-    response: Any, *, purpose: str, model_requested: str, image_count: int, latency_ms: int
+    response: Any, *, purpose: str, model_requested: str, image_count: int, latency_ms: int, fell_back: bool = False
 ) -> ModelUsage:
     """OpenAI prompt_tokens INCLUDE cached tokens; input_tokens here is the uncached part
     (Anthropic semantics) so costing never bills cached tokens twice."""
@@ -964,6 +1073,7 @@ def _openai_usage(
         cache_read_input_tokens=cached,
         image_count=image_count,
         latency_ms=latency_ms,
+        fell_back=fell_back,
     )
 
 
@@ -1083,89 +1193,160 @@ def _log_claude_usage(response: Any, purpose: str, usage: ModelUsage | None = No
     )
 
 
-def _run_openai_ocr(
+def _openai_json_call(
     settings: Settings,
-    pages: list[PreparedPage],
-    instruction: str,
+    request: dict[str, Any],
     *,
-    on_usage: UsageCallback | None = None,
-) -> tuple[OcrExtraction, str, str]:
-    """(parsed extraction, raw text, model used). Reports one ModelUsage through on_usage."""
+    model: str,
+    step: str,
+    usage_purpose: str,
+    parse_model: type[_ModelT],
+    on_usage: UsageCallback | None,
+    image_count: int = 0,
+    fell_back: bool = False,
+) -> tuple[_ModelT, str, str]:
+    """One chat.completions call in json_object mode: (parsed reply, raw text, model used).
+    Reports exactly one ModelUsage (ok, or error/refusal with the AIServiceError code)."""
     client = _openai_client(settings)
-    request = _openai_ocr_request(settings, pages, instruction)
     started = time.perf_counter()
     try:
         response = client.chat.completions.create(**request)
     except openai.OpenAIError as exc:
         error = _service_error(
-            exc, sdk=openai, provider="OpenAI", model=settings.openai_vision_model,
-            key_name="OPENAI_API_KEY", purpose="OCR", settings=settings,
+            exc, sdk=openai, provider="OpenAI", model=model, key_name="OPENAI_API_KEY", purpose=step,
+            settings=settings,
         )
         _emit_usage(
             on_usage,
             ModelUsage(
-                purpose="ocr", provider="openai", model_requested=settings.openai_vision_model,
-                request_id=_str_or_none(getattr(exc, "request_id", None)), image_count=len(pages),
+                purpose=usage_purpose, provider="openai", model_requested=model,
+                request_id=_str_or_none(getattr(exc, "request_id", None)), image_count=image_count,
                 latency_ms=_elapsed_ms(started), status=_status_for(error), error_code=error.code,
+                fell_back=fell_back,
             ),
         )
         raise error from exc
 
     usage = _openai_usage(
-        response, purpose="ocr", model_requested=settings.openai_vision_model,
-        image_count=len(pages), latency_ms=_elapsed_ms(started),
+        response, purpose=usage_purpose, model_requested=model, image_count=image_count,
+        latency_ms=_elapsed_ms(started), fell_back=fell_back,
     )
     choices = getattr(response, "choices", None) or []
     choice = choices[0] if choices else None
-    finish_reason = getattr(choice, "finish_reason", None)
     logger.info(
-        "OpenAI OCR call: model=%s request_id=%s finish_reason=%s prompt_tokens=%s completion_tokens=%s "
-        "cached_tokens=%s latency_ms=%s",
+        "OpenAI %s call: model=%s request_id=%s finish_reason=%s prompt_tokens=%s completion_tokens=%s "
+        "cached_tokens=%s latency_ms=%s%s",
+        step,
         usage.model_served,
         usage.request_id,
-        finish_reason,
+        getattr(choice, "finish_reason", None),
         usage.input_tokens + usage.cache_read_input_tokens,
         usage.output_tokens,
         usage.cache_read_input_tokens,
         usage.latency_ms,
+        " (cross-vendor fallback)" if fell_back else "",
     )
     try:
-        text = _openai_output_text(choice)
-        extraction = _parse_json_model(text, OcrExtraction, provider_label="OpenAI", purpose="OCR")
+        text = _openai_output_text(choice, purpose=step)
+        parsed = _parse_json_model(text, parse_model, provider_label="OpenAI", purpose=step)
     except AIServiceError as error:
         _emit_usage(on_usage, usage.model_copy(update={"status": _status_for(error), "error_code": error.code}))
         raise
     _emit_usage(on_usage, usage)
-    model_used = response.model if isinstance(getattr(response, "model", None), str) else settings.openai_vision_model
-    return extraction, text, model_used
+    model_used = response.model if isinstance(getattr(response, "model", None), str) else model
+    return parsed, text, model_used
 
 
-def _openai_output_text(choice: Any) -> str:
+def _run_openai_ocr(
+    settings: Settings,
+    pages: list[PreparedPage],
+    instruction: str,
+    *,
+    model: str | None = None,
+    fell_back: bool = False,
+    on_usage: UsageCallback | None = None,
+) -> tuple[OcrExtraction, str, str]:
+    """(parsed extraction, raw text, model used). model defaults to OPENAI_VISION_MODEL; the
+    Claude -> OpenAI fallback passes settings.llm_fallback_model and fell_back=True."""
+    model = model or settings.openai_vision_model
+    return _openai_json_call(
+        settings, _openai_ocr_request(settings, pages, instruction, model=model), model=model, step="OCR",
+        usage_purpose="ocr", parse_model=OcrExtraction, on_usage=on_usage, image_count=len(pages),
+        fell_back=fell_back,
+    )
+
+
+EVALUATION_JSON_KEYS_NOTE = (
+    "Reply with ONE JSON object with exactly these keys: evaluations[{question, estimated_marks, evidence, "
+    "strengths, gaps, criteria_awards[{index, awarded}], demonstrated_level}], overall_strengths, overall_gaps, "
+    "summary, teaching_nudges, topic_interventions, confusions."
+)
+
+
+def _openai_evaluation_request(
+    settings: Settings, answers: list[OcrAnswer], rubric_content: dict, answer_medium: str = "handwriting"
+) -> dict[str, Any]:
+    """The same system prompt, rubric block and answers block as the Claude request (FR-3.10)."""
+    user = (
+        f"{_evaluation_rubric_block(rubric_content)}\n\n{_evaluation_answers_block(answers, answer_medium)}\n\n"
+        f"{EVALUATION_JSON_KEYS_NOTE}"
+    )
+    return {
+        "model": settings.llm_fallback_model,
+        "messages": [
+            {"role": "system", "content": EVALUATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+        "max_completion_tokens": OPENAI_MAX_COMPLETION_TOKENS,
+    }
+
+
+def _run_openai_evaluation(
+    settings: Settings,
+    answers: list[OcrAnswer],
+    rubric_content: dict,
+    on_usage: UsageCallback | None,
+    purpose: str,
+    answer_medium: str = "handwriting",
+) -> EvaluationOutput:
+    """Grade on the OpenAI fallback model (json_object mode); the reply is parsed with the lenient
+    EvaluationOutput and post-processed by run_evaluation like a Claude reply."""
+    evaluation, _text, _model = _openai_json_call(
+        settings, _openai_evaluation_request(settings, answers, rubric_content, answer_medium),
+        model=settings.llm_fallback_model, step="evaluation", usage_purpose=purpose,
+        parse_model=EvaluationOutput, on_usage=on_usage, fell_back=True,
+    )
+    return evaluation
+
+
+def _openai_output_text(choice: Any, *, purpose: str = "OCR") -> str:
+    step = _purpose_label(purpose)
     if choice is None:
-        raise AIServiceError(
-            "OpenAI returned no choices for the answer-sheet transcription (OCR) request.", code="empty_response"
-        )
+        raise AIServiceError(f"OpenAI returned no choices for the {step} request.", code="empty_response")
     finish_reason = getattr(choice, "finish_reason", None)
     message = getattr(choice, "message", None)
     if getattr(message, "refusal", None) or finish_reason == "content_filter":
         raise AIServiceError(
-            "OpenAI declined the answer-sheet transcription (OCR) request (refusal/content filter). "
+            f"OpenAI declined the {step} request (refusal/content filter). "
             "Please review this answer sheet manually.",
             code="refusal",
         )
     if finish_reason == "length":
         raise AIServiceError(
-            "OpenAI's answer-sheet transcription (OCR) response was truncated (max tokens reached before the "
+            f"OpenAI's {step} response was truncated (max tokens reached before the "
             "JSON was complete). Try uploading fewer pages.",
             code="truncated",
         )
     text = getattr(message, "content", None) or ""
     if not text.strip():
-        raise AIServiceError("OpenAI returned an empty answer-sheet transcription (OCR) response.", code="empty_response")
+        raise AIServiceError(f"OpenAI returned an empty {step} response.", code="empty_response")
     return text
 
 
-def _openai_ocr_request(settings: Settings, pages: list[PreparedPage], instruction: str) -> dict[str, Any]:
+def _openai_ocr_request(
+    settings: Settings, pages: list[PreparedPage], instruction: str, *, model: str | None = None
+) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
     total = len(pages)
     for page in pages:
@@ -1176,7 +1357,7 @@ def _openai_ocr_request(settings: Settings, pages: list[PreparedPage], instructi
         )
     content.append({"type": "text", "text": instruction})
     return {
-        "model": settings.openai_vision_model,
+        "model": model or settings.openai_vision_model,
         "messages": [
             {"role": "system", "content": OCR_SYSTEM_PROMPT},
             {"role": "user", "content": content},
@@ -1497,10 +1678,14 @@ def finalise_rubric_draft(raw: dict[str, Any], *, subject_hint: str | None = Non
 # Error mapping
 # --------------------------------------------------------------------------- #
 def _purpose_label(purpose: str) -> str:
-    if purpose == "OCR":
+    if purpose in ("OCR", "ocr"):
         return "answer-sheet transcription (OCR)"
     if purpose == "rubric_parse":
         return "rubric drafting"
+    if purpose == "voice_mapping":
+        return "voice-answer mapping"
+    if purpose == "bloom_detect":
+        return "Bloom level detection"
     return "rubric evaluation"
 
 
