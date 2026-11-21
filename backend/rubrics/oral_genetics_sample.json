@@ -1,0 +1,39 @@
+{
+  "name": "Oral answer - Genetics (sample)",
+  "subject": "Biology",
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "bloom_level": "K2",
+      "bloom_source": "faculty",
+      "partial_credit": "steps",
+      "prompt": "Q1 (spoken answer). Explain codominance with the ABO blood group example.",
+      "expected_answer": "In codominance both alleles of a heterozygote are fully expressed, with no blending. In the ABO system the alleles I^A and I^B are codominant (both dominant over i), so a person with genotype I^A I^B has blood group AB and carries both A and B antigens on the red cells.",
+      "marking_scheme": [
+        {
+          "criterion": "Defines codominance: both alleles of a heterozygote are fully expressed",
+          "marks": 1,
+          "required": true
+        },
+        {
+          "criterion": "Gives the ABO example: blood group AB carries both A and B antigens on the red cells",
+          "marks": 1
+        },
+        {
+          "criterion": "States there is no blending or intermediate phenotype (unlike incomplete dominance)",
+          "marks": 1
+        },
+        {
+          "criterion": "Uses the allele notation: I^A and I^B are codominant, both dominant over i",
+          "marks": 1
+        }
+      ]
+    }
+  ]
+}

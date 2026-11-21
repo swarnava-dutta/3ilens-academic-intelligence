@@ -1,0 +1,645 @@
+{
+  "name": "NEET MCQ Practice - Mock 09 (sample)",
+  "subject": "Mixed",
+  "marking_policy": {
+    "partial_credit": "steps",
+    "mark_step": 0.5,
+    "negative_marks": 1,
+    "scheme_name": "NEET +4/-1 (sample)"
+  },
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q1. In a monohybrid cross with complete dominance, the F2 phenotypic ratio is:",
+      "options": [
+        "1:2:1",
+        "9:3:3:1",
+        "3:1",
+        "1:1"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: 3:1",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 2,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q2. Why is the wall of the left ventricle thicker than that of the right ventricle?",
+      "options": [
+        "It receives blood from the lungs at a higher pressure",
+        "It pumps a larger volume of blood per beat than the right ventricle",
+        "It carries deoxygenated blood",
+        "It pumps blood into the systemic circulation against a higher resistance"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: It pumps blood into the systemic circulation against a higher resistance",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 3,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q3. A cell with 2n = 16 undergoes meiosis. How many chromosomes does each cell have at the end of meiosis I?",
+      "options": [
+        "8",
+        "16",
+        "32",
+        "4"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: 8",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 4,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q4. In a grassland food chain, which organism is a primary consumer?",
+      "options": [
+        "Grass",
+        "Grasshopper",
+        "Frog",
+        "Snake"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Grasshopper",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 5,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q5. Why does tert-butyl bromide react faster than methyl bromide by the SN1 mechanism?",
+      "options": [
+        "It undergoes backside attack more easily",
+        "Its C-Br bond is stronger",
+        "It forms a more stable tertiary carbocation",
+        "It is less sterically hindered"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: It forms a more stable tertiary carbocation",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 6,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q6. Using VSEPR theory, predict the shape of the NH3 molecule.",
+      "options": [
+        "Trigonal planar",
+        "Tetrahedral",
+        "T-shaped",
+        "Trigonal pyramidal"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: Trigonal pyramidal",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 7,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q7. The SI unit of electric field intensity is:",
+      "options": [
+        "N/C",
+        "C/N",
+        "J/C",
+        "N m"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: N/C",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 8,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q8. A standing passenger falls backwards when a bus starts suddenly. This is due to:",
+      "options": [
+        "Newton's third law",
+        "Inertia of rest (Newton's first law)",
+        "Conservation of energy",
+        "Inertia of direction"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Inertia of rest (Newton's first law)",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 9,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q9. Why does a person with blood group AB carry both A and B antigens on the red cells?",
+      "options": [
+        "Incomplete dominance blends the A and B antigens into a new antigen",
+        "The recessive allele i masks neither antigen",
+        "The alleles I^A and I^B are codominant, so both are expressed",
+        "Epistasis switches on the B antigen gene"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: The alleles I^A and I^B are codominant, so both are expressed",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 10,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q10. Heart rate is 75 beats per minute and stroke volume is 70 mL. What is the cardiac output?",
+      "options": [
+        "4.5 L/min",
+        "7.0 L/min",
+        "0.93 L/min",
+        "5.25 L/min"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: 5.25 L/min",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 11,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q11. Which cell organelle is the site of protein synthesis?",
+      "options": [
+        "Ribosome",
+        "Lysosome",
+        "Golgi apparatus",
+        "Peroxisome"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: Ribosome",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 12,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q12. Why is the pyramid of energy always upright?",
+      "options": [
+        "The number of organisms always falls at higher levels",
+        "Energy is lost as heat at every trophic level, so less reaches the next level",
+        "Biomass is greatest at the top level",
+        "Decomposers return energy to the producers"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Energy is lost as heat at every trophic level, so less reaches the next level",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 13,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q13. What is the IUPAC name of CH3-CH(CH3)-CH2-OH?",
+      "options": [
+        "Butan-1-ol",
+        "2-Methylpropan-2-ol",
+        "2-Methylpropan-1-ol",
+        "Butan-2-ol"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: 2-Methylpropan-1-ol",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 14,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q14. The hybridisation of carbon in methane (CH4) is:",
+      "options": [
+        "sp",
+        "sp2",
+        "dsp2",
+        "sp3"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: sp3",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 15,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q15. Why is the electric field inside a charged conductor in electrostatic equilibrium zero?",
+      "options": [
+        "Free charges move to the surface until their field cancels inside",
+        "The charge spreads uniformly through the volume",
+        "A conductor has no free electrons",
+        "The potential inside a conductor is always zero"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: Free charges move to the surface until their field cancels inside",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 16,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q16. A 2 kg body moving at 3 m/s is pushed by a constant 4 N force along its motion for 2 s. Its final speed is:",
+      "options": [
+        "5 m/s",
+        "7 m/s",
+        "11 m/s",
+        "4 m/s"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: 7 m/s",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 17,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q17. A colour-blind man marries a woman who is homozygous for normal vision. What fraction of their sons will be colour-blind?",
+      "options": [
+        "1/4",
+        "1/2",
+        "0",
+        "All of them"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: 0",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 18,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q18. The structural and functional unit of the kidney is the:",
+      "options": [
+        "Neuron",
+        "Alveolus",
+        "Sarcomere",
+        "Nephron"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: Nephron",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 19,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q19. Crossing over increases genetic variation because it:",
+      "options": [
+        "Exchanges segments between non-sister chromatids of homologous chromosomes",
+        "Doubles the chromosome number of the gamete",
+        "Separates sister chromatids at anaphase II",
+        "Joins sister chromatids of the same chromosome"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: Exchanges segments between non-sister chromatids of homologous chromosomes",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 20,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q20. Producers fix 20,000 J of energy. Using the 10% law, how much energy reaches the secondary consumers?",
+      "options": [
+        "2,000 J",
+        "200 J",
+        "20 J",
+        "2 J"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: 200 J",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 21,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q21. The general formula of alkynes is:",
+      "options": [
+        "CnH2n+2",
+        "CnH2n",
+        "CnH2n-2",
+        "CnHn"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: CnH2n-2",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 22,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q22. Why is the H-O-H bond angle in water (about 104.5 degrees) smaller than the tetrahedral angle?",
+      "options": [
+        "Oxygen in water is sp2 hybridised",
+        "Hydrogen bonds between water molecules bend the molecule",
+        "Oxygen is less electronegative than hydrogen",
+        "Lone pair-lone pair repulsion is stronger than bond pair-bond pair repulsion and squeezes the bonds"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: Lone pair-lone pair repulsion is stronger than bond pair-bond pair repulsion and squeezes the bonds",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 23,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q23. Charges of +2 uC and +8 uC are 0.3 m apart (k = 9 x 10^9 N m^2 C^-2). The force between them is:",
+      "options": [
+        "1.6 N",
+        "0.16 N",
+        "16 N",
+        "0.48 N"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: 1.6 N",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 24,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q24. The SI unit of work is:",
+      "options": [
+        "Watt",
+        "Joule",
+        "Newton",
+        "Pascal"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Joule",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 25,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "bloom_level": "K3",
+      "bloom_source": "faculty",
+      "partial_credit": "steps",
+      "prompt": "Q25. A block slides from rest down a frictionless incline of height 3.2 m (g = 10 m/s^2). Find its speed at the bottom, showing your method.",
+      "expected_answer": "Energy conservation: mgh = 1/2 mv^2, so v = sqrt(2gh) = sqrt(2 x 10 x 3.2) = sqrt(64) = 8 m/s.",
+      "marking_scheme": [
+        {
+          "criterion": "Uses energy conservation (mgh = 1/2 mv^2) or v^2 = 2gh with correct symbols",
+          "marks": 1,
+          "required": true
+        },
+        {
+          "criterion": "Substitutes h = 3.2 m and g = 10 m/s^2 correctly",
+          "marks": 1
+        },
+        {
+          "criterion": "Correct value v = 8",
+          "marks": 1
+        },
+        {
+          "criterion": "Correct SI unit m/s",
+          "marks": 1
+        }
+      ]
+    },
+    {
+      "question": 26,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "bloom_level": "K2",
+      "bloom_source": "faculty",
+      "partial_credit": "all_or_nothing",
+      "prompt": "Q26. Write the balanced equation for the complete combustion of ethane.",
+      "expected_answer": "2C2H6 + 7O2 -> 4CO2 + 6H2O",
+      "marking_scheme": [
+        {
+          "criterion": "Correct reactants and products (C2H6 + O2 -> CO2 + H2O)",
+          "marks": 2
+        },
+        {
+          "criterion": "Correctly balanced: 2C2H6 + 7O2 -> 4CO2 + 6H2O",
+          "marks": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,588 @@
+{
+  "name": "NEET MCQ Practice - Mock 10 (sample)",
+  "subject": "Mixed",
+  "marking_policy": {
+    "partial_credit": "steps",
+    "mark_step": 0.5,
+    "negative_marks": 1,
+    "scheme_name": "NEET +4/-1 (sample)"
+  },
+  "questions": [
+    {
+      "question": 1,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q1. A cross between an F1 hybrid and its homozygous recessive parent is called a:",
+      "options": [
+        "Test cross",
+        "Reciprocal cross",
+        "Dihybrid cross",
+        "Self-pollination"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: Test cross",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 2,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q2. Why are alveoli efficient sites for gas exchange?",
+      "options": [
+        "Their thick walls store oxygen",
+        "They form a very large, thin, moist surface richly supplied with capillaries",
+        "Cartilage rings keep them permanently open",
+        "They actively pump oxygen into the blood"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: They form a very large, thin, moist surface richly supplied with capillaries",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 3,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q3. A cell has 20 chromosomes in G1. How many chromatids does it have at metaphase of mitosis?",
+      "options": [
+        "20",
+        "10",
+        "40",
+        "80"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: 40",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 4,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q4. An ecological niche is best described as:",
+      "options": [
+        "The physical place where an organism lives",
+        "A group of similar ecosystems",
+        "The number of individuals in an area",
+        "The functional role and position of a species in its ecosystem"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: The functional role and position of a species in its ecosystem",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 5,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q5. Why is phenol more acidic than ethanol?",
+      "options": [
+        "The phenoxide ion is stabilised by resonance",
+        "Phenol has a lower molar mass",
+        "The ethoxide ion is resonance-stabilised",
+        "Phenol is a stronger base"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: The phenoxide ion is stabilised by resonance",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 6,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q6. According to molecular orbital theory, the bond order of O2 is:",
+      "options": [
+        "1",
+        "2",
+        "1.5",
+        "2.5"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: 2",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 7,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q7. The SI unit of electric potential is the:",
+      "options": [
+        "Ampere",
+        "Ohm",
+        "Volt",
+        "Farad"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: Volt",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 8,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q8. Why does a fielder pull the hands back while catching a fast ball?",
+      "options": [
+        "It increases the force on the hands",
+        "It stops the ball's momentum instantly",
+        "It increases the ball's kinetic energy",
+        "It increases the time of impact, so a smaller force gives the same change in momentum"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: It increases the time of impact, so a smaller force gives the same change in momentum",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 9,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q9. A dihybrid cross gives a 9:3:3:1 ratio in F2 because:",
+      "options": [
+        "Alleles of the two genes assort independently during gamete formation",
+        "The two genes are completely linked",
+        "One gene is epistatic to the other",
+        "Both genes show incomplete dominance"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: Alleles of the two genes assort independently during gamete formation",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 10,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q10. Tidal volume is 500 mL and the breathing rate is 12 breaths per minute. The pulmonary ventilation is:",
+      "options": [
+        "5 L/min",
+        "6 L/min",
+        "0.6 L/min",
+        "60 L/min"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: 6 L/min",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 11,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q11. Which organelle is called the powerhouse of the cell?",
+      "options": [
+        "Ribosome",
+        "Nucleolus",
+        "Mitochondrion",
+        "Lysosome"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: Mitochondrion",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 12,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q12. Why does the DDT concentration rise at higher trophic levels?",
+      "options": [
+        "Producers break DDT down quickly",
+        "Top consumers eat less food",
+        "Top predators synthesise DDT",
+        "DDT is fat-soluble and not excreted, so it accumulates and is magnified up the food chain"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: DDT is fat-soluble and not excreted, so it accumulates and is magnified up the food chain",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 13,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q13. How many structural isomers does C4H10 have?",
+      "options": [
+        "2",
+        "1",
+        "3",
+        "4"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: 2",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 14,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q14. A bond formed by sharing a pair of electrons between two atoms is a:",
+      "options": [
+        "Ionic bond",
+        "Covalent bond",
+        "Metallic bond",
+        "Hydrogen bond"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Covalent bond",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 15,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q15. Why can two electric field lines never intersect?",
+      "options": [
+        "Field lines always form closed loops",
+        "Field lines carry the charge with them",
+        "At the crossing point the field would have two directions, which is impossible",
+        "Intersecting lines would cancel the source charge"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: At the crossing point the field would have two directions, which is impossible",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 16,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q16. A ball is dropped from a height of 20 m (g = 10 m/s^2). The time to reach the ground is:",
+      "options": [
+        "1 s",
+        "4 s",
+        "2.8 s",
+        "2 s"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: 2 s",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 17,
+      "topic": "Genetics",
+      "subject": "Biology",
+      "chapter": "Genetics",
+      "concept": "Genetics",
+      "max_marks": 4,
+      "effort_hours": 6,
+      "question_type": "mcq",
+      "prompt": "Q17. In the cross Aa x aa, what fraction of the offspring is homozygous recessive?",
+      "options": [
+        "1/2",
+        "1/4",
+        "3/4",
+        "0"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: 1/2",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 18,
+      "topic": "Human Physiology",
+      "subject": "Biology",
+      "chapter": "Human Physiology",
+      "concept": "Human Physiology",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q18. Which hormone lowers the blood glucose level?",
+      "options": [
+        "Glucagon",
+        "Insulin",
+        "Adrenaline",
+        "Cortisol"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Insulin",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 19,
+      "topic": "Cell Biology",
+      "subject": "Biology",
+      "chapter": "Cell Biology",
+      "concept": "Cell Biology",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q19. The plasma membrane is called a fluid mosaic because:",
+      "options": [
+        "Proteins are fixed in a rigid crystalline pattern",
+        "It is a rigid layer of cellulose",
+        "Proteins float and move laterally within a fluid phospholipid bilayer",
+        "It is a double layer of carbohydrates"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: Proteins float and move laterally within a fluid phospholipid bilayer",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 20,
+      "topic": "Ecology",
+      "subject": "Biology",
+      "chapter": "Ecology",
+      "concept": "Ecology",
+      "max_marks": 4,
+      "effort_hours": 3,
+      "question_type": "mcq",
+      "prompt": "Q20. 50 fish are marked and released. Later 40 fish are caught, of which 10 are marked. The estimated population is:",
+      "options": [
+        "100",
+        "400",
+        "2,000",
+        "200"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: 200",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 21,
+      "topic": "Organic Chemistry",
+      "subject": "Chemistry",
+      "chapter": "Organic Chemistry",
+      "concept": "Organic Chemistry",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q21. The functional group of an aldehyde is:",
+      "options": [
+        "-CHO",
+        "-OH",
+        "-COOH",
+        "-NH2"
+      ],
+      "correct_option": "A",
+      "expected_answer": "Option A: -CHO",
+      "grading_criteria": [
+        "4 marks for option A; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 22,
+      "topic": "Chemical Bonding",
+      "subject": "Chemistry",
+      "chapter": "Chemical Bonding",
+      "concept": "Chemical Bonding",
+      "max_marks": 4,
+      "effort_hours": 5,
+      "question_type": "mcq",
+      "prompt": "Q22. Why is the BeCl2 molecule linear?",
+      "options": [
+        "Be carries two lone pairs",
+        "Be is sp hybridised with two bond pairs and no lone pair, so the bonds are 180 degrees apart",
+        "Be is sp3 hybridised",
+        "The chlorine atoms are held apart by hydrogen bonds"
+      ],
+      "correct_option": "B",
+      "expected_answer": "Option B: Be is sp hybridised with two bond pairs and no lone pair, so the bonds are 180 degrees apart",
+      "grading_criteria": [
+        "4 marks for option B; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K2",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 23,
+      "topic": "Electrostatics",
+      "subject": "Physics",
+      "chapter": "Electrostatics",
+      "concept": "Electrostatics",
+      "max_marks": 4,
+      "effort_hours": 7,
+      "question_type": "mcq",
+      "prompt": "Q23. A 4 uF capacitor is charged to 50 V. The energy stored is:",
+      "options": [
+        "10 mJ",
+        "0.1 J",
+        "5 mJ",
+        "2.5 mJ"
+      ],
+      "correct_option": "C",
+      "expected_answer": "Option C: 5 mJ",
+      "grading_criteria": [
+        "4 marks for option C; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K3",
+      "bloom_source": "faculty"
+    },
+    {
+      "question": 24,
+      "topic": "Mechanics",
+      "subject": "Physics",
+      "chapter": "Mechanics",
+      "concept": "Mechanics",
+      "max_marks": 4,
+      "effort_hours": 8,
+      "question_type": "mcq",
+      "prompt": "Q24. The SI unit of power is the:",
+      "options": [
+        "Joule",
+        "Newton",
+        "Pascal",
+        "Watt"
+      ],
+      "correct_option": "D",
+      "expected_answer": "Option D: Watt",
+      "grading_criteria": [
+        "4 marks for option D; -1 for a wrong or multiple option; 0 if blank"
+      ],
+      "bloom_level": "K1",
+      "bloom_source": "faculty"
+    }
+  ]
+}
