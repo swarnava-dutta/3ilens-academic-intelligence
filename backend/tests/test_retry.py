@@ -265,3 +265,27 @@ def test_results_answer_202_while_a_reevaluation_is_queued_and_running(upload, f
     assert seen == [(202, "PROCESSING", "Re-grading")]
     done = client.get(f"/api/results/{sub['id']}")
     assert done.status_code == 200 and done.json()["submission"]["status"] == "COMPLETED"
+
+
+def test_operator_redrive_names_the_attempt(upload, flaky_ocr, fake_ai, client, tmp_path, monkeypatch):
+    """attempts keeps counting past max_attempts after a re-drive; the queue step, the log and
+    run.json name the attempt so the UI can show "attempt N" instead of "4/3"."""
+    import pipeline
+
+    flaky_ocr["failures"] = 3  # every automatic attempt of the first run fails
+    sub = upload().json()
+    first = body_of(client, sub["id"])["submission"]
+    assert first["status"] == "FAILED" and first["attempts"] == 3 and first["max_attempts"] == 3
+
+    real_process = pipeline.process_submission
+    queued: list[tuple] = []
+    monkeypatch.setattr(pipeline, "process_submission", lambda *args, **kwargs: queued.append((args, kwargs)))
+    response = client.post(f"/api/submissions/{sub['id']}/retry").json()
+    assert response["current_step"] == "Queued - operator retry (attempt 4)" and response["attempts"] == 3
+    (args, kwargs), = queued
+    real_process(*args, **kwargs)
+    body = body_of(client, sub["id"])
+    assert body["submission"]["status"] == "COMPLETED" and body["submission"]["attempts"] == 4
+    assert any("Operator re-drive from DLQ (attempt 4)" in e["message"] for e in body["processing_log"])
+    run = json.loads((tmp_path / "artifacts" / str(sub["id"]) / "run.json").read_text(encoding="utf-8"))
+    assert run["reason"] == "retry" and run["attempt"] == 4 and run["max_attempts_per_run"] == 3

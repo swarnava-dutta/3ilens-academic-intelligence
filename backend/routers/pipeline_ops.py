@@ -146,7 +146,11 @@ def _job_dir(sub: StudentSubmission) -> Path:
 # --------------------------------------------------------------------------- #
 @router.post("/api/submissions/{submission_id}/retry", status_code=202, response_model=SubmissionOut)
 def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: DbSession) -> SubmissionOut:
-    """Operator re-drive of a FAILED sheet: re-runs from the stored upload (OCR cache reused)."""
+    """Operator re-drive of a FAILED sheet: re-runs from the stored upload (OCR cache reused).
+
+    Submission.attempts keeps counting across runs (max_attempts is the automatic retry budget
+    of ONE run), so after a re-drive it can exceed max_attempts: current_step and the log name
+    the attempt ("attempt N") for the UI."""
     sub = _submission(db, submission_id)
     if sub.status != SubmissionStatus.FAILED:
         raise _invalid_state(sub, "FAILED")
@@ -164,7 +168,7 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
     )
     pipeline.append_log(sub, "Queue", f"Operator re-drive from DLQ (attempt {attempt}): {what}.")
     sub.status = SubmissionStatus.PENDING
-    sub.current_step = "Queued"
+    sub.current_step = f"Queued - operator retry (attempt {attempt})"
     sub.error_message = None
     sub.last_error_code = None
     sub.updated_at = utcnow()

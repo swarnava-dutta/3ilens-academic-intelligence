@@ -450,7 +450,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
                 current_step=step, error_message=None, last_error_code=None, ocr_cache_hit=False,
                 flagged_pages=[], page_confidences=[],
             )
-            _write_artifact(job.job_dir, RUN_FILE, {"mode": mode, "reason": reason, "started_at": utc_iso()})
+            _write_artifact(job.job_dir, RUN_FILE, _run_info(job))
             step = "Custody"
             _verify_custody(job)
 
@@ -479,7 +479,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
                 current_step=REGRADE_STEP if reason == "reevaluate" else "Rubric evaluation",
                 error_message=None, last_error_code=None,
             )
-            _write_artifact(job.job_dir, RUN_FILE, {"mode": mode, "reason": reason, "started_at": utc_iso()})
+            _write_artifact(job.job_dir, RUN_FILE, _run_info(job))
             answers = _stored_answers(job)
 
         # ---- Step 5: rubric evaluation (AI call 2) ---------------------------------- #
@@ -518,6 +518,18 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
         _persist(job, report)
     except Exception as exc:  # noqa: BLE001 - every failure goes to the simulated DLQ
         _fail(job, step, exc)
+
+
+def _run_info(job: _Job) -> dict[str, Any]:
+    """run.json: the run's mode and reason, plus the submission's cumulative attempt number (it
+    keeps counting across operator re-drives) next to the per-run automatic retry budget."""
+    return {
+        "mode": job.mode,
+        "reason": job.reason,
+        "attempt": int(job.sub.attempts or 1),
+        "max_attempts_per_run": job.max_attempts,
+        "started_at": utc_iso(),
+    }
 
 
 def _blurry_mock(job: _Job) -> None:
