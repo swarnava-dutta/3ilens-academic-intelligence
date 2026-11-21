@@ -95,15 +95,15 @@ function HumanReviewPanel({
         </FactTile>
         <FactTile label="Auto-grade threshold">
           <span className="text-xl tabular-nums">{threshold}%</span>
-          <p className="mt-1 text-xs font-normal text-amber-800">Minimum {confidenceLabel.toLowerCase()}</p>
+          <p className="mt-1 text-xs font-normal text-slate-500">Minimum {confidenceLabel.toLowerCase()}</p>
         </FactTile>
         <FactTile label="AI evaluation">
           Skipped
-          <p className="mt-1 text-xs font-normal text-amber-800">Pipeline halted before grading</p>
+          <p className="mt-1 text-xs font-normal text-slate-500">Pipeline halted before grading</p>
         </FactTile>
         <FactTile label="Routed to">
           Faculty review
-          <p className="mt-1 text-xs font-normal text-amber-800">Manual marking queue</p>
+          <p className="mt-1 text-xs font-normal text-slate-500">Manual marking queue</p>
         </FactTile>
       </div>
 

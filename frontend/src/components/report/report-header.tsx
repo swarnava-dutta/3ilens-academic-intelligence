@@ -280,7 +280,7 @@ function VersionSelect({ submissionId, viewing }: { submissionId: number; viewin
           const v = Number(e.target.value);
           router.push(v === current ? `/report/${submissionId}` : `/report/${submissionId}?version=${v}`);
         }}
-          className="-ml-1 h-8 max-w-full rounded-md border border-slate-300 bg-white px-1.5 text-sm tabular-nums text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+          className="h-8 max-w-full rounded-md border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
         >
           {[...versions].reverse().map((v) => (
             <option key={v.version} value={v.version}>

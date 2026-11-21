@@ -42,12 +42,12 @@ export function AuditTrailCard({
             return (
               <li
                 key={`${entry.step}-${entry.timestamp}-${i}`}
-                className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 py-2 first:pt-0 last:pb-0 print:break-inside-avoid"
+                className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3 py-2 first:pt-0 last:pb-0 print:break-inside-avoid"
               >
                 <time
                   dateTime={entry.timestamp}
                   title={formatDateTime(entry.timestamp)}
-                  className="pt-0.5 font-mono text-xs tabular-nums text-slate-500"
+                  className="whitespace-nowrap pt-0.5 font-mono text-xs tabular-nums text-slate-500"
                 >
                   {fmtTime(entry.timestamp)}
                 </time>
