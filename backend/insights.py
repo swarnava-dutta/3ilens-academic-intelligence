@@ -60,6 +60,11 @@ MAINTENANCE_NUDGE = {
     "source": "template",
 }
 
+# OCR wraps text the student addressed to the examiner / AI in this marker (ai.OCR_SYSTEM_PROMPT);
+# ai.py strips it before grading and the report flags it for faculty.
+NOTE_TO_EXAMINER = re.compile(r"\[\s*note to (?:the )?examiner\s*:[^\]]*\]", re.IGNORECASE)
+EXAMINER_NOTE_FLAG = "Note to examiner on the sheet - flagged for faculty, ignored for grading"
+
 _MARKS_PREFIX = re.compile(r"^\s*\d+(?:\.\d+)?\s*marks?\s*(?:each\s*)?[:\-–—.)]\s*", re.IGNORECASE)
 _WORD = re.compile(r"[a-z0-9]+")
 
@@ -122,6 +127,8 @@ def build_evaluation_report(
             evidence = (grade.evidence or "").strip() or "No evidence provided."
             strengths, gaps = _clean_list(grade.strengths), _clean_list(grade.gaps)
             demonstrated = bloom.parse_level(grade.demonstrated_level)
+        if NOTE_TO_EXAMINER.search(student_answer or ""):
+            note = f"{note}. {EXAMINER_NOTE_FLAG}" if note else EXAMINER_NOTE_FLAG
         outcome = question_outcome(student_answer, marks, max_marks)
         level, level_source = levels.get(number, (None, None))
         question_evaluations.append(
