@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Result } from "@/lib/types";
 import { formatConfidence } from "@/lib/utils";
 import { fmtIST, isoDateIST, shortHash } from "./format";
+import { LlmRouteChips } from "./llm-route";
 import { rubricLabel } from "./use-rubric";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -63,7 +64,16 @@ export function RunMetadataTable({ result }: { result: Result }) {
             ) : null}
           </Row>
           <Row label="Transcription">
-            {meta.is_demo ? (
+            {result.voice ? (
+              result.voice.synthetic || meta.is_demo ? (
+                "Synthetic voice transcript - no transcription call"
+              ) : (
+                <>
+                  Voice answer · OpenAI {result.voice.transcription_model || "gpt-transcribe"} (stand-in for Whisper
+                  large-v3 / Sarvam; not residency-approved)
+                </>
+              )
+            ) : meta.is_demo ? (
               "Synthetic record - no OCR was run"
             ) : (
               <>
@@ -71,6 +81,9 @@ export function RunMetadataTable({ result }: { result: Result }) {
                 {extraction.ocr_cache_hit ? " · OCR cache hit - no vision call (Rs 0.00)" : ""}
               </>
             )}
+          </Row>
+          <Row label="AI route">
+            <LlmRouteChips routes={result.llm_routes} isDemo={meta.is_demo} />
           </Row>
           <Row label="Academic release">
             {release.status === "RELEASED" ? (
