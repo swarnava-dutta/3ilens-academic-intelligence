@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- page scans come from the FastAPI backend (another origin); next/image adds nothing here. */
 
-import { Camera, CheckCircle2, FileWarning, History, Loader2, Save, ScanLine, Upload } from "lucide-react";
+import { Camera, CheckCircle2, Loader2, Save } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   errorCode,
@@ -45,7 +45,7 @@ function PagePanel({ id, data }: { id: number; data: OcrReviewData }) {
 
   if (!page) {
     return (
-      <div className="grid h-full min-h-48 place-items-center rounded-xl border border-dashed border-amber-300 bg-white/70 p-6 text-center text-sm text-amber-900">
+      <div className="grid h-full min-h-48 place-items-center p-6 text-center text-sm text-slate-600">
         No page images were stored for this sheet.
       </div>
     );
@@ -64,14 +64,12 @@ function PagePanel({ id, data }: { id: number; data: OcrReviewData }) {
                 aria-current={p.page_number === page.page_number ? "page" : undefined}
                 onClick={() => setCurrent(p.page_number)}
                 className={cn(
-                  "rounded-lg px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition",
+                  "min-h-8 rounded-sm border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
                   p.page_number === page.page_number
-                    ? isFlagged
-                      ? "bg-amber-500 text-amber-950 ring-amber-600"
-                      : "bg-brand-navy text-white ring-brand-navy"
+                    ? "border-brand-navy bg-brand-navy text-white"
                     : isFlagged
-                      ? "bg-amber-100 text-amber-900 ring-amber-300 hover:bg-amber-200"
-                      : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50",
+                      ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
                 )}
               >
                 p. {p.page_number}
@@ -84,7 +82,7 @@ function PagePanel({ id, data }: { id: number; data: OcrReviewData }) {
       </ol>
       <div
         className={cn(
-          "mt-2 overflow-hidden rounded-xl border-2 bg-white",
+          "mt-2 overflow-hidden rounded-md border bg-white",
           flagged.has(page.page_number) ? "border-amber-400" : "border-slate-200",
         )}
       >
@@ -95,7 +93,7 @@ function PagePanel({ id, data }: { id: number; data: OcrReviewData }) {
           className="mx-auto max-h-[70vh] w-full object-contain"
         />
       </div>
-      <p className="mt-1 text-xs text-amber-900">
+      <p className={cn("mt-1 text-xs tabular-nums", flagged.has(page.page_number) ? "text-amber-800" : "text-slate-500")}>
         Page {page.page_number}: legibility {c === undefined ? "not recorded" : formatConfidence(c)} (threshold{" "}
         {Math.round(data.threshold * 100)}%){flagged.has(page.page_number) ? " - below the threshold" : ""}.
       </p>
@@ -141,7 +139,7 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
 
   if (state.kind === "loading") {
     return (
-      <p className="flex items-center gap-2 rounded-xl bg-white/70 p-4 text-sm text-amber-900">
+      <p className="flex items-center gap-2 py-2 text-sm text-slate-600">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the transcript and page images…
       </p>
     );
@@ -192,20 +190,19 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-sm text-amber-950">
-        <ScanLine className="h-4 w-4" aria-hidden />
-        <span className="font-semibold">Faculty transcript review</span>
-        <Pill className="bg-white text-amber-900 ring-amber-300">Threshold {Math.round(data.threshold * 100)}% (any page below it)</Pill>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+        <h3 className="text-[15px] font-semibold text-brand-navy">Faculty transcript review</h3>
+        <span className="text-xs tabular-nums text-slate-500">Threshold {Math.round(data.threshold * 100)}% (any page below it)</span>
         {data.flagged_pages.length ? (
-          <Pill className="bg-amber-100 text-amber-900 ring-amber-300">Flagged page(s) {data.flagged_pages.join(", ")}</Pill>
+          <Pill className="bg-amber-50 text-amber-900">Flagged page(s) {data.flagged_pages.join(", ")}</Pill>
         ) : null}
         {!data.has_transcript ? (
-          <Pill className="bg-rose-50 text-rose-700 ring-rose-200">No OCR transcript (vision call skipped)</Pill>
+          <Pill className="bg-rose-50 text-rose-700">No OCR transcript (vision call skipped)</Pill>
         ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl bg-white/80 p-3 ring-1 ring-inset ring-amber-200">
+        <div className="rounded-md border border-slate-200 bg-white p-3">
           {submission.input_kind === "voice" ? (
             <VoiceAnswerPanel submissionId={id} voice={voiceInfoFromSubmission(submission)} isDemo={submission.is_demo} />
           ) : (
@@ -213,39 +210,39 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
           )}
         </div>
 
-        <div className="min-w-0 space-y-3 rounded-xl bg-white/80 p-3 ring-1 ring-inset ring-amber-200">
+        <div className="min-w-0 space-y-3 rounded-md border border-slate-200 bg-white p-3">
           {answers.length === 0 ? (
             <p className="text-sm text-slate-600">No rubric questions were returned for this sheet.</p>
           ) : (
-            <ol className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            <ol className="max-h-[70vh] divide-y divide-slate-200 overflow-y-auto pr-1">
               {answers.map((a) => {
                 const value = edits[a.question] ?? a.answer;
                 const low = a.confidence !== null && a.confidence < data.threshold;
                 return (
-                  <li key={a.question} className="rounded-lg border border-slate-200 bg-white p-3">
+                  <li key={a.question} className="py-3 first:pt-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded bg-brand-navy px-1.5 py-0.5 font-mono text-xs font-semibold text-white">Q{a.question}</span>
+                      <span className="text-sm font-semibold tabular-nums text-slate-500">Q{a.question}</span>
                       <span className="text-sm font-medium text-slate-800">{a.topic}</span>
                       <span
                         className={cn(
-                          "ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
-                          low ? "bg-amber-50 text-amber-800 ring-amber-300" : "bg-slate-50 text-slate-600 ring-slate-200",
+                          "ml-auto rounded-sm px-1.5 py-0.5 text-xs font-medium tabular-nums",
+                          low ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600",
                         )}
                       >
                         OCR {formatConfidence(a.confidence)}
                       </span>
-                      {a.source_pages.length ? <span className="text-[11px] text-slate-500">p. {a.source_pages.join(", ")}</span> : null}
+                      {a.source_pages.length ? <span className="text-xs tabular-nums text-slate-500">p. {a.source_pages.join(", ")}</span> : null}
                     </div>
                     {a.prompt ? <p className="mt-1 text-xs text-slate-500">{a.prompt}</p> : null}
                     {a.uncertain_words.length && a.answer ? (
-                      <p className="mt-2 whitespace-pre-wrap rounded bg-slate-50 px-2 py-1.5 font-mono text-xs leading-relaxed text-slate-700">
+                      <p className="mt-2 whitespace-pre-wrap rounded-sm bg-slate-50 px-2 py-1.5 text-sm leading-normal text-slate-700">
                         <UncertainText text={a.answer} words={a.uncertain_words} />
                       </p>
                     ) : null}
                     <label className="mt-2 block">
                       <span className="sr-only">Answer to question {a.question}</span>
                       <textarea
-                        className={cn(inputClass, "min-h-20 font-mono text-[13px]", value !== a.answer && "border-violet-400 ring-2 ring-violet-200")}
+                        className={cn(inputClass, "min-h-20", value !== a.answer && "border-brand-cyan-600 bg-brand-cyan-50")}
                         value={value}
                         onChange={(e) => setEdits((prev) => ({ ...prev, [a.question]: e.target.value }))}
                         placeholder={data.has_transcript ? "Blank (not attempted)" : "Type the student's answer from the page"}
@@ -254,7 +251,7 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
                     {value !== a.answer ? (
                       <button
                         type="button"
-                        className="mt-1 text-xs font-medium text-violet-700 hover:underline"
+                        className="mt-1 rounded-sm text-xs font-medium text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                         onClick={() =>
                           setEdits((prev) => {
                             const next = { ...prev };
@@ -333,39 +330,35 @@ export function ReviewEditor({ submission, onChanged }: { submission: Submission
               }}
             />
           </div>
-          <p className="flex items-start gap-1.5 text-xs text-slate-500">
-            <Upload className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            Approve or correct sends the transcript to rubric grading (one AI call). A rescan replaces the file and runs OCR again.
+          <p className="text-xs text-slate-500">
+            Approve or correct sends the transcript to rubric grading (one model call). A rescan replaces the file and runs OCR again.
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl bg-white/70 p-3 ring-1 ring-inset ring-amber-200">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
-          <History className="h-3.5 w-3.5" aria-hidden /> Review history
-        </p>
+      <div className="rounded-md border border-slate-200 bg-white p-3">
+        <h3 className="text-sm font-semibold text-brand-navy">Review history</h3>
         {data.reviews.length === 0 ? (
-          <p className="mt-1 text-sm text-amber-900/80">No review actions yet.</p>
+          <p className="mt-1 text-sm text-slate-500">No review actions yet.</p>
         ) : (
-          <ul className="mt-1.5 space-y-1 text-sm text-amber-950">
+          <ul className="mt-1.5 space-y-1 text-sm text-slate-700">
             {[...data.reviews]
               .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
               .map((r) => (
                 <li key={r.id} className="flex flex-wrap gap-x-2">
-                  <span className="font-semibold">{r.reviewer}</span>
+                  <span className="font-medium text-slate-900">{r.reviewer}</span>
                   <span>{r.action}</span>
                   {r.changed_questions.length ? <span>Q{r.changed_questions.join(", Q")}</span> : null}
-                  <span className="text-xs text-amber-800/80">{fmtIST(r.created_at)}</span>
-                  {r.note ? <span className="w-full text-xs text-amber-900/80">{r.note}</span> : null}
+                  <span className="text-xs tabular-nums text-slate-500">{fmtIST(r.created_at)}</span>
+                  {r.note ? <span className="w-full text-xs text-slate-500">{r.note}</span> : null}
                 </li>
               ))}
           </ul>
         )}
       </div>
       {!data.has_transcript ? (
-        <p className="flex items-start gap-1.5 text-xs text-amber-900">
-          <FileWarning className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          The sheet was routed to review before any vision call, so there is no AI transcript to approve.
+        <p className="text-xs text-amber-900">
+          The sheet was routed to review before any vision call, so there is no OCR transcript to approve.
         </p>
       ) : null}
     </div>

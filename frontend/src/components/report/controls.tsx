@@ -1,27 +1,13 @@
 "use client";
 
-import {
-  BadgeCheck,
-  CheckCircle2,
-  CircleSlash,
-  Cpu,
-  Download,
-  FileLock2,
-  GitCompareArrows,
-  History,
-  Loader2,
-  MessageCircle,
-  Scale,
-  ShieldQuestion,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Loader2, ShieldQuestion, XCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorCode, errorMessage, errorStatus, getInvocations, reportPdfUrl, runConsistencyCheck } from "@/lib/api";
 import type { ConsistencyCheck, Delivery, ModelInvocation, Result } from "@/lib/types";
 import { cn, formatConfidence } from "@/lib/utils";
 import { Notice, btnSecondary } from "./dialog";
 import { fmtBytes, fmtIST, fmtInr, fmtNumber, fmtSeconds, fraction, shortHash } from "./format";
-import { Eyebrow, Pill, SectionCard } from "./primitives";
+import { Pill, SectionCard } from "./primitives";
 import { rubricLabel } from "./use-rubric";
 import { CopyButton, DeliveryResult } from "./whatsapp-dialog";
 
@@ -29,7 +15,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm text-slate-800">{children}</dd>
+      <dd className="mt-0.5 break-words text-sm tabular-nums text-slate-800">{children}</dd>
     </div>
   );
 }
@@ -39,10 +25,10 @@ export function DocumentCustodyCard({ result }: { result: Result }) {
   const c = result.custody;
   const isDemo = result.submission.is_demo;
   return (
-    <SectionCard id="custody" title="Document custody" description="Fingerprint of the original upload." icon={FileLock2}>
+    <SectionCard id="custody" title="Document custody" description="Fingerprint of the original upload.">
       {c ? (
         <>
-          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 [print-color-adjust:exact]">
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 px-3 py-2">
             <code className="min-w-0 flex-1 truncate font-mono text-xs text-slate-700" title={c.sha256}>
               sha256 {shortHash(c.sha256, 16, 8)}
             </code>
@@ -56,12 +42,12 @@ export function DocumentCustodyCard({ result }: { result: Result }) {
             </Fact>
             <Fact label="Integrity">
               {c.verified ? (
-                <span className="inline-flex items-center gap-1 font-medium text-lime-700">
+                <span className="inline-flex items-center gap-1 font-medium text-lime-800">
                   <CheckCircle2 className="h-4 w-4" aria-hidden /> Verified
                   {c.verified_at ? <span className="font-normal text-slate-500"> {fmtIST(c.verified_at)}</span> : null}
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 font-medium text-amber-700">
+                <span className="inline-flex items-center gap-1 font-medium text-amber-800">
                   <ShieldQuestion className="h-4 w-4" aria-hidden /> Not re-verified
                 </span>
               )}
@@ -72,7 +58,7 @@ export function DocumentCustodyCard({ result }: { result: Result }) {
           </p>
         </>
       ) : (
-        <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+        <p className="text-sm text-slate-500">
           {isDemo
             ? "Synthetic record - no source scan, so there is no file to fingerprint."
             : "No custody hash: this sheet was uploaded before SHA-256 hashing was recorded."}
@@ -84,14 +70,16 @@ export function DocumentCustodyCard({ result }: { result: Result }) {
 
 function GateTile({ ok, title, value, text }: { ok: boolean | null; title: string; value: string; text: string }) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border p-3 [print-color-adjust:exact] print:break-inside-avoid",
-        ok === true ? "border-lime-300 bg-brand-lime-50" : ok === false ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50",
-      )}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">{title}</p>
-      <p className="mt-1 text-xl font-semibold text-brand-navy">{value}</p>
+    <div className="min-w-0 py-3 md:px-4 md:py-0 md:first:pl-0 md:last:pr-0 print:break-inside-avoid">
+      <p className="text-xs text-slate-500">{title}</p>
+      <p
+        className={cn(
+          "mt-0.5 text-base font-semibold tabular-nums",
+          ok === true ? "text-lime-800" : ok === false ? "text-amber-800" : "text-brand-navy",
+        )}
+      >
+        {value}
+      </p>
       <p className="mt-0.5 text-xs leading-snug text-slate-600">{text}</p>
     </div>
   );
@@ -119,9 +107,8 @@ export function ProvenanceGatesCard({ result }: { result: Result }) {
       id="provenance"
       title="What is established - and what is not"
       description="Provenance and quality gates for this report."
-      icon={BadgeCheck}
     >
-      <div className="grid gap-3 md:grid-cols-3 print:grid-cols-3">
+      <div className="grid divide-y divide-slate-200 border-y border-slate-200 md:grid-cols-3 md:divide-x md:divide-y-0 md:py-3 print:grid-cols-3">
         <GateTile
           ok={custody ? custody.verified : null}
           title="Original document custody"
@@ -156,15 +143,10 @@ export function ProvenanceGatesCard({ result }: { result: Result }) {
         />
       </div>
       <div className="mt-4">
-        <Eyebrow icon={CircleSlash} className="mb-2">
-          Not established
-        </Eyebrow>
-        <ul className="space-y-1.5 text-sm text-slate-700">
+        <h3 className="mb-1.5 text-sm font-semibold text-brand-navy">Not established</h3>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700 marker:text-slate-400">
           {notEstablished.map((t) => (
-            <li key={t} className="flex gap-2">
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              {t}
-            </li>
+            <li key={t}>{t}</li>
           ))}
         </ul>
       </div>
@@ -177,7 +159,7 @@ export function ScoringControlsNote({ result }: { result: Result }) {
   const sc = result.scoring_controls;
   const penalty = result.question_evaluations.reduce((sum, q) => sum + Math.max(0, q.penalty || 0), 0);
   return (
-    <SectionCard id="scoring-controls" title="Scoring controls" description="How the total was computed." icon={Scale}>
+    <SectionCard id="scoring-controls" title="Scoring controls" description="How the total was computed.">
       <dl className="grid gap-3 sm:grid-cols-2">
         <Fact label="Marking rule">
           {sc.marking_rule}
@@ -190,14 +172,14 @@ export function ScoringControlsNote({ result }: { result: Result }) {
         <Fact label="Rubric">
           {sc.rubric_version || "—"} · {sc.rubric_status}
           {sc.rubric_hash ? (
-            <span className="block font-mono text-[11px] text-slate-500" title={sc.rubric_hash}>
+            <span className="block font-mono text-xs text-slate-500" title={sc.rubric_hash}>
               sha256 {shortHash(sc.rubric_hash)}
             </span>
           ) : null}
         </Fact>
         <Fact label="Parity check">
           {sc.parity ? (
-            <span className="inline-flex items-center gap-1 font-medium text-lime-700">
+            <span className="inline-flex items-center gap-1 font-medium text-lime-800">
               <CheckCircle2 className="h-4 w-4" aria-hidden /> Item sum {fmtNumber(sc.item_sum)} = reported total{" "}
               {fmtNumber(sc.reported_total)}
             </span>
@@ -255,14 +237,13 @@ export function InvocationsCard({ result }: { result: Result }) {
       id="invocations"
       title="Model calls and timings"
       description="Every provider call for this sheet: model, request id, tokens (incl. cache), latency and cost."
-      icon={Cpu}
       action={
         cost.synthetic || isDemo ? (
-          <Pill className="bg-slate-50 text-slate-500 ring-slate-200">Synthetic - no AI call</Pill>
+          <span className="text-xs text-slate-500">Synthetic - no model call</span>
         ) : cost.llm_cost_inr !== null ? (
-          <Pill className="bg-slate-50 text-slate-700 ring-slate-200">
+          <span className="text-sm tabular-nums text-slate-700">
             {fmtInr(cost.llm_cost_inr)} · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
-          </Pill>
+          </span>
         ) : null
       }
     >
@@ -279,37 +260,37 @@ export function InvocationsCard({ result }: { result: Result }) {
       ) : state.kind === "error" ? (
         <Notice tone="info">{state.message}</Notice>
       ) : state.rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+        <p className="text-sm text-slate-500">
           {isDemo ? "Synthetic record - no model was called." : "No model calls were recorded for this sheet."}
         </p>
       ) : (
         <div className="relative overflow-x-auto print:overflow-visible">
-          <table className="w-full min-w-[50rem] print:min-w-0 border-collapse text-xs">
+          <table className="w-full min-w-[50rem] border-collapse text-[13px] print:min-w-0">
             <caption className="sr-only">Model invocations</caption>
             <thead>
-              <tr className="bg-brand-navy text-left text-white [print-color-adjust:exact]">
-                <th scope="col" className="px-2 py-2 font-semibold">Purpose</th>
-                <th scope="col" className="px-2 py-2 font-semibold">Model</th>
-                <th scope="col" className="px-2 py-2 font-semibold">Request id</th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">In / out tokens</th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">Cache read / write</th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">Latency</th>
-                <th scope="col" className="px-2 py-2 font-semibold">Status</th>
-                <th scope="col" className="px-2 py-2 text-right font-semibold">Rs</th>
+              <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
+                <th scope="col" className="px-2 py-2 font-medium">Purpose</th>
+                <th scope="col" className="px-2 py-2 font-medium">Model</th>
+                <th scope="col" className="px-2 py-2 font-medium">Request id</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">In / out tokens</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Cache read / write</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Latency</th>
+                <th scope="col" className="px-2 py-2 font-medium">Status</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Rs</th>
               </tr>
             </thead>
             <tbody>
               {state.rows.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 even:bg-slate-50">
+                <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="px-2 py-1.5 font-medium text-slate-800">
                     {r.purpose}
-                    {r.image_count ? <span className="text-slate-400"> · {r.image_count} img</span> : null}
+                    {r.image_count ? <span className="tabular-nums text-slate-500"> · {r.image_count} img</span> : null}
                   </td>
-                  <td className="px-2 py-1.5 font-mono">
+                  <td className="px-2 py-1.5 font-mono text-xs">
                     {r.model_served ?? r.model_requested}
-                    {r.fell_back ? <span className="ml-1 text-amber-700">(fallback)</span> : null}
+                    {r.fell_back ? <span className="ml-1 font-sans text-amber-800">(fallback)</span> : null}
                   </td>
-                  <td className="max-w-[9rem] truncate px-2 py-1.5 font-mono text-slate-500" title={r.request_id ?? undefined}>
+                  <td className="max-w-[9rem] truncate px-2 py-1.5 font-mono text-xs text-slate-500" title={r.request_id ?? undefined}>
                     {r.request_id ?? "—"}
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums">
@@ -322,7 +303,7 @@ export function InvocationsCard({ result }: { result: Result }) {
                   <td className="px-2 py-1.5">
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 font-medium",
+                        "rounded-sm px-1.5 py-0.5 text-xs font-medium",
                         r.status === "ok" || r.status === "cache_hit" ? "bg-brand-lime-50 text-lime-800" : "bg-rose-50 text-rose-700",
                       )}
                     >
@@ -335,15 +316,15 @@ export function InvocationsCard({ result }: { result: Result }) {
               ))}
             </tbody>
           </table>
-          <p className="mt-1.5 text-[11px] text-slate-500">
+          <p className="mt-1.5 text-xs text-slate-500">
             Cost uses the configured per-model prices at USD/INR {fmtNumber(cost.usd_inr)}. No prompt or answer text is
             stored in this log.
           </p>
         </div>
       )}
 
-      <div className="mt-5">
-        <Eyebrow className="mb-2">Stage durations</Eyebrow>
+      <div className="mt-5 border-t border-slate-200 pt-4">
+        <h3 className="mb-2 text-sm font-semibold text-brand-navy">Stage durations</h3>
         {stages.length === 0 ? (
           <p className="text-sm text-slate-500">No stage timings were recorded.</p>
         ) : (
@@ -351,9 +332,9 @@ export function InvocationsCard({ result }: { result: Result }) {
             {stages.map((s, i) => (
               <li key={`${s.step}-${i}`} className="grid grid-cols-[8rem_1fr_4rem] items-center gap-2 text-xs sm:grid-cols-[11rem_1fr_4.5rem]">
                 <span className="truncate text-slate-700">{s.step}</span>
-                <span className="h-2 rounded-full bg-slate-100 [print-color-adjust:exact]">
+                <span className="h-2 rounded-sm bg-slate-100 [print-color-adjust:exact]">
                   <span
-                    className="block h-full rounded-full bg-brand-cyan"
+                    className="block h-full rounded-sm bg-brand-cyan"
                     style={{ width: `${maxStage > 0 ? Math.max(2, (s.seconds / maxStage) * 100) : 0}%` }}
                   />
                 </span>
@@ -408,15 +389,14 @@ export function ConsistencyCheckCard({ result }: { result: Result }) {
       id="consistency"
       title="Re-grade consistency check"
       description="Grades the stored transcript once more and compares the totals (tolerance ±2 marks)."
-      icon={GitCompareArrows}
     >
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <button type="button" className={btnSecondary} onClick={run} disabled={state.kind === "running"}>
-          {state.kind === "running" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GitCompareArrows className="h-4 w-4" aria-hidden />}
+          {state.kind === "running" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           {state.kind === "running" ? "Re-grading…" : "Run consistency check"}
         </button>
         <span className="text-xs text-slate-500">
-          {isDemo ? "Demo rows have no AI transcript to re-grade." : "Makes one live grading call (counted in the cost log)."}
+          {isDemo ? "Demo rows have no transcript to re-grade." : "Makes one live grading call (counted in the cost log)."}
         </span>
       </div>
       {state.kind === "error" ? <Notice tone="warn" className="mt-3">{state.message}</Notice> : null}
@@ -429,22 +409,22 @@ export function ConsistencyCheckCard({ result }: { result: Result }) {
           </Notice>
           {check.deltas.length ? (
             <div className="relative overflow-x-auto print:overflow-visible">
-              <table className="w-full min-w-[24rem] print:min-w-0 border-collapse text-xs">
+              <table className="w-full min-w-[24rem] border-collapse text-[13px] print:min-w-0">
                 <thead>
-                  <tr className="bg-slate-100 text-left text-slate-600">
-                    <th className="px-2 py-1.5">Question</th>
-                    <th className="px-2 py-1.5 text-right">Original</th>
-                    <th className="px-2 py-1.5 text-right">Re-grade</th>
-                    <th className="px-2 py-1.5 text-right">Δ</th>
+                  <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
+                    <th className="px-2 py-1.5 font-medium">Question</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Original</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Re-grade</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Δ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {check.deltas.map((d) => (
                     <tr key={d.question} className="border-b border-slate-100">
-                      <td className="px-2 py-1.5 font-mono">Q{d.question}</td>
+                      <td className="px-2 py-1.5 tabular-nums">Q{d.question}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmtNumber(d.original)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmtNumber(d.regrade)}</td>
-                      <td className={cn("px-2 py-1.5 text-right tabular-nums", d.delta !== 0 && "font-semibold text-amber-700")}>
+                      <td className={cn("px-2 py-1.5 text-right tabular-nums", d.delta !== 0 && "font-semibold text-amber-800")}>
                         {d.delta > 0 ? "+" : ""}
                         {fmtNumber(d.delta)}
                       </td>
@@ -466,7 +446,7 @@ export function VersionHistoryCard({ result }: { result: Result }) {
   const versions = [...result.versions].sort((a, b) => b.version - a.version);
   const superseded = versions.filter((v) => !v.current);
   return (
-    <SectionCard id="versions" title="Version history" description="Each rubric re-run archives the previous result." icon={History}>
+    <SectionCard id="versions" title="Version history" description="Each rubric re-run archives the previous result.">
       {superseded.length ? (
         <Notice tone="warn" className="mb-3">
           Superseded: {superseded.length} earlier {superseded.length === 1 ? "version is" : "versions are"} archived. This page
@@ -479,23 +459,23 @@ export function VersionHistoryCard({ result }: { result: Result }) {
         <ul className="divide-y divide-slate-100">
           {versions.map((v) => (
             <li key={v.version} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
-              <span className="font-mono text-xs font-semibold text-slate-700">v{v.version}</span>
-              <span className="text-slate-700">
+              <span className="text-sm font-semibold tabular-nums text-slate-700">v{v.version}</span>
+              <span className="tabular-nums text-slate-700">
                 Rubric {v.rubric_version || `#${v.rubric_id}`} · {fraction(v.total_score, v.total_marks)}
               </span>
-              <span className="text-xs text-slate-500">{fmtIST(v.created_at)}</span>
+              <span className="text-xs tabular-nums text-slate-500">{fmtIST(v.created_at)}</span>
               {v.current ? (
-                <Pill className="bg-brand-cyan-50 text-cyan-800 ring-brand-cyan/30">Current</Pill>
+                <Pill className="bg-brand-cyan-50 text-brand-navy">Current</Pill>
               ) : (
-                <Pill className="bg-amber-50 text-amber-800 ring-amber-200">
+                <Pill className="bg-amber-50 text-amber-800">
                   Superseded{v.superseded_at ? ` ${fmtIST(v.superseded_at)}` : ""}
                 </Pill>
               )}
               <a
                 href={reportPdfUrl(id, v.current ? undefined : v.version)}
-                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-cyan-600 hover:text-brand-navy print:hidden"
+                className="ml-auto rounded-sm text-sm font-medium text-brand-cyan-600 hover:text-brand-navy hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan print:hidden"
+                aria-label={`Download version ${v.version} PDF`}
               >
-                <Download className="h-3.5 w-3.5" aria-hidden />
                 PDF
               </a>
             </li>
@@ -514,7 +494,6 @@ export function DeliveriesCard({ deliveries }: { deliveries: Delivery[] }) {
       id="deliveries"
       title="Delivery history"
       description="Simulated WhatsApp channel - Gupshup/Twilio integration out of PoC scope."
-      icon={MessageCircle}
     >
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">No delivery has been simulated for this report.</p>
@@ -522,7 +501,7 @@ export function DeliveriesCard({ deliveries }: { deliveries: Delivery[] }) {
         <ul className="space-y-2">
           {rows.map((d) => (
             <li key={d.id}>
-              <p className="mb-1 text-xs text-slate-500">{fmtIST(d.created_at)} · {d.channel}</p>
+              <p className="mb-1 text-xs tabular-nums text-slate-500">{fmtIST(d.created_at)} · {d.channel}</p>
               <DeliveryResult delivery={d} />
             </li>
           ))}

@@ -1,12 +1,12 @@
 "use client";
 
-import { FileImage, Microscope, SearchCheck } from "lucide-react";
+import { FileImage } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { QuestionEvaluation, QuestionOutcome, Result } from "@/lib/types";
 import { cn, formatConfidence } from "@/lib/utils";
 import { Modal, btnSecondary } from "./dialog";
 import { OUTCOME_LOOK, fraction } from "./format";
-import { Eyebrow, Pill, SectionCard } from "./primitives";
+import { Pill, SectionCard } from "./primitives";
 import { focusQuestion, openSourcePage } from "./report-events";
 import { OutcomeBadge } from "./question-evaluations";
 import { UncertainText } from "./uncertain-text";
@@ -28,8 +28,8 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-        active ? "bg-brand-navy text-white ring-brand-navy" : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50",
+        "min-h-8 rounded-sm border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+        active ? "border-brand-navy bg-brand-navy text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
       )}
     >
       {children}
@@ -81,44 +81,44 @@ function InspectDrawer({
           <div className="flex flex-wrap items-center gap-2">
             <OutcomeBadge outcome={q.outcome} />
             {isDemo ? (
-              <Pill className="bg-slate-50 text-slate-500 ring-slate-200">Synthetic - no OCR</Pill>
+              <span className="text-xs text-slate-500">Synthetic - no OCR</span>
             ) : (
               <Pill
                 className={
                   q.confidence > 0 && q.confidence < threshold
-                    ? "bg-amber-50 text-amber-800 ring-amber-200"
-                    : "bg-slate-50 text-slate-600 ring-slate-200"
+                    ? "bg-amber-50 text-amber-800"
+                    : "bg-slate-100 text-slate-600"
                 }
               >
                 OCR {formatConfidence(q.confidence)} (threshold {Math.round(threshold * 100)}%)
               </Pill>
             )}
-            {q.corrected_by_faculty ? <Pill className="bg-violet-50 text-violet-700 ring-violet-200">Corrected by faculty</Pill> : null}
+            {q.corrected_by_faculty ? <Pill className="bg-slate-100 text-slate-700">Corrected by faculty</Pill> : null}
           </div>
 
           <div>
-            <Eyebrow className="mb-1">Prompt</Eyebrow>
-            <p className="leading-relaxed text-slate-700">{prompt || "The rubric has no prompt text for this question."}</p>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">Prompt</h3>
+            <p className="leading-normal text-slate-700">{prompt || "The rubric has no prompt text for this question."}</p>
           </div>
 
           <div>
-            <Eyebrow className="mb-1">{isDemo ? "Synthetic answer" : "Transcription"}</Eyebrow>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">{isDemo ? "Synthetic answer" : "Transcription"}</h3>
             {q.student_answer.trim() ? (
-              <blockquote className="whitespace-pre-wrap break-words rounded-r-lg border-l-4 border-brand-cyan bg-slate-50 px-3 py-2 font-mono text-[13px] leading-relaxed text-slate-700">
+              <blockquote className="whitespace-pre-wrap break-words border-l-2 border-slate-300 bg-slate-50 px-3 py-2 leading-normal text-slate-700">
                 <UncertainText text={q.student_answer} words={q.uncertain_words} />
               </blockquote>
             ) : (
-              <p className="italic text-slate-500">Not attempted (no answer detected).</p>
+              <p className="text-slate-500">Not attempted (no answer detected).</p>
             )}
           </div>
 
           <div>
-            <Eyebrow className="mb-1">Evaluator evidence</Eyebrow>
-            <p className="leading-relaxed text-slate-700">{q.evidence || "—"}</p>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">Evaluator evidence</h3>
+            <p className="leading-normal text-slate-700">{q.evidence || "—"}</p>
           </div>
 
           <div>
-            <Eyebrow className="mb-1">Missed criteria</Eyebrow>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">Missed criteria</h3>
             {q.gaps.length ? (
               <ul className="list-disc space-y-0.5 pl-5 text-slate-700">
                 {q.gaps.map((g, i) => (
@@ -131,7 +131,7 @@ function InspectDrawer({
           </div>
 
           <div>
-            <Eyebrow className="mb-1">Source</Eyebrow>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">Source</h3>
             {isDemo ? (
               <p className="text-slate-500">Synthetic record: no source scan.</p>
             ) : q.source_pages.length ? (
@@ -179,7 +179,6 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
       id="evidence-trace"
       title="Trace a finding back to the source"
       description={`Question-level provenance · ${notFull.length} partial, zero or blank ${notFull.length === 1 ? "item" : "items"}.`}
-      icon={SearchCheck}
     >
       <div className="mb-3 flex flex-col gap-2 print:hidden">
         {subjects.length > 1 ? (
@@ -212,17 +211,17 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
       </div>
 
       <div className="relative overflow-x-auto print:overflow-visible print:hidden">
-        <table className="w-full min-w-[40rem] print:min-w-0 border-collapse text-sm">
+        <table className="w-full min-w-[40rem] border-collapse text-sm print:min-w-0">
           <caption className="sr-only">Evidence trace</caption>
           <thead>
-            <tr className="bg-brand-navy text-left text-xs text-white [print-color-adjust:exact]">
-              <th scope="col" className="px-2.5 py-2 font-semibold">Q#</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Topic</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Subject</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Outcome</th>
-              <th scope="col" className="px-2.5 py-2 text-right font-semibold">Marks</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Page(s)</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">
+            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <th scope="col" className="px-2.5 py-2 font-medium">Q</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Topic</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Subject</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Outcome</th>
+              <th scope="col" className="px-2.5 py-2 text-right font-medium">Marks</th>
+              <th scope="col" className="px-2.5 py-2 text-right font-medium">Page(s)</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">
                 <span className="sr-only">Inspect</span>
               </th>
             </tr>
@@ -236,26 +235,26 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
               </tr>
             ) : (
               rows.map((q) => (
-                <tr key={q.question} className="border-b border-slate-100 even:bg-slate-50">
-                  <td className="px-2.5 py-2 font-mono text-xs font-semibold text-slate-700">Q{q.question}</td>
+                <tr key={q.question} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="px-2.5 py-2 tabular-nums text-slate-500">Q{q.question}</td>
                   <th scope="row" className="px-2.5 py-2 text-left font-medium text-slate-800">{q.topic}</th>
                   <td className="px-2.5 py-2 text-slate-600">{subjectOf(result, q)}</td>
                   <td className="px-2.5 py-2">
                     <OutcomeBadge outcome={q.outcome} />
                   </td>
-                  <td className="px-2.5 py-2 text-right font-semibold tabular-nums text-brand-navy">
+                  <td className="whitespace-nowrap px-2.5 py-2 text-right tabular-nums text-slate-800">
                     {fraction(q.estimated_marks, q.max_marks)}
                   </td>
-                  <td className="px-2.5 py-2 text-xs text-slate-600">
+                  <td className="px-2.5 py-2 text-right tabular-nums text-slate-600">
                     {result.submission.is_demo ? "synthetic" : q.source_pages.length ? q.source_pages.join(", ") : "—"}
                   </td>
                   <td className="px-2.5 py-2 text-right">
                     <button
                       type="button"
                       onClick={() => setInspect(q.question)}
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-brand-cyan-600 ring-1 ring-inset ring-brand-cyan/40 transition hover:bg-brand-cyan-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+                      aria-label={`Inspect question ${q.question}`}
+                      className="rounded-sm px-1 py-1 text-sm font-medium text-brand-cyan-600 underline-offset-2 transition-colors duration-150 hover:text-brand-navy hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                     >
-                      <Microscope className="h-3.5 w-3.5" aria-hidden />
                       Inspect
                     </button>
                   </td>
@@ -273,7 +272,7 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
         ) : (
           <table className="w-full border-collapse text-xs">
             <thead>
-              <tr className="bg-brand-navy text-left text-white [print-color-adjust:exact]">
+              <tr className="border-b border-slate-400 text-left text-slate-600">
                 <th className="px-2 py-1.5">Q#</th>
                 <th className="px-2 py-1.5">Topic</th>
                 <th className="px-2 py-1.5">Outcome</th>

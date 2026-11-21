@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { CalendarRange } from "lucide-react";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import type { HistoryEntry, Result } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { clampPct, fmtISTDate, fmtNumber, fraction, isoDateIST } from "./format";
-import { Pill, SectionCard } from "./primitives";
+import { SectionCard } from "./primitives";
 
 /** History rows oldest first; when the API has none, this assessment alone. */
 export function worksheetRows(result: Result): HistoryEntry[] {
@@ -56,7 +55,7 @@ function Sparkline({ rows }: { rows: HistoryEntry[] }) {
         return (
           <g key={g}>
             <line x1={PAD_X} x2={W - PAD_X} y1={y} y2={y} className="stroke-slate-200" strokeDasharray={g === 50 ? "3 3" : undefined} />
-            <text x={2} y={y + 3} className="fill-slate-400 text-[8px]">
+            <text x={2} y={y + 3} className="fill-slate-500 text-[8px] tabular-nums">
               {g}
             </text>
           </g>
@@ -72,7 +71,7 @@ function Sparkline({ rows }: { rows: HistoryEntry[] }) {
       {pts.map((p) => (
         <g key={p.r.submission_id}>
           <circle cx={p.x} cy={p.y} r={p.r.current ? 4.5 : 3.5} className={p.r.current ? "fill-brand-navy" : "fill-brand-cyan"} />
-          <text x={p.x} y={p.y - 7} textAnchor="middle" className="fill-slate-600 text-[8px] font-semibold">
+          <text x={p.x} y={p.y - 7} textAnchor="middle" className="fill-slate-700 text-[8px] font-medium tabular-nums">
             {fmtNumber(p.r.pct, 0)}%
           </text>
         </g>
@@ -98,26 +97,25 @@ export function WorksheetCard({ result }: { result: Result }) {
       id="worksheet"
       title="Dated assessment worksheet"
       description="Every assessment on record for this student (matched by student ref)."
-      icon={CalendarRange}
       action={
-        <Pill className="bg-slate-50 text-slate-600 ring-slate-200">
+        <span className="text-sm tabular-nums text-slate-500">
           {rows.length} {rows.length === 1 ? "assessment" : "assessments"}
           {range ? ` · ${range}` : ""}
-        </Pill>
+        </span>
       }
     >
       <div className="relative overflow-x-auto print:overflow-visible">
-        <table className="w-full min-w-[40rem] print:min-w-0 border-collapse text-sm">
+        <table className="w-full min-w-[40rem] border-collapse text-sm print:min-w-0">
           <caption className="sr-only">Assessments for this student</caption>
           <thead>
-            <tr className="bg-brand-navy text-left text-xs text-white [print-color-adjust:exact]">
-              <th scope="col" className="px-2.5 py-2 font-semibold">Date (IST)</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Assessment</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Subjects</th>
-              <th scope="col" className="px-2.5 py-2 text-right font-semibold">Score</th>
-              <th scope="col" className="px-2.5 py-2 text-right font-semibold">%</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">F / P / Z / B</th>
-              <th scope="col" className="px-2.5 py-2 font-semibold">Urgency</th>
+            <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
+              <th scope="col" className="px-2.5 py-2 font-medium">Date (IST)</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Assessment</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Subjects</th>
+              <th scope="col" className="px-2.5 py-2 text-right font-medium">Score</th>
+              <th scope="col" className="px-2.5 py-2 text-right font-medium">%</th>
+              <th scope="col" className="px-2.5 py-2 text-right font-medium">F / P / Z / B</th>
+              <th scope="col" className="px-2.5 py-2 font-medium">Urgency</th>
             </tr>
           </thead>
           <tbody>
@@ -126,7 +124,7 @@ export function WorksheetCard({ result }: { result: Result }) {
                 key={`${h.submission_id}-${h.date}`}
                 className={cn(
                   "border-b border-slate-100 [print-color-adjust:exact]",
-                  h.current ? "bg-brand-cyan-50/70" : "even:bg-slate-50",
+                  h.current ? "bg-brand-cyan-50" : "hover:bg-slate-50",
                 )}
               >
                 <td className="whitespace-nowrap px-2.5 py-2 tabular-nums text-slate-700">{isoDateIST(h.date)}</td>
@@ -134,25 +132,25 @@ export function WorksheetCard({ result }: { result: Result }) {
                   {h.current ? (
                     <span className="font-medium text-brand-navy">
                       {h.batch_name} · {h.rubric_name} {h.rubric_version}
-                      <span className="ml-1.5 rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+                      <span className="ml-1.5 rounded-sm border border-brand-navy/30 px-1 py-px text-[11px] font-medium text-brand-navy">
                         This report
                       </span>
                     </span>
                   ) : (
                     <Link
                       href={`/report/${h.submission_id}`}
-                      className="font-medium text-brand-cyan-600 underline-offset-2 hover:text-brand-navy hover:underline"
+                      className="rounded-sm font-medium text-brand-cyan-600 underline-offset-2 hover:text-brand-navy hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                     >
                       {h.batch_name} · {h.rubric_name} {h.rubric_version}
                     </Link>
                   )}
                 </th>
                 <td className="px-2.5 py-2 text-slate-600">{h.subjects.join(", ") || "—"}</td>
-                <td className="px-2.5 py-2 text-right font-semibold tabular-nums text-brand-navy">
+                <td className="whitespace-nowrap px-2.5 py-2 text-right tabular-nums text-slate-800">
                   {fraction(h.score, h.total_marks)}
                 </td>
                 <td className="px-2.5 py-2 text-right tabular-nums">{fmtNumber(h.pct)}%</td>
-                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-xs text-slate-600">
+                <td className="whitespace-nowrap px-2.5 py-2 text-right tabular-nums text-slate-600">
                   {h.outcome_counts
                     ? `${h.outcome_counts.full} / ${h.outcome_counts.partial} / ${h.outcome_counts.zero} / ${h.outcome_counts.blank}`
                     : "—"}
@@ -166,14 +164,14 @@ export function WorksheetCard({ result }: { result: Result }) {
         </table>
       </div>
 
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 [print-color-adjust:exact]">
+      <div className="mt-4 border-t border-slate-200 pt-3">
         {rows.length >= 2 ? (
           <Sparkline rows={rows} />
         ) : (
           <p className="text-sm text-slate-500">Longitudinal view needs at least 2 assessments.</p>
         )}
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+      <p className="mt-2 text-xs text-slate-500">
         Different papers/rubrics are not equated for difficulty; dates cannot establish an improvement trend.
       </p>
     </SectionCard>

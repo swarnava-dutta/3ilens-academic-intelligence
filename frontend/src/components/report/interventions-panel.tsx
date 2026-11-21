@@ -1,16 +1,6 @@
 "use client";
 
-import {
-  CircleSlash,
-  Clock3,
-  HandHeart,
-  Loader2,
-  MoveRight,
-  Plus,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+import { CircleSlash, Clock3, Loader2, MoveRight, Plus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -20,38 +10,38 @@ import type { InterventionRecord, OutcomeStatus, Result } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Notice, btnPrimary } from "./dialog";
 import { fmtIST, fmtNumber, fmtSigned } from "./format";
-import { Pill, SectionCard } from "./primitives";
+import { SectionCard } from "./primitives";
 import { KIND_LABELS, RecordInterventionDialog } from "./record-intervention-dialog";
 
 const STATUS_LOOK: Record<OutcomeStatus, { label: string; Icon: LucideIcon; tone: string; title: string }> = {
   pending: {
     label: "Pending",
     Icon: Clock3,
-    tone: "bg-slate-50 text-slate-700 ring-slate-300",
+    tone: "bg-slate-100 text-slate-700",
     title: "No later test for this student yet.",
   },
   improved: {
     label: "Improved",
     Icon: TrendingUp,
-    tone: "bg-brand-lime-50 text-lime-800 ring-brand-lime/50",
+    tone: "bg-brand-lime-50 text-lime-800",
     title: "Topic mastery rose on the next test that covered the topic.",
   },
   flat: {
     label: "Flat",
     Icon: MoveRight,
-    tone: "bg-amber-50 text-amber-900 ring-amber-300",
+    tone: "bg-amber-50 text-amber-900",
     title: "Topic mastery barely changed on the next test that covered the topic.",
   },
   declined: {
     label: "Declined",
     Icon: TrendingDown,
-    tone: "bg-rose-50 text-rose-700 ring-rose-200",
+    tone: "bg-rose-50 text-rose-700",
     title: "Topic mastery fell on the next test that covered the topic.",
   },
   not_assessed: {
     label: "Not assessed",
     Icon: CircleSlash,
-    tone: "bg-slate-50 text-slate-700 ring-slate-300",
+    tone: "bg-slate-100 text-slate-700",
     title: "Later tests did not cover this topic.",
   },
 };
@@ -62,7 +52,7 @@ export function OutcomeStatusChip({ status }: { status: OutcomeStatus }) {
     <span
       title={look.title}
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium",
         look.tone,
       )}
     >
@@ -95,12 +85,12 @@ function RecordRow({ rec, onDeleted }: { rec: InterventionRecord; onDeleted: () 
   }
 
   return (
-    <li className="rounded-xl border border-slate-200 p-3 sm:p-4">
+    <li className="py-3 first:pt-0">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-semibold text-brand-navy">{rec.topic}</p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-            <Pill className="bg-white text-[11px] text-slate-700 ring-slate-300">{KIND_LABELS[rec.kind] ?? rec.kind}</Pill>
+          <p className="text-[15px] font-semibold text-brand-navy">{rec.topic}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs tabular-nums text-slate-600">
+            <span className="font-medium text-slate-700">{KIND_LABELS[rec.kind] ?? rec.kind}</span>
             <span>
               by {rec.applied_by} · {fmtIST(rec.applied_at)}
             </span>
@@ -120,7 +110,7 @@ function RecordRow({ rec, onDeleted }: { rec: InterventionRecord; onDeleted: () 
                 type="button"
                 onClick={() => void remove()}
                 disabled={busy}
-                className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-1 rounded-md bg-rose-700 px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-rose-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan disabled:opacity-60"
               >
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
                 Delete
@@ -129,7 +119,7 @@ function RecordRow({ rec, onDeleted }: { rec: InterventionRecord; onDeleted: () 
                 type="button"
                 onClick={() => setConfirming(false)}
                 disabled={busy}
-                className="rounded-full px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+                className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
               >
                 Cancel
               </button>
@@ -138,7 +128,7 @@ function RecordRow({ rec, onDeleted }: { rec: InterventionRecord; onDeleted: () 
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              className="grid h-8 w-8 place-items-center rounded-full text-slate-500 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
               aria-label={`Delete the ${rec.topic} intervention`}
               title="Delete this record"
             >
@@ -148,14 +138,17 @@ function RecordRow({ rec, onDeleted }: { rec: InterventionRecord; onDeleted: () 
         </div>
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{rec.action}</p>
-      {rec.note ? <p className="mt-1 text-xs italic text-slate-500">Note: {rec.note}</p> : null}
+      {rec.note ? <p className="mt-1 text-xs text-slate-500">Note: {rec.note}</p> : null}
 
       {o ? (
-        <div className="mt-2 space-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
+        <div className="mt-2 space-y-1 border-l-2 border-slate-300 pl-3 text-sm text-slate-700">
           <p>
             Topic mastery baseline <span className="font-semibold tabular-nums">{pctText(o.baseline_mastery)}</span> →{" "}
             <span className="font-semibold tabular-nums">{pctText(o.follow_up_mastery)}</span> on{" "}
-            <Link href={`/report/${o.follow_up_submission_id}`} className="font-medium text-brand-cyan-600 hover:underline">
+            <Link
+              href={`/report/${o.follow_up_submission_id}`}
+              className="rounded-sm font-medium text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+            >
               {o.follow_up_test}
             </Link>{" "}
             (<span className="font-semibold tabular-nums">{fmtSigned(o.mastery_change)} pts</span>)
@@ -200,7 +193,6 @@ export function InterventionsPanel({ result }: { result: Result }) {
       id="interventions-log"
       title="Intervention log"
       description="What was done for each topic, and the topic's mastery on the next test that covered it."
-      icon={HandHeart}
       action={
         <button type="button" className={btnPrimary} onClick={() => setOpen(true)} disabled={result.topic_mastery.length === 0}>
           <Plus className="h-4 w-4" aria-hidden />
@@ -214,12 +206,12 @@ export function InterventionsPanel({ result }: { result: Result }) {
         </Notice>
       ) : null}
       {records.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-600">
+        <p className="text-sm text-slate-600">
           No interventions recorded for this result yet. Record one after acting on a nudge or a priority topic; the next
           test that covers the topic shows whether it moved.
         </p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="divide-y divide-slate-200">
           {records.map((rec) => (
             <RecordRow
               key={rec.id}

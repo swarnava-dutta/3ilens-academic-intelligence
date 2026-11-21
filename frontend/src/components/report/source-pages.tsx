@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- page scans are served by the FastAPI backend (another origin, arbitrary sizes); next/image would need remotePatterns and adds nothing here. */
 
-import { ChevronLeft, ChevronRight, Expand, FileImage, ImageOff, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage, errorStatus, getPages, pageImageUrl } from "@/lib/api";
 import type { PageRef, Result } from "@/lib/types";
@@ -135,10 +135,9 @@ export function SourcePagesViewer({ result }: { result: Result }) {
           ? "Synthetic record: no source scan."
           : "The pages exactly as uploaded, and as the vision model saw them after pre-processing."
       }
-      icon={FileImage}
       action={
         hasOriginal ? (
-          <div role="group" aria-label="Image variant" className="flex rounded-full bg-slate-100 p-0.5 text-xs print:hidden">
+          <div role="group" aria-label="Image variant" className="flex rounded-md border border-slate-300 text-xs print:hidden">
             {(
               [
                 ["processed", "Processed"],
@@ -151,8 +150,8 @@ export function SourcePagesViewer({ result }: { result: Result }) {
                 aria-pressed={variant === k}
                 onClick={() => setVariant(k)}
                 className={cn(
-                  "rounded-full px-3 py-1 font-medium transition",
-                  variant === k ? "bg-white text-brand-navy shadow-sm" : "text-slate-500 hover:text-slate-800",
+                  "min-h-8 px-3 py-1 font-medium transition-colors duration-150 first:rounded-l-md last:rounded-r-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+                  variant === k ? "bg-brand-navy text-white" : "bg-white text-slate-600 hover:bg-slate-50",
                 )}
               >
                 {label}
@@ -163,10 +162,8 @@ export function SourcePagesViewer({ result }: { result: Result }) {
       }
     >
       {isDemo ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-          <ImageOff className="h-8 w-8 text-slate-400" aria-hidden />
-          <p className="font-semibold text-slate-700">Synthetic record: no source scan</p>
-          <p className="max-w-md text-sm text-slate-500">
+        <div className="py-2">
+          <p className="max-w-xl text-sm text-slate-600">
             Demo rows are generated locally without an uploaded answer sheet, OCR or AI call, so there are no pages to show.
           </p>
         </div>
@@ -175,15 +172,15 @@ export function SourcePagesViewer({ result }: { result: Result }) {
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading page images…
         </p>
       ) : state.kind === "error" ? (
-        <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">{state.message}</p>
+        <p className="py-2 text-sm text-slate-500">{state.message}</p>
       ) : pages.length === 0 || !page ? (
-        <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+        <p className="py-2 text-sm text-slate-500">
           No page images were stored for this submission.
         </p>
       ) : (
         <>
           <div className="print:hidden">
-            <ol className="flex gap-2 relative overflow-x-auto print:overflow-visible pb-2" aria-label="Page thumbnails">
+            <ol className="relative flex gap-2 overflow-x-auto pb-2 print:overflow-visible" aria-label="Page thumbnails">
               {pages.map((p, i) => (
                 <li key={p.page_number} className="shrink-0">
                   <button
@@ -191,15 +188,15 @@ export function SourcePagesViewer({ result }: { result: Result }) {
                     onClick={() => go(i)}
                     aria-current={i === index ? "page" : undefined}
                     className={cn(
-                      "relative block w-20 overflow-hidden rounded-lg ring-2 transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-                      i === index ? "ring-brand-cyan" : "ring-transparent hover:ring-slate-300",
+                      "relative block w-20 overflow-hidden rounded-sm border-2 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+                      i === index ? "border-brand-cyan" : "border-slate-200 hover:border-slate-400",
                     )}
                   >
                     <PageImage id={id} page={p} variant={variant} alt={`Page ${p.page_number} thumbnail`} className="h-24 w-20" />
                     <span
                       className={cn(
-                        "absolute inset-x-0 bottom-0 px-1 py-0.5 text-center text-[10px] font-semibold",
-                        flagged.has(p.page_number) ? "bg-amber-500 text-amber-950" : "bg-brand-navy/80 text-white",
+                        "absolute inset-x-0 bottom-0 px-1 py-0.5 text-center text-[11px] font-medium tabular-nums",
+                        flagged.has(p.page_number) ? "bg-amber-400 text-amber-950" : "bg-slate-800/85 text-white",
                       )}
                     >
                       p. {p.page_number}
@@ -212,18 +209,18 @@ export function SourcePagesViewer({ result }: { result: Result }) {
 
             <div id={`page-${page.page_number}`} className="mt-3 scroll-mt-48">
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-brand-navy">
+                <p className="text-sm font-semibold tabular-nums text-brand-navy">
                   Page {page.page_number} of {pages.length}
                 </p>
-                <Pill className="bg-slate-50 text-slate-600 ring-slate-200">
+                <span className="text-xs text-slate-500">
                   {variant === "original" && page.original_url ? "Original upload" : "Processed (what the model saw)"}
-                </Pill>
+                </span>
                 {confidence.has(page.page_number) ? (
                   <Pill
                     className={
                       flagged.has(page.page_number)
-                        ? "bg-amber-50 text-amber-800 ring-amber-300"
-                        : "bg-slate-50 text-slate-600 ring-slate-200"
+                        ? "bg-amber-50 text-amber-800"
+                        : "bg-slate-100 text-slate-600"
                     }
                   >
                     Legibility {formatConfidence(confidence.get(page.page_number))}
@@ -241,7 +238,7 @@ export function SourcePagesViewer({ result }: { result: Result }) {
               <button
                 type="button"
                 onClick={() => setLightbox(true)}
-                className="group relative block w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+                className="group relative block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                 aria-label={`Open page ${page.page_number} fullscreen`}
               >
                 <PageImage
@@ -252,8 +249,8 @@ export function SourcePagesViewer({ result }: { result: Result }) {
                   alt={`Answer sheet page ${page.page_number}`}
                   className="mx-auto max-h-[70vh] w-full"
                 />
-                <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-brand-navy/80 px-2.5 py-1 text-xs font-medium text-white opacity-90 group-hover:opacity-100">
-                  <Expand className="h-3.5 w-3.5" aria-hidden /> Fullscreen
+                <span className="absolute right-2 top-2 rounded-sm bg-slate-800/85 px-2 py-1 text-xs font-medium text-white">
+                  Fullscreen
                 </span>
               </button>
               <p className="mt-2 text-xs text-slate-500">

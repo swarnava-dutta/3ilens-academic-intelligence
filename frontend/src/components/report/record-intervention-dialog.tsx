@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2, Save } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useId, useState } from "react";
+import { useHealth } from "@/components/app-shell";
 import { createIntervention, errorCode, errorMessage } from "@/lib/api";
 import type { ContentSource, InterventionKind, InterventionRecord, Result } from "@/lib/types";
 import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
@@ -98,6 +99,7 @@ function RecordForm({
   onRecorded: (record: InterventionRecord) => void;
 }) {
   const ids = useId();
+  const defaultHours = useHealth().health?.intervention_default_hours;
   const topics = [...result.topic_mastery].sort((a, b) => a.mastery - b.mastery);
   const firstTopic = initialTopic && topics.some((t) => t.topic === initialTopic) ? initialTopic : (topics[0]?.topic ?? "");
   const firstSuggestion = suggestedAction(result, firstTopic);
@@ -108,7 +110,9 @@ function RecordForm({
   const [suggestion, setSuggestion] = useState(firstSuggestion);
   const [appliedBy, setAppliedBy] = useState(readAppliedBy);
   const [appliedAt, setAppliedAt] = useState(todayIst);
-  const [hours, setHours] = useState(String(DEFAULT_HOURS));
+  const [hours, setHours] = useState(() =>
+    String(typeof defaultHours === "number" && Number.isFinite(defaultHours) && defaultHours >= 0 ? defaultHours : DEFAULT_HOURS),
+  );
   const [complianceOn, setComplianceOn] = useState(false);
   const [compliance, setCompliance] = useState(70);
   const [note, setNote] = useState("");
@@ -226,7 +230,7 @@ function RecordForm({
         />
         <p className="text-xs text-slate-500">
           {prefilled
-            ? `Prefilled from the report's ${suggestion?.source === "ai" ? "AI" : "rule-template"} suggestion - recorded as source "${source}" unless you edit it.`
+            ? `Prefilled from the report's ${suggestion?.source === "ai" ? "model" : "rule-template"} suggestion - recorded as source "${source}" unless you edit it.`
             : suggestion
               ? 'Edited - recorded as source "faculty".'
               : 'No suggestion for this topic - recorded as source "faculty".'}
@@ -278,14 +282,14 @@ function RecordForm({
         </div>
       </div>
 
-      <fieldset className="space-y-2 rounded-lg p-3 ring-1 ring-inset ring-slate-200">
+      <fieldset className="space-y-2 rounded-md border border-slate-200 p-3">
         <legend className="px-1 text-sm font-medium text-slate-700">Compliance (optional)</legend>
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
             type="checkbox"
             checked={complianceOn}
             onChange={(e) => setComplianceOn(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-brand-cyan focus:ring-brand-cyan"
+            className="h-4 w-4 rounded-sm border-slate-300 accent-brand-cyan-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
           />
           Record how much of the plan the student completed
         </label>
@@ -302,7 +306,7 @@ function RecordForm({
             disabled={!complianceOn}
             value={compliance}
             onChange={(e) => setCompliance(Number(e.target.value))}
-            className="w-full accent-brand-cyan disabled:opacity-50"
+            className="w-full accent-brand-cyan-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan disabled:opacity-50"
           />
           <span className="w-24 shrink-0 text-right text-sm tabular-nums text-slate-700">
             {complianceOn ? `${compliance}%` : "not recorded"}
@@ -331,7 +335,7 @@ function RecordForm({
           Cancel
         </button>
         <button type="submit" className={btnPrimary} disabled={busy || topics.length === 0}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           {busy ? "Recording…" : "Record intervention"}
         </button>
       </div>

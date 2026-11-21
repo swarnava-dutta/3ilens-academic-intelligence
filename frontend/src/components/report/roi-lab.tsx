@@ -1,19 +1,6 @@
 "use client";
 
-import {
-  AlertTriangle,
-  CalendarDays,
-  Calculator,
-  Columns3,
-  Flag,
-  FlaskConical,
-  Gauge,
-  Info,
-  Loader2,
-  Map as MapIcon,
-  Sigma,
-  TrendingUp,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { errorMessage, errorStatus, getStudyPlan } from "@/lib/api";
@@ -32,7 +19,7 @@ import { Notice, btnSecondary } from "./dialog";
 import { clampPct, fmtHours, fmtISTDate, fmtNumber, fmtRoi, safeNumber } from "./format";
 import { QRefChip } from "./immediate-reading";
 import { normalizePlan } from "./normalize";
-import { Eyebrow, MeterBar, Pill, SectionCard } from "./primitives";
+import { MeterBar, Pill, SectionCard } from "./primitives";
 
 type Order = "observed" | "roi";
 
@@ -51,18 +38,17 @@ const PRESETS: { days: number; label: string }[] = [
 ];
 
 export const MODE_LOOK: Record<StrategyMode, { label: string; pill: string }> = {
-  broad: { label: "Broad coverage", pill: "bg-sky-50 text-sky-800 ring-sky-200" },
-  focused: { label: "Focused", pill: "bg-brand-cyan-50 text-cyan-800 ring-brand-cyan/40" },
-  revision: { label: "Revision", pill: "bg-amber-50 text-amber-900 ring-amber-300" },
-  consolidation: { label: "Consolidation", pill: "bg-rose-50 text-rose-800 ring-rose-200" },
+  broad: { label: "Broad coverage", pill: "bg-slate-100 text-slate-700" },
+  focused: { label: "Focused", pill: "bg-slate-100 text-slate-700" },
+  revision: { label: "Revision", pill: "bg-slate-100 text-slate-700" },
+  consolidation: { label: "Consolidation", pill: "bg-slate-100 text-slate-700" },
 };
 
-const QUADRANTS: { key: Quadrant; label: string; desc: string; cell: string; dot: string; fill: string }[] = [
+const QUADRANTS: { key: Quadrant; label: string; desc: string; dot: string; fill: string }[] = [
   {
     key: "priority_focus",
     label: "Priority focus",
     desc: "Weak (<70%) and high return",
-    cell: "border-rose-200 bg-rose-50/70",
     dot: "bg-rose-500",
     fill: "fill-rose-500",
   },
@@ -70,7 +56,6 @@ const QUADRANTS: { key: Quadrant; label: string; desc: string; cell: string; dot
     key: "maintain",
     label: "Maintain",
     desc: "Strong (>=70%) and high return",
-    cell: "border-lime-200 bg-brand-lime-50",
     dot: "bg-brand-lime-600",
     fill: "fill-lime-600",
   },
@@ -78,7 +63,6 @@ const QUADRANTS: { key: Quadrant; label: string; desc: string; cell: string; dot
     key: "deprioritise",
     label: "Deprioritise",
     desc: "Weak but low return in the time left",
-    cell: "border-amber-200 bg-amber-50/70",
     dot: "bg-amber-500",
     fill: "fill-amber-500",
   },
@@ -86,7 +70,6 @@ const QUADRANTS: { key: Quadrant; label: string; desc: string; cell: string; dot
     key: "no_action",
     label: "No action",
     desc: "Strong and low return: light refresher",
-    cell: "border-slate-200 bg-slate-50",
     dot: "bg-slate-400",
     fill: "fill-slate-400",
   },
@@ -103,11 +86,11 @@ const ACTION_LABEL: Record<PlanAction, string> = {
 };
 
 const ACTIVITY_LOOK: Record<CalendarActivity, { label: string; cls: string }> = {
-  learn: { label: "Learn", cls: "border-l-sky-500 bg-sky-50" },
-  drill: { label: "Drill", cls: "border-l-brand-cyan bg-brand-cyan-50" },
-  fix_errors: { label: "Fix errors", cls: "border-l-rose-400 bg-rose-50" },
-  review: { label: "Review", cls: "border-l-brand-lime-600 bg-brand-lime-50" },
-  checkpoint: { label: "Checkpoint", cls: "border-l-amber-500 bg-amber-50" },
+  learn: { label: "Learn", cls: "border-l-sky-600" },
+  drill: { label: "Drill", cls: "border-l-brand-cyan" },
+  fix_errors: { label: "Fix errors", cls: "border-l-rose-500" },
+  review: { label: "Review", cls: "border-l-brand-lime-600" },
+  checkpoint: { label: "Checkpoint", cls: "border-l-amber-500" },
 };
 
 const clampDays = (n: number) => Math.min(DAY_MAX, Math.max(DAY_MIN, Math.round(safeNumber(n, 120))));
@@ -139,11 +122,11 @@ function topRows(plan: StudyPlan, result: Result, order: Order): { row: PlanTopi
     });
 }
 
-function Block({ title, icon, children, className, aside }: { title: string; icon?: typeof Info; children: ReactNode; className?: string; aside?: ReactNode }) {
+function Block({ title, children, className, aside }: { title: string; children: ReactNode; className?: string; aside?: ReactNode }) {
   return (
-    <div className={cn("min-w-0 rounded-xl border border-slate-200 p-4 print:break-inside-avoid", className)}>
+    <div className={cn("min-w-0 border-t border-slate-200 pt-4 print:break-inside-avoid", className)}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <Eyebrow icon={icon}>{title}</Eyebrow>
+        <h3 className="text-[15px] font-semibold text-brand-navy">{title}</h3>
         {aside}
       </div>
       {children}
@@ -157,17 +140,17 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
   const ps = plan.projected_score;
   const scale = ps.scale_max > 0 ? ps.scale_max : 100;
   return (
-    <Block title="Strategy for the time left" icon={Gauge}>
+    <Block title="Strategy for the time left">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Pill className={look.pill}>{look.label} mode</Pill>
             {plan.days_to_exam !== null ? (
-              <span className="text-xs text-slate-500">{plan.days_to_exam} days to {plan.exam}</span>
+              <span className="text-xs tabular-nums text-slate-500">{plan.days_to_exam} days to {plan.exam}</span>
             ) : null}
           </div>
-          <p className="mt-2 text-lg font-semibold text-brand-navy">{plan.strategy_title || look.label}</p>
-          {plan.strategy_text ? <p className="mt-1 text-sm leading-relaxed text-slate-700">{plan.strategy_text}</p> : null}
+          <p className="mt-2 text-base font-semibold text-brand-navy">{plan.strategy_title || look.label}</p>
+          {plan.strategy_text ? <p className="mt-1 text-sm leading-normal text-slate-700">{plan.strategy_text}</p> : null}
           <p className="mt-2 text-xs text-slate-500">
             {batch.exam_date
               ? `Exam date ${fmtISTDate(batch.exam_date)}${
@@ -177,7 +160,7 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
             {touched ? ` What-if: ${days} days; the batch's actual figure is ${batch.days_to_exam ?? "unknown"} days.` : ""}
           </p>
         </div>
-        <div className="self-start rounded-lg bg-slate-50 p-3 [print-color-adjust:exact]">
+        <div className="self-start rounded-md border border-slate-200 p-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <span className="text-slate-600">Projected score (illustrative)</span>
             <span className="font-semibold tabular-nums text-brand-navy">
@@ -187,17 +170,21 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
           <p className="text-right text-xs tabular-nums text-slate-500">
             range {fmtNumber(ps.low)}-{fmtNumber(ps.high)} of {fmtNumber(scale)}
           </p>
-          <div className="relative mt-2 h-2.5 w-full rounded-full bg-slate-200 [print-color-adjust:exact]" aria-hidden>
-            <div className="absolute inset-y-0 left-0 rounded-full bg-sky-600/80" style={{ width: `${clampPct((ps.current / scale) * 100)}%` }} />
+          <div className="relative mt-2 h-2 w-full rounded-sm bg-slate-100 [print-color-adjust:exact]" aria-hidden>
+            <div className="absolute inset-y-0 left-0 rounded-sm bg-brand-navy" style={{ width: `${clampPct((ps.current / scale) * 100)}%` }} />
             <div
-              className="absolute inset-y-0 rounded-full bg-violet-400/70"
+              className="absolute inset-y-0 rounded-sm bg-brand-cyan/50"
               style={{
                 left: `${clampPct((ps.low / scale) * 100)}%`,
                 width: `${Math.max(0.8, clampPct((ps.high / scale) * 100) - clampPct((ps.low / scale) * 100))}%`,
               }}
             />
           </div>
-          <p className="mt-1.5 text-xs text-violet-700">{ps.label || "Illustrative - not a calibrated forecast"}</p>
+          <p className="mt-1.5 text-xs text-slate-500">
+            <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-brand-navy align-middle" aria-hidden /> current
+            <span className="ml-2 mr-1 inline-block h-2 w-3 rounded-sm bg-brand-cyan/50 align-middle" aria-hidden /> range ·{" "}
+            {ps.label || "Illustrative - not a calibrated forecast"}
+          </p>
         </div>
       </div>
     </Block>
@@ -207,30 +194,30 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
 function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result; order: Order }) {
   const rows = topRows(plan, result, order);
   if (rows.length === 0) {
-    return <p className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">No topic with a recoverable gap.</p>;
+    return <p className="text-sm text-slate-500">No topic with a recoverable gap.</p>;
   }
   return (
     <div className="relative overflow-x-auto print:overflow-visible">
-      <table className="w-full min-w-[52rem] print:min-w-0 border-collapse text-sm">
+      <table className="w-full min-w-[52rem] border-collapse text-sm print:min-w-0">
         <caption className="sr-only">Next five topics</caption>
         <thead>
-          <tr className="bg-brand-navy text-left text-xs text-white [print-color-adjust:exact]">
-            <th scope="col" className="px-2 py-2 font-semibold">{order === "roi" ? "Rank" : "Order"}</th>
-            <th scope="col" className="px-2 py-2 font-semibold">Topic</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">Mastery</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">Exam marks</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">Base h</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">Allocated h</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">ROI</th>
-            <th scope="col" className="px-2 py-2 font-semibold">Action</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">Current → target</th>
-            <th scope="col" className="px-2 py-2 text-right font-semibold">+marks (range)</th>
+          <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
+            <th scope="col" className="px-2 py-2 font-medium">{order === "roi" ? "Rank" : "Order"}</th>
+            <th scope="col" className="px-2 py-2 font-medium">Topic</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">Mastery</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">Exam marks</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">Base h</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">Allocated h</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">ROI</th>
+            <th scope="col" className="px-2 py-2 font-medium">Action</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">Current → target</th>
+            <th scope="col" className="px-2 py-2 text-right font-medium">+marks (range)</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(({ row, label }) => (
-            <tr key={row.topic} className="border-b border-slate-100 even:bg-slate-50 [print-color-adjust:exact]">
-              <td className="px-2 py-2 font-mono text-xs font-semibold text-slate-600">{label}</td>
+            <tr key={row.topic} className="border-b border-slate-100 hover:bg-slate-50">
+              <td className="px-2 py-2 tabular-nums text-slate-500">{label}</td>
               <th scope="row" className="px-2 py-2 text-left font-normal">
                 <span className="font-medium text-slate-800">{row.topic}</span>
                 <span className="block text-xs text-slate-500">
@@ -241,7 +228,7 @@ function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result
               <td className="px-2 py-2 text-right tabular-nums">{fmtNumber(row.mastery, 0)}%</td>
               <td className="px-2 py-2 text-right tabular-nums">{fmtNumber(row.exam_marks)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{fmtHours(row.effort_hours)}</td>
-              <td className="px-2 py-2 text-right font-semibold tabular-nums text-brand-navy">{fmtHours(row.allocated_hours)}</td>
+              <td className="px-2 py-2 text-right font-medium tabular-nums text-brand-navy">{fmtHours(row.allocated_hours)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{fmtRoi(row.roi)}</td>
               <td className="px-2 py-2 text-slate-700">{ACTION_LABEL[row.action] ?? row.action}</td>
               <td className="px-2 py-2 text-right tabular-nums">
@@ -249,7 +236,7 @@ function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result
               </td>
               <td className="px-2 py-2 text-right tabular-nums">
                 +{fmtNumber(row.gain_marks)}{" "}
-                <span className="text-xs text-slate-500">
+                <span className="text-xs tabular-nums text-slate-500">
                   ({fmtNumber(row.gain_low)}-{fmtNumber(row.gain_high)})
                 </span>
               </td>
@@ -294,13 +281,13 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
       role="img"
       aria-label={`Mastery versus ROI: ${topics.map((t) => `${t.topic} ${fmtNumber(t.mastery, 0)}% ROI ${fmtRoi(t.roi)}`).join("; ")}`}
     >
-      <rect x={PL} y={PT} width={SW - PL - PR} height={SH - PT - PB} className="fill-slate-50 stroke-slate-200" />
+      <rect x={PL} y={PT} width={SW - PL - PR} height={SH - PT - PB} className="fill-white stroke-slate-200" />
       <line x1={x(70)} x2={x(70)} y1={PT} y2={SH - PB} className="stroke-slate-400" strokeDasharray="4 3" />
       {top > 0 ? (
         <line x1={PL} x2={SW - PR} y1={y(top / 2)} y2={y(top / 2)} className="stroke-slate-400" strokeDasharray="4 3" />
       ) : null}
       {[0, 25, 50, 70, 100].map((m) => (
-        <text key={m} x={x(m)} y={SH - PB + 12} textAnchor="middle" className="fill-slate-400 text-[9px]">
+        <text key={m} x={x(m)} y={SH - PB + 12} textAnchor="middle" className="fill-slate-500 text-[9px] tabular-nums">
           {m}
         </text>
       ))}
@@ -310,16 +297,16 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
       <text x={10} y={(PT + SH - PB) / 2} textAnchor="middle" transform={`rotate(-90 10 ${(PT + SH - PB) / 2})`} className="fill-slate-500 text-[9px]">
         ROI (½ of top = high)
       </text>
-      <text x={PL + 4} y={PT + 10} className="fill-rose-600 text-[8px] font-semibold">PRIORITY FOCUS</text>
-      <text x={SW - PR - 4} y={PT + 10} textAnchor="end" className="fill-lime-700 text-[8px] font-semibold">MAINTAIN</text>
-      <text x={PL + 4} y={splitY + 11} className="fill-amber-700 text-[8px] font-semibold">DEPRIORITISE</text>
-      <text x={SW - PR - 4} y={splitY + 11} textAnchor="end" className="fill-slate-500 text-[8px] font-semibold">NO ACTION</text>
+      <text x={PL + 4} y={PT + 10} className="fill-rose-700 text-[8px] font-medium">Priority focus</text>
+      <text x={SW - PR - 4} y={PT + 10} textAnchor="end" className="fill-lime-800 text-[8px] font-medium">Maintain</text>
+      <text x={PL + 4} y={splitY + 11} className="fill-amber-800 text-[8px] font-medium">Deprioritise</text>
+      <text x={SW - PR - 4} y={splitY + 11} textAnchor="end" className="fill-slate-500 text-[8px] font-medium">No action</text>
       {placed.map(({ t, n, cx, cy }) => (
         <g key={t.topic}>
           <circle cx={cx} cy={cy} r={6.5} className={cn(QUADRANT_BY_KEY[t.quadrant]?.fill ?? "fill-slate-400", "stroke-white")} strokeWidth={1.5}>
             <title>{`${n}. ${t.topic}: mastery ${fmtNumber(t.mastery, 0)}%, ROI ${fmtRoi(t.roi)} (${QUADRANT_BY_KEY[t.quadrant]?.label ?? t.quadrant})`}</title>
           </circle>
-          <text x={cx} y={cy + 2.8} textAnchor="middle" className="pointer-events-none fill-white text-[7.5px] font-bold">
+          <text x={cx} y={cy + 2.8} textAnchor="middle" className="pointer-events-none fill-white text-[7.5px] font-semibold">
             {n}
           </text>
         </g>
@@ -337,13 +324,13 @@ function numbered(topics: PlanTopic[]): { t: PlanTopic; n: number }[] {
 
 function ScatterLegend({ topics }: { topics: PlanTopic[] }) {
   return (
-    <ol className="mt-2 grid gap-x-3 gap-y-0.5 text-[11px] text-slate-600 sm:grid-cols-2">
+    <ol className="mt-2 grid gap-x-3 gap-y-0.5 text-xs tabular-nums text-slate-600 sm:grid-cols-2">
       {numbered(topics).map(({ t, n }) => (
         <li key={t.topic} className="flex min-w-0 items-center gap-1.5">
           <span
             aria-hidden
             className={cn(
-              "grid h-4 w-4 shrink-0 place-items-center rounded-full text-[9px] font-bold text-white [print-color-adjust:exact]",
+              "grid h-4 w-4 shrink-0 place-items-center rounded-sm text-[9px] font-semibold text-white [print-color-adjust:exact]",
               QUADRANT_BY_KEY[t.quadrant]?.dot ?? "bg-slate-400",
             )}
           >
@@ -360,17 +347,17 @@ function ScatterLegend({ topics }: { topics: PlanTopic[] }) {
 
 function QuadrantGrid({ topics }: { topics: PlanTopic[] }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200">
       {QUADRANTS.map((q) => {
         const items = topics.filter((t) => t.quadrant === q.key);
         return (
-          <div key={q.key} className={cn("min-w-0 rounded-lg border p-2.5 [print-color-adjust:exact]", q.cell)}>
+          <div key={q.key} className="min-w-0 bg-white p-2.5">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-              <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", q.dot)} />
+              <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-sm [print-color-adjust:exact]", q.dot)} />
               {q.label}
               <span className="ml-auto tabular-nums text-slate-500">{items.length}</span>
             </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{q.desc}</p>
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">{q.desc}</p>
             {items.length ? (
               <ul className="mt-1.5 space-y-0.5 text-xs text-slate-700">
                 {items.map((t) => (
@@ -405,7 +392,7 @@ function RoiBars({ topics }: { topics: PlanTopic[] }) {
             fillClass={QUADRANT_BY_KEY[t.quadrant]?.dot ?? "bg-sky-600"}
             trackClass="bg-slate-100"
           />
-          <span className="text-right font-mono tabular-nums text-slate-600">{fmtRoi(t.roi)}</span>
+          <span className="text-right tabular-nums text-slate-600">{fmtRoi(t.roi)}</span>
         </li>
       ))}
     </ul>
@@ -422,10 +409,10 @@ function Explain({ plan, result }: { plan: StudyPlan; result: Result }) {
           <p className="text-sm text-slate-700">
             <span className="font-semibold text-brand-navy">#1 {ex.topic}.</span> {ex.formula}
           </p>
-          <pre className="whitespace-pre-wrap break-words rounded-lg bg-brand-navy px-3 py-2 font-mono text-xs leading-relaxed text-cyan-50 [print-color-adjust:exact]">
+          <pre className="whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-relaxed text-slate-800">
             {ex.arithmetic}
           </pre>
-          <dl className="grid grid-cols-3 gap-2 text-xs sm:grid-cols-6">
+          <dl className="grid grid-cols-3 divide-x divide-slate-200 border-y border-slate-200 text-xs sm:grid-cols-6">
             {[
               ["Exam marks", fmtNumber(ex.inputs.exam_marks)],
               ["Mastery", `${fmtNumber(ex.inputs.mastery)}%`],
@@ -434,7 +421,7 @@ function Explain({ plan, result }: { plan: StudyPlan; result: Result }) {
               ["Effort", fmtHours(ex.inputs.effort_hours)],
               ["ROI", fmtRoi(ex.inputs.roi)],
             ].map(([k, v]) => (
-              <div key={k} className="rounded-md bg-slate-50 px-2 py-1.5 [print-color-adjust:exact]">
+              <div key={k} className="px-2 py-1.5">
                 <dt className="text-slate-500">{k}</dt>
                 <dd className="font-semibold tabular-nums text-brand-navy">{v}</dd>
               </div>
@@ -445,7 +432,7 @@ function Explain({ plan, result }: { plan: StudyPlan; result: Result }) {
         <p className="text-sm text-slate-500">No ranked topic to explain for these inputs.</p>
       )}
       {brd ? (
-        <p className="rounded-lg border border-slate-200 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-600">
+        <p className="font-mono text-xs leading-relaxed text-slate-600">
           BRD §6.4 (stored top-5): ROI = weightage × gain potential ÷ effort hours = {fmtNumber(brd.weightage, 3)} ×{" "}
           {fmtNumber(brd.gain_potential)} ÷ {fmtNumber(brd.effort_hours)} h = {fmtRoi(brd.roi)} for {brd.topic}.
         </p>
@@ -487,11 +474,11 @@ function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
       {days.map((d) => {
         const minutes = d.blocks.reduce((m, b) => m + safeNumber(b.minutes), 0);
         return (
-          <li key={d.day} className="min-w-0 rounded-lg border border-slate-200 bg-white p-2 print:break-inside-avoid">
+          <li key={d.day} className="min-w-0 rounded-md border border-slate-200 bg-white p-2 print:break-inside-avoid">
             <p className="flex items-baseline justify-between gap-1 text-xs">
               <span className="font-semibold text-brand-navy">
                 {weekday(d.date) || `Day ${d.day}`}
-                <span className="ml-1 font-normal text-slate-400">{d.date ? d.date.slice(5) : `D${d.day}`}</span>
+                <span className="ml-1 font-normal tabular-nums text-slate-500">{d.date ? d.date.slice(5) : `D${d.day}`}</span>
               </span>
               <span className="tabular-nums text-slate-500">{minutes} min</span>
             </p>
@@ -500,15 +487,15 @@ function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
                 {d.blocks.map((b, i) => {
                   const look = ACTIVITY_LOOK[b.activity] ?? ACTIVITY_LOOK.review;
                   return (
-                    <li key={i} className={cn("rounded border-l-4 px-1.5 py-1 text-[11px] leading-snug [print-color-adjust:exact]", look.cls)} title={b.note}>
-                      <span className="font-semibold text-slate-800">{look.label}</span> · {b.minutes} min
+                    <li key={i} className={cn("border-l-2 bg-slate-50 px-1.5 py-1 text-xs leading-snug [print-color-adjust:exact]", look.cls)} title={b.note}>
+                      <span className="font-medium text-slate-800">{look.label}</span> · <span className="tabular-nums">{b.minutes} min</span>
                       <span className="block truncate text-slate-600">{b.topic}</span>
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <p className="mt-1.5 text-[11px] text-slate-400">Rest / mixed revision</p>
+              <p className="mt-1.5 text-xs text-slate-500">Rest / mixed revision</p>
             )}
           </li>
         );
@@ -532,18 +519,18 @@ export function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }
   const examAt = days !== null && days >= 0 && days <= 90 ? (days / 90) * 100 : null;
   return (
     <div>
-      <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="rounded-md border border-slate-200 bg-white p-3">
         <div className="space-y-2">
           {stages.map((s) => {
             const [a, b] = STAGE_SPAN[s.horizon] ?? [0, 7];
             return (
               <div key={s.horizon} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-xs">
-                <span className={cn("font-semibold", s.applicable ? "text-brand-navy" : "text-slate-400")}>{s.days_label}</span>
-                <div className="relative h-5 rounded bg-slate-100 [print-color-adjust:exact]">
+                <span className={cn("font-medium", s.applicable ? "text-brand-navy" : "text-slate-500")}>{s.days_label}</span>
+                <div className="relative h-5 rounded-sm bg-slate-100 [print-color-adjust:exact]">
                   <div
                     className={cn(
-                      "absolute inset-y-0 rounded px-1.5 text-[10px] leading-5 font-medium",
-                      s.applicable ? "bg-brand-cyan text-white" : "bg-slate-300 text-slate-600",
+                      "absolute inset-y-0 rounded-sm px-1.5 text-[11px] font-medium leading-5 tabular-nums",
+                      s.applicable ? "bg-brand-cyan-600 text-white" : "bg-slate-300 text-slate-700",
                     )}
                     style={{ left: `${(a / 90) * 100}%`, width: `${((b - a) / 90) * 100}%` }}
                     title={s.title}
@@ -557,7 +544,7 @@ export function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }
               </div>
             );
           })}
-          <div className="grid grid-cols-[4.5rem_1fr] gap-2 text-[10px] text-slate-400" aria-hidden>
+          <div className="grid grid-cols-[4.5rem_1fr] gap-2 text-[11px] tabular-nums text-slate-500" aria-hidden>
             <span>Day</span>
             <div className="relative h-4">
               {[0, 7, 30, 60, 90].map((t) => (
@@ -569,7 +556,7 @@ export function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }
           </div>
         </div>
         {examAt !== null ? (
-          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-rose-700">
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-rose-700">
             <span aria-hidden className="inline-block h-3 w-0.5 bg-rose-500" /> Exam in {days} days: later stages are greyed out.
           </p>
         ) : null}
@@ -579,21 +566,21 @@ export function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }
           <li
             key={s.horizon}
             className={cn(
-              "rounded-xl border p-3 text-sm print:break-inside-avoid",
-              s.applicable ? "border-brand-cyan/40 bg-white" : "border-slate-200 bg-slate-50 text-slate-400",
+              "rounded-md border border-slate-200 p-3 text-sm print:break-inside-avoid",
+              s.applicable ? "bg-white" : "bg-slate-50 text-slate-500",
             )}
           >
-            <p className={cn("text-xs font-semibold uppercase tracking-wider", s.applicable ? "text-brand-cyan-600" : "text-slate-400")}>
+            <p className="text-xs tabular-nums text-slate-500">
               {s.horizon}-day · {s.days_label}
             </p>
             <p className={cn("mt-0.5 font-semibold", s.applicable ? "text-brand-navy" : "text-slate-500")}>{s.title}</p>
-            <ul className={cn("mt-1.5 list-disc space-y-0.5 pl-4 text-xs", s.applicable ? "text-slate-700" : "text-slate-400")}>
+            <ul className={cn("mt-1.5 list-disc space-y-0.5 pl-4 text-xs", s.applicable ? "text-slate-700" : "text-slate-500")}>
               {s.tasks.map((t, i) => (
                 <li key={i}>{t}</li>
               ))}
             </ul>
-            {s.checkpoint ? <p className="mt-2 text-xs"><span className="font-semibold">Checkpoint:</span> {s.checkpoint}</p> : null}
-            <p className="mt-1 text-[11px] italic">{s.applicable ? s.condition : `Not applicable: ${s.condition}`}</p>
+            {s.checkpoint ? <p className="mt-2 text-xs"><span className="font-medium">Checkpoint:</span> {s.checkpoint}</p> : null}
+            <p className="mt-1 text-xs text-slate-500">{s.applicable ? s.condition : `Not applicable: ${s.condition}`}</p>
           </li>
         ))}
       </ol>
@@ -613,7 +600,7 @@ function Compare({ state, onRun, hours }: { state: CompareState; onRun: () => vo
     <div>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={btnSecondary} onClick={onRun} disabled={state.kind === "loading"}>
-          {state.kind === "loading" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Columns3 className="h-4 w-4" aria-hidden />}
+          {state.kind === "loading" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           {state.kind === "ready" ? "Refresh comparison" : "Compare 90 / 30 / 7 days"}
         </button>
         <span className="text-xs text-slate-500">Three plans for the same marks at {hours} h/week, fetched in parallel.</span>
@@ -622,8 +609,8 @@ function Compare({ state, onRun, hours }: { state: CompareState; onRun: () => vo
       {state.kind === "ready" ? (
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           {state.plans.map((p, i) => (
-            <div key={COMPARE_DAYS[i]} className="rounded-xl border border-slate-200 p-3 print:break-inside-avoid">
-              <p className="text-2xl font-semibold tabular-nums text-brand-navy">{COMPARE_DAYS[i]} days</p>
+            <div key={COMPARE_DAYS[i]} className="rounded-md border border-slate-200 p-3 print:break-inside-avoid">
+              <p className="text-base font-semibold tabular-nums text-brand-navy">{COMPARE_DAYS[i]} days</p>
               <Pill className={cn("mt-1", MODE_LOOK[p.strategy_mode].pill)}>{MODE_LOOK[p.strategy_mode].label}</Pill>
               <ol className="mt-2 space-y-1 text-xs text-slate-700">
                 {p.focus.slice(0, 3).map((t, j) => (
@@ -636,9 +623,9 @@ function Compare({ state, onRun, hours }: { state: CompareState; onRun: () => vo
                     </span>
                   </li>
                 ))}
-                {p.focus.length === 0 ? <li className="text-slate-400">No focus topics</li> : null}
+                {p.focus.length === 0 ? <li className="text-slate-500">No focus topics</li> : null}
               </ol>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs tabular-nums text-slate-500">
                 Illustrative {fmtNumber(p.projected_score.current)} → {fmtNumber(p.projected_score.expected)} (
                 {fmtNumber(p.projected_score.low)}-{fmtNumber(p.projected_score.high)})
               </p>
@@ -731,17 +718,13 @@ export function RoiLab({ result }: { result: Result }) {
     <SectionCard
       id="roi-lab"
       title="Preparation ROI Lab"
-      description="A transparent calculation lab: move the inputs and watch the top five, quadrants and plan react."
-      icon={TrendingUp}
+      description="Change days or weekly hours to recalculate the top five, quadrants and plan."
       action={<IllustrativePill />}
     >
       <div className="space-y-4">
-        <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-4 [print-color-adjust:exact]">
-          <p className="flex items-start gap-2 text-sm font-semibold text-violet-900">
-            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            Illustrative deterministic prototype - not a calibrated NEET forecast
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-violet-900/80">
+        <div className="text-sm">
+          <p className="font-medium text-slate-800">Illustrative deterministic prototype - not a calibrated NEET forecast</p>
+          <p className="mt-1 text-xs leading-normal text-slate-600">
             Chapter weightage ({basis.matrix_version}) and effort hours are sample values: {basis.weightage_source}.
             Effort: {basis.effort_source}.{" "}
             {result.question_evaluations.some((q) => q.question_type === "mcq")
@@ -750,23 +733,20 @@ export function RoiLab({ result }: { result: Result }) {
           </p>
         </div>
 
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 [print-color-adjust:exact]">
-          <p className="flex items-center gap-2 text-sm font-semibold text-amber-950">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" aria-hidden />
-            Forecast status: {basis.forecast_status || "UNAVAILABLE"}
-          </p>
-          <p className="mt-1 text-sm text-amber-950/90">Reason: {basis.reason}.</p>
-          <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed text-amber-950/80">
+        <div className="border-l-2 border-amber-400 pl-3">
+          <p className="text-sm font-medium text-amber-900">Forecast status: {basis.forecast_status || "UNAVAILABLE"}</p>
+          <p className="mt-0.5 text-sm text-slate-700">Reason: {basis.reason}.</p>
+          <div className="mt-2 space-y-1 font-mono text-xs leading-relaxed text-slate-600">
             <p>BRD §6.4: ROI = chapter weightage × mark-gain potential ÷ estimated effort hours</p>
             <p>Engine ({basis.calculation_version}): ROI = exam marks × (target − mastery)/100 × time factor ÷ effort hours</p>
           </div>
         </div>
 
-        <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 [print-color-adjust:exact] md:grid-cols-2 print:hidden">
+        <div className="grid gap-4 rounded-md border border-slate-200 p-4 md:grid-cols-2 print:hidden">
           <div>
             <label htmlFor="roi-days" className="flex items-baseline justify-between text-sm font-medium text-slate-700">
               Days to exam
-              <span className="text-2xl font-semibold tabular-nums text-brand-navy">{days}</span>
+              <span className="text-lg font-semibold tabular-nums text-brand-navy">{days}</span>
             </label>
             <input
               id="roi-days"
@@ -775,7 +755,7 @@ export function RoiLab({ result }: { result: Result }) {
               max={DAY_MAX}
               value={days}
               onChange={(e) => moveDays(Number(e.target.value))}
-              className="mt-2 w-full accent-brand-navy"
+              className="mt-2 w-full accent-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {PRESETS.map((p) => (
@@ -785,8 +765,8 @@ export function RoiLab({ result }: { result: Result }) {
                   aria-pressed={days === p.days}
                   onClick={() => moveDays(p.days)}
                   className={cn(
-                    "rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-                    days === p.days ? "bg-brand-navy text-white ring-brand-navy" : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-100",
+                    "min-h-8 rounded-sm border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+                    days === p.days ? "border-brand-navy bg-brand-navy text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
                   )}
                 >
                   {p.label}
@@ -797,7 +777,7 @@ export function RoiLab({ result }: { result: Result }) {
           <div>
             <label htmlFor="roi-hours" className="flex items-baseline justify-between text-sm font-medium text-slate-700">
               Study budget (hours / week)
-              <span className="text-2xl font-semibold tabular-nums text-brand-navy">{hours}</span>
+              <span className="text-lg font-semibold tabular-nums text-brand-navy">{hours}</span>
             </label>
             <input
               id="roi-hours"
@@ -806,7 +786,7 @@ export function RoiLab({ result }: { result: Result }) {
               max={HOURS_MAX}
               value={hours}
               onChange={(e) => moveHours(Number(e.target.value))}
-              className="mt-2 w-full accent-brand-navy"
+              className="mt-2 w-full accent-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
             />
             <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500" aria-live="polite">
               {pending ? (
@@ -827,14 +807,13 @@ export function RoiLab({ result }: { result: Result }) {
         </div>
         {error ? <Notice tone="warn">{error}</Notice> : null}
 
-        <div className={cn("space-y-4 transition-opacity", pending && "opacity-60")}>
+        <div className={cn("space-y-4 transition-opacity duration-150", pending && "opacity-60")}>
           <StrategyCard plan={plan} result={result} touched={touched} days={days} />
           <div>
             <Block
-              title="Personalised focus list · next five topics"
-              icon={Sigma}
+              title="Next five topics"
               aside={
-                <div role="group" aria-label="Order" className="flex rounded-full bg-slate-100 p-0.5 text-xs print:hidden">
+                <div role="group" aria-label="Order" className="flex rounded-md border border-slate-300 text-xs print:hidden">
                   {(
                     [
                       ["observed", "Observed-gap order (qualitative)"],
@@ -847,8 +826,8 @@ export function RoiLab({ result }: { result: Result }) {
                       aria-pressed={order === k}
                       onClick={() => setOrder(k)}
                       className={cn(
-                        "rounded-full px-2.5 py-1 font-medium transition",
-                        order === k ? "bg-white text-brand-navy shadow-sm" : "text-slate-500 hover:text-slate-800",
+"min-h-8 px-2.5 py-1 font-medium transition-colors duration-150 first:rounded-l-md last:rounded-r-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+                        order === k ? "bg-brand-navy text-white" : "bg-white text-slate-600 hover:bg-slate-50",
                       )}
                     >
                       {label}
@@ -860,10 +839,10 @@ export function RoiLab({ result }: { result: Result }) {
               <TopFiveTable plan={plan} result={result} order={order} />
               {plan.allocation_note ? (
                 <p className="mt-2 text-xs text-slate-600">
-                  <span className="font-semibold">Allocation:</span> {plan.allocation_note}
+                  <span className="font-medium text-slate-800">Allocation:</span> {plan.allocation_note}
                 </p>
               ) : null}
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-xs text-slate-500">
                 Rules engine, not LLM ranking. {order === "observed" ? "Order follows observed wrong/blank evidence (P1 = largest observed gap)." : "Order follows the illustrative ROI."}
               </p>
             </Block>
@@ -873,7 +852,7 @@ export function RoiLab({ result }: { result: Result }) {
             <Notice tone="info">No topic rows in this plan (the study-plan engine returned none for this record).</Notice>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
-              <Block title="Four action quadrants" icon={Calculator}>
+              <Block title="Four action quadrants">
                 <QuadrantGrid topics={topics} />
                 <div className="mt-3">
                   <QuadrantScatter topics={topics} />
@@ -881,36 +860,36 @@ export function RoiLab({ result }: { result: Result }) {
                 </div>
               </Block>
               <div className="space-y-4">
-                <Block title="Wasted-effort watch" icon={Flag}>
+                <Block title="Wasted-effort watch">
                   {plan.effort_flags.length === 0 && plan.deprioritised.length === 0 ? (
                     <p className="text-sm text-slate-500">No effort flags for these inputs.</p>
                   ) : (
                     <ul className="space-y-2 text-sm">
                       {plan.effort_flags.map((f, i) => (
-                        <li key={`f-${i}`} className="rounded-lg bg-amber-50 px-3 py-2 text-amber-950 [print-color-adjust:exact]">
-                          <span className="font-semibold">
+                        <li key={`f-${i}`} className="border-l-2 border-amber-400 pl-3 text-slate-800">
+                          <span className="font-medium">
                             {f.topic} · {f.kind === "over_investing" ? "Over-investing" : "Low marginal return"}
                           </span>
-                          <span className="block text-xs leading-relaxed">{f.message}</span>
+                          <span className="block text-xs leading-normal text-slate-600">{f.message}</span>
                         </li>
                       ))}
                       {plan.deprioritised.map((d, i) => (
-                        <li key={`d-${i}`} className="rounded-lg bg-slate-50 px-3 py-2 text-slate-700 [print-color-adjust:exact]">
-                          <span className="font-semibold">{d.topic} · Deprioritised</span>
-                          <span className="block text-xs leading-relaxed">{d.reason}</span>
+                        <li key={`d-${i}`} className="border-l-2 border-slate-300 pl-3 text-slate-800">
+                          <span className="font-medium">{d.topic} · Deprioritised</span>
+                          <span className="block text-xs leading-normal text-slate-600">{d.reason}</span>
                         </li>
                       ))}
                     </ul>
                   )}
                 </Block>
-                <Block title="Relative ROI by topic" icon={TrendingUp}>
+                <Block title="Relative ROI by topic">
                   <RoiBars topics={topics} />
                 </Block>
               </div>
             </div>
           )}
 
-          <Block title="Explain #1 - reproducible inputs, not a magic answer" icon={Calculator}>
+          <Block title="How #1 was calculated">
             <Explain plan={plan} result={result} />
             {plan.focus[0]?.question_refs.length ? (
               <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
@@ -922,15 +901,15 @@ export function RoiLab({ result }: { result: Result }) {
             ) : null}
           </Block>
 
-          <Block title="This week's calendar" icon={CalendarDays} aside={<span className="text-xs text-slate-500">{fmtNumber(plan.study_hours)} h budget</span>}>
+          <Block title="This week's calendar" aside={<span className="text-xs tabular-nums text-slate-500">{fmtNumber(plan.study_hours)} h budget</span>}>
             <WeeklyCalendar plan={plan} />
           </Block>
 
-          <Block title="7 / 30 / 60 / 90-day teaching roadmap" icon={MapIcon}>
+          <Block title="7 / 30 / 60 / 90-day teaching roadmap">
             <Roadmap plan={plan} days={plan.days_to_exam} />
           </Block>
 
-          <Block title="Compare time horizons" icon={Columns3} className="print:hidden">
+          <Block title="Compare time horizons" className="print:hidden">
             <Compare state={compare} onRun={runCompare} hours={hours} />
           </Block>
         </div>
