@@ -1,4 +1,4 @@
-"""[WP1] Analytics endpoints (see routers/__init__.py and API_CONTRACT.md).
+"""Analytics endpoints (see routers/__init__.py and API_CONTRACT.md).
 
 - GET   /api/results/{id}/plan              what-if study plan (ROI engine v2, illustrative)
 - GET   /api/weightage?exam=NEET            the illustrative chapter-weightage matrix

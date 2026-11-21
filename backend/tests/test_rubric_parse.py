@@ -273,7 +273,7 @@ def test_create_rubric_validation(client):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: MCQ, Bloom and marking-scheme fields in AI drafts (FR-3.8, FR-3.9, FR-4.8)
+# MCQ, Bloom and marking-scheme fields in AI drafts (FR-3.8, FR-3.9, FR-4.8)
 # --------------------------------------------------------------------------- #
 MCQ_DRAFT_REPLY = {
     "name": "NEET Mock 10",

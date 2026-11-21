@@ -1,4 +1,4 @@
-"""[W2-3] Intervention log, effectiveness and what-if (contract v3, API_CONTRACT.md):
+"""Intervention log, effectiveness and what-if (contract v3, API_CONTRACT.md):
 
 - POST   /api/interventions (InterventionInput) -> 201 InterventionRecord
          404 unknown_submission / 409 invalid_state / 422 unknown_topic / 422 invalid_applied_at

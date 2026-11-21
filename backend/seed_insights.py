@@ -1,4 +1,4 @@
-"""The set=insights sample dataset (owned by W2-3): POST /api/demo/seed?set=insights.
+"""The set=insights sample dataset: POST /api/demo/seed?set=insights.
 
 Creates (idempotently, with NO AI call, every row is_demo and labelled sample):
 - rubrics 'NEET MCQ Practice - Mock 09 (sample)' (24 MCQs +4/-1 + 2 descriptive with marking schemes),
@@ -58,7 +58,7 @@ BATCH_NAME = "NEET-C (sample)"
 BATCH_EXAM_TYPE = "Mock-09/10"
 FACULTY = "Ms. K. Menon (sample)"
 FACULTY_LEADS = {seed.BATCH_NAME: "Dr. A. Rao (demo)", seed.SECOND_BATCH_NAME: "Mr. S. Iyer (sample)"}
-NOTE = "Synthetic sample record (wave-2 insights demo) - generated locally without any AI call."
+NOTE = "Synthetic sample record (insights sample set) - generated locally without any AI call."
 TOPICS = (
     "Genetics", "Human Physiology", "Cell Biology", "Ecology", "Organic Chemistry", "Chemical Bonding",
     "Electrostatics", "Mechanics",
@@ -178,7 +178,7 @@ def seed_sample_rubric(session: Session, path: Path) -> Rubric:
     if rubric is None:
         rubric = create_rubric(
             session, content, status=RubricStatus.FACULTY_APPROVED, version=RUBRIC_VERSION,
-            change_note="Synthetic wave-2 insights sample rubric - sample / illustrative content, not a real paper.",
+            change_note="Synthetic insights sample rubric - sample / illustrative content, not a real paper.",
         )
     return rubric
 
@@ -629,7 +629,7 @@ def _ensure_record(
         return 0
     row = outcomes.build_record(
         sub, topic=topic, kind=kind, action=action, applied_by=FACULTY, source="faculty", applied_at=applied_at,
-        hours=hours, compliance=compliance, note="Sample intervention (wave-2 insights demo).", now=applied_at,
+        hours=hours, compliance=compliance, note="Sample intervention (insights sample set).", now=applied_at,
     )
     row.is_demo = True
     session.add(row)

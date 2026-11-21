@@ -1,4 +1,4 @@
-"""Pipeline operations (WP2; API_CONTRACT.md "Pipeline operations").
+"""Pipeline operations (API_CONTRACT.md "Pipeline operations").
 
 DLQ re-drive, re-evaluation without OCR, faculty OCR review / rescan, page images, model
 invocations, cost roll-ups, intake-batch progress and rubric versions. Errors are coded

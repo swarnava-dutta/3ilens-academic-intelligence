@@ -4,7 +4,7 @@ Everything here is pure Python over the rubric, the OCR answers and the LLM grad
 the same inputs always give the same report (seed.py also uses it for synthetic data).
 
 * Marks: clamped to [0, max_marks] and rounded to the nearest 0.5; totals are summed
-  here - LLM totals are never trusted. Wave 2: every question is scored through marking.py -
+  here - LLM totals are never trusted. Every question is scored through marking.py -
   MCQs by option letter (+max / -negative_marks / 0, the grader's marks are ignored),
   descriptive questions by the rubric's marking policy and per-step marking scheme. A wrong MCQ
   can make a total negative; mastery percentages are clamped to 0-100.
@@ -238,7 +238,7 @@ def _validated_questions(rubric_content: dict) -> list[dict[str, Any]]:
 
 
 def _raw_questions(rubric_content: dict) -> dict[int, dict[str, Any]]:
-    """The rubric's own question dicts by number (marking.py reads the wave-2 fields from them)."""
+    """The rubric's own question dicts by number (marking.py reads the MCQ, scheme and Bloom fields from them)."""
     out: dict[int, dict[str, Any]] = {}
     for raw in rubric_content.get("questions") or []:
         if isinstance(raw, dict):

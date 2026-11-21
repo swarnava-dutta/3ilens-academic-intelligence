@@ -3,8 +3,8 @@
 build_result merge order: base fields, then provenance.result_extras, then
 report_meta.result_extras, then analytics.result_extras - its topic_mastery,
 roi_recommendations and question_evaluations replace the stored lists - and finally the four
-GUARDED wave-2 hooks (llm_route, patterns, outcomes, voice). A guarded hook that raises is
-logged and replaced by its default payload, so a wave-2 bug never breaks the core report.
+GUARDED extension hooks (llm_route, patterns, outcomes, voice). A guarded hook that raises is
+logged and replaced by its default payload, so a bug in one never breaks the core report.
 """
 from __future__ import annotations
 
@@ -57,14 +57,14 @@ LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
 
 
 def guarded(name: str, hook: Callable[[], dict[str, Any]], default: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-    """Run a wave-2 read-side hook; on any exception log it and use the default payload."""
+    """Run an extension read-side hook; on any exception log it and use the default payload."""
     try:
         out = hook()
         if not isinstance(out, dict):
             raise TypeError(f"{name} returned {type(out).__name__}, expected dict")
         return out
-    except Exception:  # noqa: BLE001 - a wave-2 bug must never break the core report
-        logger.exception("Wave-2 hook %s failed - using its default payload", name)
+    except Exception:  # noqa: BLE001 - a hook bug must never break the core report
+        logger.exception("Extension hook %s failed - using its default payload", name)
         return default()
 
 
@@ -253,14 +253,14 @@ def build_result_for(
     payload.update(
         analytics.result_extras(db, sub=sub, result=result, rubric=rubric, batch=batch, institution=institution)
     )
-    payload.update(wave2_result_extras(db, sub=sub, result=result, rubric=rubric))
+    payload.update(extension_result_extras(db, sub=sub, result=result, rubric=rubric))
     return ResultOut.model_validate(payload)
 
 
-def wave2_result_extras(
+def extension_result_extras(
     db: Session, *, sub: StudentSubmission, result: EvaluationResult, rubric: Rubric
 ) -> dict[str, Any]:
-    """The four guarded wave-2 hooks, in contract order. Each payload is validated inside its
+    """The four guarded extension hooks, in contract order. Each payload is validated inside its
     guard, so a malformed payload falls back to the default as well."""
     out: dict[str, Any] = {}
     out.update(guarded(

@@ -41,7 +41,7 @@ def rubric_questions_hash(content: dict[str, Any]) -> str:
     """Fingerprint of what OCR sees (question number, topic, prompt) - part of the OCR cache key,
     so editing marks or criteria reuses cached OCR while a changed question list does not.
     An entry gains "question_type" only when the question sets one (MCQ papers get their own
-    cache keys; every pre-wave-2 hash is unchanged)."""
+    cache keys; every pre-v3 hash is unchanged)."""
     questions = content.get("questions") if isinstance(content, dict) else None
     view = []
     for q in questions or []:

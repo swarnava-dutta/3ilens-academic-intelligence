@@ -1,5 +1,5 @@
 """Owner what-if engine (FR-4.14): "+X hours of topic T for every student in scope -> about how
-many exam marks?". Owned by W2-3. Deterministic, illustrative, no AI call.
+many exam marks?". Deterministic, illustrative, no AI call.
 
 Effort-response model (linear, ILLUSTRATIVE - not a calibrated forecast):
     delta_mastery_pts = max(0, 85 - mastery) x min(1, hours / hours_to_target) x k

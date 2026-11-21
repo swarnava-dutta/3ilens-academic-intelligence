@@ -1,4 +1,4 @@
-"""Unit tests for the WP0 shared helper modules: errors, hashing, costing, docx_reader,
+"""Unit tests for the shared helper modules: errors, hashing, costing, docx_reader,
 rubric_store, results_store and the REAL rules in analytics / provenance."""
 from __future__ import annotations
 

@@ -156,7 +156,7 @@ def _report_usage(kwargs: dict[str, Any], **fields: Any) -> None:
 class FakeAI:
     """Stands in for preprocessing.preprocess_document, ai.run_ocr, ai.run_evaluation and
     ai.structure_transcript. `calls` keeps exactly {preprocess, ocr, evaluation} (tests pin it);
-    wave-2 fakes are counted in their own attributes (structure_calls)."""
+    the voice-mapping fake is counted in its own attribute (structure_calls)."""
 
     def __init__(self) -> None:
         self.calls = {"preprocess": 0, "ocr": 0, "evaluation": 0}

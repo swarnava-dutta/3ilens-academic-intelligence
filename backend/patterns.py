@@ -1,5 +1,5 @@
 """Exam-behaviour patterns (FR-4.8 negative marking, FR-4.10 fatigue, FR-4.11 memorisation vs
-transfer) and the Bloom profile. Owned by W2-3.
+transfer) and the Bloom profile.
 
 Read-side only: result_view / cohort call result_extras / cohort_extras through guarded hooks,
 so an exception here never breaks a report. Deterministic, no AI call. Every threshold below is
@@ -137,7 +137,7 @@ def rubric_questions(rubric_content: dict[str, Any] | None) -> dict[int, dict[st
 
 
 def question_items(result: Any, rubric: Any) -> list[dict[str, Any]]:
-    """The result's question evaluations with the wave-2 keys filled (never re-scored), in
+    """The result's question evaluations with the v3 keys filled (never re-scored), in
     ascending question order."""
     items = marking.annotate_questions([dict(q) for q in result.question_evaluations or []], _content(rubric))
     return sorted((q for q in items if _qnum(q) is not None), key=lambda q: _qnum(q) or 0)

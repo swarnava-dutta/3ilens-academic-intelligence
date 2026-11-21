@@ -590,7 +590,7 @@ def seed_demo(
 app.include_router(pipeline_ops.router)
 app.include_router(analytics_routes.router)
 app.include_router(outputs.router)
-# Wave 2 (contract v3).
+# Contract v3: AI ops, voice, LMS export, owner dashboard, interventions / what-if.
 app.include_router(ai_ops.router)
 app.include_router(voice_routes.router)
 app.include_router(lms.router)

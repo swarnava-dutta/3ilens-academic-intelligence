@@ -1,4 +1,4 @@
-"""The set=insights sample dataset (W2-3): idempotency, labels, name collisions, the pinned
+"""The set=insights sample dataset: idempotency, labels, name collisions, the pinned
 pattern sets, the intervention effectiveness ordering, scoring and contract checks."""
 from __future__ import annotations
 

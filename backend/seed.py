@@ -792,7 +792,7 @@ DEMO_SETS = ("genetics", "mixed", "all", "insights")
 
 def seed_demo_set(session: Session, set_name: str = "genetics") -> int:
     """genetics -> seed_demo_cohort (13 rows); mixed -> seed_demo_extended; all -> both (27);
-    insights -> seed_insights.seed_insights_demo (wave 2 sample set; not part of "all")."""
+    insights -> seed_insights.seed_insights_demo (the learning-analytics sample set; not part of "all")."""
     if set_name not in DEMO_SETS:
         raise ValueError(f"Unknown demo set '{set_name}' (expected one of {', '.join(DEMO_SETS)}).")
     if set_name == "insights":

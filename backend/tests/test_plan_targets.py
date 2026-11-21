@@ -1,4 +1,4 @@
-"""Study plan rows keep target mastery, gain and hours consistent (wave-1 leftover fix).
+"""Study plan rows keep target mastery, gain and hours consistent.
 
 Before the fix a focus topic that got 0 hours in a small window showed "37.5% -> 37.5%, +10.9
 marks": the target was this window's partial step while gain_marks / effort_hours refer to 85%.

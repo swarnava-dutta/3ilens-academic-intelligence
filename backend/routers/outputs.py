@@ -1,4 +1,4 @@
-"""[WP3] Output endpoints (API_CONTRACT.md, "Outputs"): branded PDFs, the ZIP bundle, the faculty
+"""Output endpoints (API_CONTRACT.md, "Outputs"): branded PDFs, the ZIP bundle, the faculty
 release gate, SIMULATED WhatsApp delivery with signed download links, student cards, longitudinal
 history and the dashboard filter options.
 

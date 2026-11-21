@@ -6,7 +6,7 @@ inputs always give the same marks and the LLM never decides a total:
 
 * MCQs are scored by option letter only (+max correct, -negative_marks wrong or multi-marked,
   0 blank or unreadable). The grading model never sees them.
-* Descriptive questions keep the wave-1 rule (clamp, round half-up to 0.5) unless the rubric
+* Descriptive questions keep the default rule (clamp, round half-up to 0.5) unless the rubric
   sets a marking policy, a per-question mode or a per-step marking scheme.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ BLANK_TOKENS = {
 PARTIAL_CREDIT_MODES = ("steps", "proportional", "all_or_nothing")
 MARK_STEPS = (0.25, 0.5, 1.0, 2.0)
 DEFAULT_POLICY: dict[str, Any] = {"partial_credit": "steps", "mark_step": 0.5, "negative_marks": 0.0, "scheme_name": None}
-# Must equal analytics.MARKING_RULE (the wave-1 text, pinned by tests).
+# Must equal analytics.MARKING_RULE (the default text, pinned by tests).
 DEFAULT_MARKING_RULE = "Partial credit in 0.5-mark steps, clamped to each question max; totals summed server-side"
 REQUIRED_STEP_SHARE = 0.5
 # Per-question rubric fields that make a rubric "non-default" for marking_rule_text.
@@ -364,7 +364,7 @@ def _qnum(question: dict[str, Any]) -> int | None:
 
 
 def marking_rule_text(rubric_content: dict[str, Any] | None) -> str:
-    """DEFAULT_MARKING_RULE for wave-1 rubrics; otherwise a composed sentence, scheme name first."""
+    """DEFAULT_MARKING_RULE for rubrics without MCQs or a policy; otherwise a composed sentence, scheme name first."""
     questions = _questions(rubric_content)
     has_policy = isinstance((rubric_content or {}).get("marking_policy"), dict)
     mcqs = [q for q in questions if question_type(q) == "mcq"]
@@ -410,7 +410,7 @@ def marking_rule_text(rubric_content: dict[str, Any] | None) -> str:
 # Read-side annotation (legacy and seeded rows)
 # --------------------------------------------------------------------------- #
 def annotate_questions(items: list[dict[str, Any]], rubric_content: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """NEW dicts with the wave-2 question keys filled where MISSING (never re-scores):
+    """NEW dicts with the v3 question keys filled where MISSING (never re-scores):
     question_type, bloom_level/bloom_source, concept, correct_option and selected_option (MCQ),
     penalty 0, demonstrated_level None, marking_breakdown [], marking_note None."""
     by_number = {n: q for q in _questions(rubric_content) if (n := _qnum(q)) is not None}

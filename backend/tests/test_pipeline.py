@@ -14,7 +14,7 @@ RESULT_KEYS = {
     "urgency", "urgency_reasons", "percentage", "summary", "executive_summary", "teaching_nudges", "confusions",
     "outcome_counts", "subject_rollup", "scoring_controls", "roi_basis", "report_meta", "release", "custody",
     "extraction", "cost", "latency", "history", "versions", "deliveries", "study_plan",
-    # contract v3 (guarded wave-2 hooks)
+    # contract v3 (guarded extension hooks)
     "llm_routes", "patterns", "interventions", "voice",
 }
 TOPIC_KEYS = {

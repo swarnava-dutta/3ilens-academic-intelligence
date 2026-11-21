@@ -742,8 +742,8 @@ def run_evaluation(
 
     purpose is "evaluation" or "consistency" (FR-3.5 re-grade check) and is reported on the
     ModelUsage passed to on_usage. The rubric block is prompt-cached (FR-3.6).
-    answer_medium ("handwriting" | "speech") and simulate_outage (FR-3.10 drill) are part of the
-    wave-2 interface; they are accepted and not used yet (W2-1)."""
+    answer_medium ("speech" adds a note that the answers were spoken and transcribed) and
+    simulate_outage (FR-3.10 drill: skip Claude so the fallback model answers)."""
     settings = get_settings()
     purpose = purpose or "evaluation"
     answers = [a if isinstance(a, OcrAnswer) else OcrAnswer.model_validate(a) for a in answers]
@@ -788,7 +788,7 @@ def run_evaluation(
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2 interface (contract v3). W2-1 owns the bodies; signatures are fixed.
+# Fallback chain, voice-transcript mapping and Bloom detection (contract v3).
 # --------------------------------------------------------------------------- #
 # ai.AIServiceError codes that send a call to the fallback model (FR-3.10).
 FALLBACK_TRIGGER_CODES: tuple[str, ...] = (

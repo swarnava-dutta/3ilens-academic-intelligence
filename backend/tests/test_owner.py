@@ -118,7 +118,7 @@ def test_a_failing_intervention_summary_never_breaks_the_dashboard(client, seede
     import outcomes
 
     def boom(*_args, **_kwargs):
-        raise RuntimeError("wave-2 bug")
+        raise RuntimeError("extension hook bug")
 
     monkeypatch.setattr(outcomes, "effectiveness", boom)
     response = client.get(URL)

@@ -410,7 +410,7 @@ MIGRATION_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("evaluation_results", "review_note", "TEXT"),
     ("evaluation_results", "llm_cost_inr", "FLOAT"),
     ("evaluation_results", "cost_breakdown", "JSON"),
-    # --- wave 2 (contract v3) ---
+    # --- contract v3 ---
     ("batches", "faculty_lead", "VARCHAR(120)"),
     ("student_submissions", "input_kind", "VARCHAR(16)"),
     ("student_submissions", "audio_seconds", "FLOAT"),

@@ -116,7 +116,7 @@ _STOP = {"and", "the", "of", "in", "a", "an"}
 
 
 # --------------------------------------------------------------------------- #
-# REAL: urgency and exam-date rules (WP0)
+# Urgency and exam-date rules
 # --------------------------------------------------------------------------- #
 def percentage(result: EvaluationResult | Any) -> float:
     """Score as a 0-100 percentage of the rubric total (1 decimal)."""
@@ -1289,8 +1289,8 @@ def result_extras(
         "urgency": urgency,
         "urgency_reasons": reasons,
         "percentage": pct,
-        # The AI summary when one was stored; null otherwise (the frozen contract test pins null for
-        # rows without one) - executive_summary always carries the deterministic narrative.
+        # The AI summary when one was stored; null otherwise (the contract test pins null for rows
+        # without one) - executive_summary always carries the deterministic narrative.
         "summary": stored_summary or None,
         "executive_summary": _executive_summary(result, questions, topics, priorities, pct),
         "teaching_nudges": _nudges(result, priorities, questions),
@@ -1321,7 +1321,7 @@ def result_extras(
         "study_plan": plan,
         "topic_mastery": topics,
         "roi_recommendations": priorities,
-        # Legacy and seeded rows gain the wave-2 question keys at read time (never re-scored).
+        # Legacy and seeded rows gain the v3 question keys at read time (never re-scored).
         "question_evaluations": marking.annotate_questions(questions, rubric.content if rubric is not None else None),
     }
 

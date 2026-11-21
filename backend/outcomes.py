@@ -1,4 +1,4 @@
-"""Intervention log and outcome tracking (FR-4.13). Owned by W2-3. Deterministic, no AI call.
+"""Intervention log and outcome tracking (FR-4.13). Deterministic, no AI call.
 
 A record captures a teaching action on one student's topic, with the topic mastery and the
 effort-model prediction at record time. Its outcome is read at request time from the student's

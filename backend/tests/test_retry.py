@@ -227,7 +227,7 @@ def test_a_job_queued_twice_runs_once(upload, fake_ai, client):
 
 
 # --------------------------------------------------------------------------- #
-# Re-evaluation in flight (wave-1 leftover: the report must say "Re-grading", not show old marks)
+# Re-evaluation in flight (the report must say "Re-grading", not show old marks)
 # --------------------------------------------------------------------------- #
 def test_results_answer_202_while_a_reevaluation_is_queued_and_running(upload, fake_ai, client, monkeypatch):
     import ai

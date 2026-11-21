@@ -53,7 +53,7 @@ def test_score_mcq_plus_four_minus_one():
     assert marking.score_mcq(MCQ, "A", marking.DEFAULT_POLICY)["marks"] == 0.0
 
 
-def test_default_policy_matches_the_wave1_bounded_marks():
+def test_default_policy_matches_the_original_bounded_marks():
     for eighths in range(-4, 40):
         value = eighths / 8
         got = marking.score_descriptive({"max_marks": 4}, estimated_marks=value, criteria_awards=[],

@@ -41,7 +41,7 @@ VERBS: dict[str, tuple[str, ...]] = {
            "to what extent"),
 }
 
-# One sentence per level; W2-1 puts it into the grading prompt for level-aware grading.
+# One sentence per level; the grading prompt carries it for level-aware grading.
 GUIDANCE: dict[str, str] = {
     "K1": "Recall: award each mark for an accurate fact, term or definition named in the criteria; brevity is fine.",
     "K2": (

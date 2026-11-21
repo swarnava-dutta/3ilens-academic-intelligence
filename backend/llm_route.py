@@ -1,4 +1,4 @@
-"""LLM route provenance and the provider chain (FR-3.10). Owned by W2-1.
+"""LLM route provenance and the provider chain (FR-3.10).
 
 Routes are derived from the model_invocations rows of the latest run, so there is no new result
 column: for each stage (transcription, voice mapping, OCR, grading) the first row names the

@@ -97,7 +97,7 @@ class RubricQuestionIn(BaseModel):
     grading_criteria: list[str] = Field(min_length=1, max_length=50)
     effort_hours: int | float = Field(gt=0, le=1000)
     chapter: str | None = Field(default=None, max_length=200)  # syllabus chapter (weightage matrix)
-    # --- wave 2 (all default None, so model_dump(exclude_none=True) keeps old hashes) ----------
+    # --- contract v3 (all default None, so model_dump(exclude_none=True) keeps old hashes) -------
     question_type: Literal["descriptive", "mcq"] | None = None
     options: list[str] | None = None
     correct_option: str | None = None
@@ -111,7 +111,7 @@ class RubricQuestionIn(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _wave2_defaults(cls, data: Any) -> Any:
+    def _v3_defaults(cls, data: Any) -> Any:
         """MCQ: needs a correct_option; fills expected_answer / grading_criteria when missing.
         A marking scheme without grading_criteria gets one criterion per step."""
         if not isinstance(data, dict):
@@ -246,7 +246,7 @@ class RubricQuestionIn(BaseModel):
         return " ".join(v.split()) if isinstance(v, str) else v
 
     @model_validator(mode="after")
-    def _wave2_rules(self) -> RubricQuestionIn:
+    def _v3_rules(self) -> RubricQuestionIn:
         n = self.question
         is_mcq = self.question_type == "mcq"
         if not is_mcq:
@@ -289,7 +289,7 @@ class RubricContentIn(BaseModel):
     name: str = Field(max_length=200)
     subject: str | None = None
     questions: list[RubricQuestionIn] = Field(min_length=1, max_length=60)
-    marking_policy: MarkingPolicyIn | None = None  # wave 2; None keeps the wave-1 marking rule
+    marking_policy: MarkingPolicyIn | None = None  # None keeps the default marking rule
 
     @field_validator("name", mode="before")
     @classmethod
@@ -341,7 +341,7 @@ LanguageHintLit = Literal["en", "hi", "ta", "kn", "te"]
 ReviewActionLit = Literal["approve", "correct", "rescan"]
 RubricSourceLit = Literal["text", "pdf", "docx", "json"]
 DemoSetLit = Literal["genetics", "mixed", "all", "insights"]
-# --- wave 2 (contract v3) ---
+# --- contract v3 ---
 QuestionTypeLit = Literal["descriptive", "mcq"]
 BloomLevelLit = Literal["K1", "K2", "K3", "K4", "K5"]
 BloomSourceLit = Literal["faculty", "ai", "heuristic"]
@@ -548,7 +548,7 @@ class QuestionEvaluationOut(BaseModel):
     source_pages: list[int] = Field(default_factory=list)
     uncertain_words: list[UncertainWordOut] = Field(default_factory=list)
     corrected_by_faculty: bool = False
-    # --- wave 2 (defaults so old rows validate) ---
+    # --- contract v3 (defaults so old rows validate) ---
     question_type: QuestionTypeLit = "descriptive"
     bloom_level: BloomLevelLit | None = None
     bloom_source: BloomSourceLit | None = None
@@ -771,7 +771,7 @@ class DeliveryOut(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Study plan (WP1 engine v2)
+# Study plan (ROI engine v2)
 # --------------------------------------------------------------------------- #
 class PlanTopic(BaseModel):
     topic: str
@@ -876,7 +876,7 @@ class StudyPlan(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2 (contract v3): shapes carried by Result / Cohort
+# Contract v3: shapes carried by Result / Cohort
 # --------------------------------------------------------------------------- #
 class VoiceInfo(BaseModel):
     audio_url: str | None = None  # relative /api/submissions/{id}/audio; null when no audio file is stored
@@ -1117,7 +1117,7 @@ class ResultOut(BaseModel):
     versions: list[EvaluationVersionOut] = Field(default_factory=list)
     deliveries: list[DeliveryOut] = Field(default_factory=list)
     study_plan: StudyPlan
-    # --- wave 2: guarded read-side hooks (result_view.build_result_for) ---
+    # --- guarded read-side hooks (result_view.build_result_for) ---
     llm_routes: list[LlmRoute] = Field(default_factory=list)
     patterns: StudentPatterns = Field(default_factory=StudentPatterns)
     interventions: list[InterventionRecordOut] = Field(default_factory=list)
@@ -1253,7 +1253,7 @@ class CohortOut(BaseModel):
     excluded: ExcludedStudents = Field(default_factory=ExcludedStudents)
     operations: Operations
     release_counts: ReleaseCounts = Field(default_factory=ReleaseCounts)
-    patterns: CohortPatterns = Field(default_factory=CohortPatterns)  # wave 2 (guarded hook)
+    patterns: CohortPatterns = Field(default_factory=CohortPatterns)  # guarded hook
 
 
 class DemoSeedOut(BaseModel):
@@ -1509,7 +1509,7 @@ class ExamOption(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2 (contract v3): voice, LLM chain, Bloom detection
+# Contract v3: voice, LLM chain, Bloom detection
 # --------------------------------------------------------------------------- #
 class VoiceTranscript(BaseModel):
     submission_id: int
@@ -1566,7 +1566,7 @@ class BloomDetection(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: intervention effectiveness (FR-4.13) and what-if (FR-4.14)
+# Intervention effectiveness (FR-4.13) and what-if (FR-4.14)
 # --------------------------------------------------------------------------- #
 INTERVENTION_CAVEAT = (
     "Observational: treated vs untreated topics of the same students. Interventions are not assumed to cause "
@@ -1683,7 +1683,7 @@ class WhatIfOptions(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: owner dashboard (FR-5.9)
+# Owner dashboard (FR-5.9)
 # --------------------------------------------------------------------------- #
 class OwnerTotals(BaseModel):
     students: int = 0
@@ -1758,7 +1758,7 @@ class OwnerDashboard(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: LMS export (FR-5.10)
+# LMS export (FR-5.10)
 # --------------------------------------------------------------------------- #
 class ApiKeyOut(BaseModel):
     """types.ts ApiKey (Out suffix: the ORM class is database.ApiKey). Never carries the secret."""
@@ -1908,7 +1908,7 @@ class DeliveryInput(BaseModel):
     recipient: str | None = Field(default=None, max_length=32)
 
 
-# --- wave 2 request bodies (contract v3) ---------------------------------------------------
+# --- contract v3 request bodies ------------------------------------------------------------
 class LlmDrillInput(BaseModel):
     simulate_outage: bool = False
 

@@ -488,7 +488,7 @@ def test_unhandled_errors_return_json_500_with_cors(client, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Contract v2 (WP0): health settings, upload extras + error codes, filters, demo sets
+# Contract v2: health settings, upload extras + error codes, filters, demo sets
 # --------------------------------------------------------------------------- #
 def test_health_reports_ocr_adapter_targets_and_upload_limits(client):
     body = client.get("/api/health").json()
@@ -615,7 +615,7 @@ def test_cohort_filters_and_extras_on_the_demo_cohort(client):
     assert cohort["excluded"] == {"review": ["Aditya Kulkarni"], "failed": [], "processing": []}
     import seed
 
-    released = len(getattr(seed, "DEMO_RELEASED", ()))  # WP3: demo faculty sign-offs
+    released = len(getattr(seed, "DEMO_RELEASED", ()))  # demo faculty sign-offs
     assert cohort["release_counts"] == {"provisional": 12 - released, "released": released}
     assert cohort["operations"]["target_inr"] == 5 and cohort["operations"]["dlq_count"] == 0
 
@@ -635,7 +635,7 @@ def test_cohort_filters_and_extras_on_the_demo_cohort(client):
 
 
 def test_demo_seed_set_parameter(client):
-    mixed = client.post("/api/demo/seed", params={"set": "mixed"}).json()["created"]  # WP3's NEET mixed demo
+    mixed = client.post("/api/demo/seed", params={"set": "mixed"}).json()["created"]  # the NEET mixed demo
     assert mixed >= 0
     assert client.post("/api/demo/seed", params={"set": "mixed"}).json()["created"] == 0  # idempotent
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 13

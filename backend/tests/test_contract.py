@@ -142,7 +142,7 @@ def test_types_ts_parser_sees_the_contract_interfaces():
         "ApiErrorBody", "ReviewInput", "DeliveryInput",
     ):
         assert name in INTERFACES, name
-    for name in (  # wave 2 (contract v3)
+    for name in (  # contract v3
         "VoiceInfo", "VoiceTranscript", "LlmRoute", "LlmProvider", "LlmChainStatus", "LlmDrillResult", "BloomTag",
         "BloomDetection", "MarkingStep", "MarkingPolicy", "MarkingAward", "StudentPatterns", "CohortPatterns",
         "NegativeMarkingProfile", "FatigueProfile", "TransferProfile", "InterventionRecord", "InterventionInput",

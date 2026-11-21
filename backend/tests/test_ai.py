@@ -1041,7 +1041,7 @@ def test_parse_rubric_requires_a_key_and_a_source(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: MCQ-aware grading (FR-4.8), Bloom levels (FR-3.9), marking schemes (FR-3.8), voice
+# MCQ-aware grading (FR-4.8), Bloom levels (FR-3.9), marking schemes (FR-3.8), voice
 # --------------------------------------------------------------------------- #
 SCHEME_STEPS = [
     {"criterion": "Writes the parental cross Tt x tt", "marks": 1},

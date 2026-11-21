@@ -1,4 +1,4 @@
-"""[W2-2] Institute-owner dashboard (FR-5.9; contract v3, API_CONTRACT.md):
+"""Institute-owner dashboard (FR-5.9; contract v3, API_CONTRACT.md):
 
 - GET /api/owner/dashboard?institution_id -> OwnerDashboard; 404 unknown_institution
 

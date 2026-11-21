@@ -141,7 +141,7 @@ def test_report_shape_matches_contract():
         "question", "topic", "estimated_marks", "max_marks", "evidence",
         "strengths", "gaps", "student_answer", "confidence",
         "outcome", "source_pages", "uncertain_words", "corrected_by_faculty",
-        # wave 2 (contract v3)
+        # contract v3
         "question_type", "bloom_level", "bloom_source", "demonstrated_level", "concept", "penalty",
         "selected_option", "correct_option", "marking_breakdown", "marking_note",
     }
@@ -514,7 +514,7 @@ def test_examiner_note_is_flagged_for_faculty_and_scores_unchanged():
 
 
 # --------------------------------------------------------------------------- #
-# Wave 2: MCQ papers (FR-4.8) and marking schemes (FR-3.8)
+# MCQ papers (FR-4.8) and marking schemes (FR-3.8)
 # --------------------------------------------------------------------------- #
 def _mcq(number: int, correct: str, topic: str = "Cell Biology") -> dict:
     return {"question": number, "topic": topic, "subject": "Biology", "max_marks": 4, "effort_hours": 2,

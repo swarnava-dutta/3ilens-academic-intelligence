@@ -16,7 +16,7 @@ _VERSION_RE = re.compile(r"^v(\d+)$", re.IGNORECASE)
 # Fields whose change marks a question as "changed" between two rubric versions.
 _COMPARED_FIELDS = (
     "topic", "subject", "chapter", "max_marks", "prompt", "expected_answer", "grading_criteria", "effort_hours",
-    # wave 2 (bloom_source is provenance only and is not compared)
+    # contract v3 fields (bloom_source is provenance only and is not compared)
     "question_type", "options", "correct_option", "negative_marks", "bloom_level", "concept", "marking_scheme",
     "partial_credit", "mark_step",
 )

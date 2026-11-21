@@ -1,4 +1,4 @@
-"""[W2-2] Read-only LMS export with hashed API keys (FR-5.10; contract v3, API_CONTRACT.md).
+"""Read-only LMS export with hashed API keys (FR-5.10; contract v3, API_CONTRACT.md).
 
 - Key management (local admin, no API key): GET /api/lms/info, GET/POST /api/lms/keys,
   POST /api/lms/keys/{id}/revoke. PoC only: there is no login, so these are open to anyone who

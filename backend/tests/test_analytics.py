@@ -1,5 +1,5 @@
 """analytics.py: urgency rule, result extras (narrative, controls, study plan) on new and OLD rows,
-cohort extras, and the WP1 analytics endpoints (plan / weightage / exams / batch patch)."""
+cohort extras, and the analytics endpoints (plan / weightage / exams / batch patch)."""
 from __future__ import annotations
 
 import sys

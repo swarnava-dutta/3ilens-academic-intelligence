@@ -188,7 +188,7 @@ class Settings:
     download_link_secret: str = field(default=_PROCESS_LINK_SECRET, repr=False)  # DOWNLOAD_LINK_SECRET
     download_link_ttl_hours: int = 24           # DOWNLOAD_LINK_TTL_HOURS
     report_logo_path: Path | None = None        # REPORT_LOGO_PATH
-    # --- wave 2: voice, LLM fallback, LMS, interventions ----------------------------------
+    # --- voice, LLM fallback, LMS, interventions -----------------------------------------
     voice_answers_enabled: bool = True          # VOICE_ANSWERS (0/false/no/off disables)
     openai_transcribe_model: str = DEFAULT_TRANSCRIBE_MODEL  # OPENAI_TRANSCRIBE_MODEL
     allowed_audio_mime_types: tuple[str, ...] = field(default=AUDIO_MIME_TYPES)
