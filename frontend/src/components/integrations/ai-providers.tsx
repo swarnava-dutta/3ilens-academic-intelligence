@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Cpu, Loader2, Play, XCircle } from "lucide-react";
-import { Card, CardHeader } from "@/components/cohort/card";
+import { Loader2 } from "lucide-react";
 import { btnPrimary } from "@/components/cohort/dialog";
 import { fmtDateTime, inr } from "@/components/owner/format";
-import { CardSkeleton, ErrorNote } from "@/components/owner/states";
+import { CardSkeleton, ErrorNote, focusRing, Panel, tagCls, theadCls, thCls } from "@/components/owner/states";
 import { useAsync } from "@/components/owner/use-async";
 import { stageLabel } from "@/components/report/llm-route";
 import { getLlmChain, runLlmDrill } from "@/lib/api";
@@ -31,15 +30,17 @@ export function RouteChip({ route }: { route: LlmRoute }) {
   return (
     <span
       className={cn(
-        "inline-flex flex-wrap items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ring-1 ring-inset",
-        route.fell_back ? "bg-amber-50 text-amber-900 ring-amber-300" : "bg-brand-lime-50 text-lime-800 ring-brand-lime/40",
+        tagCls,
+        "flex-wrap text-sm",
+        route.fell_back ? "bg-amber-50 text-amber-900" : "bg-brand-lime-50 text-lime-800",
       )}
       title={`${route.attempts} attempt(s)${route.cross_vendor ? " · cross-vendor fallback (not residency-approved)" : ""}`}
     >
       {primary}
       {route.fell_back ? (
         <>
-          <ArrowRight className="h-3.5 w-3.5" aria-label="fell back to" />
+          <span aria-hidden>&rarr;</span>
+          <span className="sr-only">fell back to</span>
           {served}
           {route.reason ? <span className="font-normal">({route.reason})</span> : null}
         </>
@@ -53,32 +54,27 @@ export function RouteChip({ route }: { route: LlmRoute }) {
 function CallsTable({ calls }: { calls: ModelInvocation[] }) {
   if (!calls.length) return null;
   return (
-    <div className="relative overflow-x-auto rounded-xl ring-1 ring-slate-200">
+    <div className="relative overflow-x-auto rounded-md border border-slate-200">
       <table className="w-full min-w-[720px] border-collapse text-sm">
         <caption className="sr-only">Provider calls made by the drill</caption>
-        <thead className="bg-slate-50">
-          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
-            <th scope="col" className="px-3 py-2">Provider</th>
-            <th scope="col" className="px-3 py-2">Model</th>
-            <th scope="col" className="px-3 py-2">Status</th>
-            <th scope="col" className="px-3 py-2">Error code</th>
-            <th scope="col" className="px-3 py-2 text-right">Latency</th>
-            <th scope="col" className="px-3 py-2 text-right">Tokens in / out</th>
-            <th scope="col" className="px-3 py-2 text-right">Cost</th>
+        <thead className={theadCls}>
+          <tr>
+            <th scope="col" className={thCls}>Provider</th>
+            <th scope="col" className={thCls}>Model</th>
+            <th scope="col" className={thCls}>Status</th>
+            <th scope="col" className={thCls}>Error code</th>
+            <th scope="col" className={cn(thCls, "text-right")}>Latency</th>
+            <th scope="col" className={cn(thCls, "text-right")}>Tokens in / out</th>
+            <th scope="col" className={cn(thCls, "text-right")}>Cost</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-slate-200">
           {calls.map((c) => (
             <tr key={c.id}>
               <td className="px-3 py-1.5 text-slate-800">{c.provider}</td>
               <td className="px-3 py-1.5 font-mono text-xs text-slate-700">{c.model_served ?? c.model_requested}</td>
               <td className="px-3 py-1.5">
-                <span className={cn("inline-flex items-center gap-1 text-xs font-medium", c.status === "ok" || c.status === "cache_hit" ? "text-lime-800" : "text-rose-700")}>
-                  {c.status === "ok" || c.status === "cache_hit" ? (
-                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5" aria-hidden />
-                  )}
+                <span className={cn("font-mono text-xs", c.status === "ok" || c.status === "cache_hit" ? "text-lime-800" : "text-rose-700")}>
                   {c.status}
                 </span>
               </td>
@@ -117,13 +113,13 @@ function Drill({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+    <div className="border-t border-slate-200 pt-4">
       <h3 className="text-sm font-semibold text-brand-navy">Fallback drill</h3>
-      <p className="mt-0.5 text-xs text-slate-600">
+      <p className="mt-0.5 text-[13px] text-slate-500">
         Grades one built-in sample answer through the chain. Makes real provider calls (about Rs 1-2 per run).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+        <label className="inline-flex min-h-10 items-center gap-2 text-sm text-slate-800">
           <input
             type="checkbox"
             checked={simulate}
@@ -133,7 +129,7 @@ function Drill({ onDone }: { onDone: () => void }) {
           Simulate Claude outage
         </label>
         <button type="button" className={btnPrimary} onClick={() => void run()} disabled={running}>
-          {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
+          {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           {running ? "Running drill…" : "Run fallback drill"}
         </button>
       </div>
@@ -143,11 +139,10 @@ function Drill({ onDone }: { onDone: () => void }) {
           <>
             <div className="flex flex-wrap items-center gap-2">
               <RouteChip route={result.route} />
-              <span className={cn("inline-flex items-center gap-1 text-sm font-medium", result.ok ? "text-lime-800" : "text-rose-700")}>
-                {result.ok ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : <XCircle className="h-4 w-4" aria-hidden />}
+              <span className={cn("text-sm font-medium", result.ok ? "text-lime-800" : "text-rose-700")}>
                 {result.ok ? "Answer graded" : "No answer"}
               </span>
-              <span className="text-xs text-slate-600">
+              <span className="text-xs tabular-nums text-slate-500">
                 {result.sample_marks === null ? "—" : result.sample_marks} / {result.sample_max_marks} marks ·{" "}
                 {(result.latency_ms / 1000).toFixed(1)} s total
               </span>
@@ -166,14 +161,12 @@ function FallbackOutcome({ call }: { call: ModelInvocation }) {
   const look =
     call.status === "ok"
       ? call.fell_back
-        ? { text: "served by fallback", cls: "bg-amber-50 text-amber-800 ring-amber-200" }
-        : { text: "ok", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200" }
+        ? { text: "served by fallback", cls: "bg-amber-50 text-amber-800" }
+        : { text: "ok", cls: "bg-brand-lime-50 text-lime-800" }
       : call.error_code === "simulated_outage"
-        ? { text: "primary skipped (simulated outage)", cls: "bg-slate-100 text-slate-700 ring-slate-200" }
-        : { text: `failed${call.error_code ? `: ${call.error_code}` : ""}`, cls: "bg-rose-50 text-rose-700 ring-rose-200" };
-  return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", look.cls)}>{look.text}</span>
-  );
+        ? { text: "primary skipped (simulated outage)", cls: "bg-slate-100 text-slate-700" }
+        : { text: `failed${call.error_code ? `: ${call.error_code}` : ""}`, cls: "bg-rose-50 text-rose-700" };
+  return <span className={cn(tagCls, look.cls)}>{look.text}</span>;
 }
 
 /** AI provider chain (FR-3.10): providers, fallback switches, trigger codes, drill and recent fallbacks. */
@@ -184,52 +177,45 @@ export function AiProvidersCard() {
   if (!data && loading) return <CardSkeleton rows={4} label="Loading the AI provider chain…" />;
 
   return (
-    <Card aria-labelledby="ai-chain-title">
-      <CardHeader
-        id="ai-chain-title"
-        icon={Cpu}
-        title="AI providers & fallback"
-        subtitle="Claude is primary. When it fails with a trigger code, OCR / grading / voice mapping retry on the fallback model."
-      />
-      {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} className="mt-4" /> : null}
+    <Panel
+      id="ai-chain-title"
+      title="AI providers and fallback"
+      subtitle="Claude is primary. When it fails with a trigger code, OCR, grading and voice mapping retry on the fallback model."
+    >
+      {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} /> : null}
       {data ? (
-        <div className="mt-4 space-y-4">
-          <div className="relative -mx-5 overflow-x-auto sm:-mx-6">
+        <div className="space-y-4">
+          <div className="relative -mx-4 -mt-4 overflow-x-auto sm:-mx-5">
             <table className="w-full min-w-[880px] border-collapse text-sm">
               <caption className="sr-only">AI providers</caption>
-              <thead className="border-y border-slate-200 bg-slate-50">
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  <th scope="col" className="px-3 py-2 pl-5 sm:pl-6">Role</th>
-                  <th scope="col" className="px-3 py-2">Provider · model</th>
-                  <th scope="col" className="px-3 py-2">Configured</th>
-                  <th scope="col" className="px-3 py-2">Stages</th>
-                  <th scope="col" className="px-3 py-2 pr-5 sm:pr-6">Notes</th>
+              <thead className={theadCls}>
+                <tr>
+                  <th scope="col" className={cn(thCls, "pl-4 sm:pl-5")}>Role</th>
+                  <th scope="col" className={thCls}>Provider · model</th>
+                  <th scope="col" className={thCls}>Configured</th>
+                  <th scope="col" className={thCls}>Stages</th>
+                  <th scope="col" className={cn(thCls, "pr-4 sm:pr-5")}>Notes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200 border-b border-slate-200">
                 {data.providers.map((p) => (
                   <tr key={`${p.role}-${p.provider}-${p.model}`} className="align-top">
-                    <td className="px-3 py-2 pl-5 font-semibold capitalize text-brand-navy sm:pl-6">{p.role}</td>
+                    <td className="px-3 py-2 pl-4 font-medium capitalize text-slate-900 sm:pl-5">{p.role}</td>
                     <td className="px-3 py-2">
                       <span className="text-slate-800">{p.provider}</span>
                       <span className="block whitespace-nowrap font-mono text-xs text-slate-700">{p.model}</span>
                     </td>
                     <td className="px-3 py-2">
                       {p.configured ? (
-                        <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-lime-800">
-                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Configured
-                        </span>
+                        <span className={cn(tagCls, "bg-brand-lime-50 text-lime-800")}>Configured</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-600">
-                          <XCircle className="h-3.5 w-3.5" aria-hidden /> Not configured
-                        </span>
+                        <span className={cn(tagCls, "bg-slate-100 text-slate-600")}>Not configured</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700">{p.stages.length ? p.stages.join(", ") : "—"}</td>
-                    <td className="px-3 py-2 pr-5 text-xs sm:pr-6">
+                    <td className="px-3 py-2 pr-4 text-xs sm:pr-5">
                       {p.deprecation ? (
-                        <p className="mb-1 flex items-start gap-1 rounded-lg bg-amber-50 px-2 py-1 font-medium text-amber-900 ring-1 ring-inset ring-amber-300">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <p className="mb-1 font-medium text-amber-800">
                           <span>
                             {p.model}: {p.deprecation}
                             {p.role === "fallback" ? " - set LLM_FALLBACK_MODEL in .env before then." : ""}
@@ -244,53 +230,50 @@ export function AiProvidersCard() {
             </table>
           </div>
 
-          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-            <div className="rounded-xl px-3 py-2 ring-1 ring-inset ring-slate-200">
-              <dt className="text-xs text-slate-600">Fallback (LLM_FALLBACK)</dt>
-              <dd className={cn("inline-flex items-center gap-1 font-semibold", data.fallback_enabled ? "text-lime-800" : "text-slate-700")}>
-                {data.fallback_enabled ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : <XCircle className="h-4 w-4" aria-hidden />}
-                {data.fallback_enabled ? "Enabled" : "Disabled"}
-              </dd>
-            </div>
-            <div className="rounded-xl px-3 py-2 ring-1 ring-inset ring-slate-200">
-              <dt className="text-xs text-slate-600">Simulated outage (LLM_SIMULATE_PRIMARY_OUTAGE, read-only)</dt>
-              <dd className={cn("font-semibold", data.simulate_outage ? "text-amber-800" : "text-slate-700")}>
-                {data.simulate_outage ? "On - every Claude call is skipped" : "Off"}
-              </dd>
-            </div>
-            <div className="rounded-xl px-3 py-2 ring-1 ring-inset ring-slate-200">
-              <dt className="text-xs text-slate-600">Trigger codes</dt>
-              <dd className="mt-1 flex flex-wrap gap-1">
-                {data.trigger_codes.length
-                  ? data.trigger_codes.map((c) => (
-                      <code key={c} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
-                        {c}
-                      </code>
-                    ))
-                  : "—"}
-              </dd>
-            </div>
+          <dl className="grid grid-cols-1 gap-x-6 text-sm sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+            <dt className="pt-2 text-[13px] text-slate-500 sm:border-b sm:border-slate-200 sm:pb-2">
+              Fallback <code className="font-mono text-xs">LLM_FALLBACK</code>
+            </dt>
+            <dd className={cn("border-b border-slate-200 pb-2 sm:pt-2", data.fallback_enabled ? "text-lime-800" : "text-slate-700")}>
+              {data.fallback_enabled ? "Enabled" : "Disabled"}
+            </dd>
+            <dt className="pt-2 text-[13px] text-slate-500 sm:border-b sm:border-slate-200 sm:pb-2">
+              Simulated outage <code className="font-mono text-xs break-all">LLM_SIMULATE_PRIMARY_OUTAGE</code> (read-only)
+            </dt>
+            <dd className={cn("border-b border-slate-200 pb-2 sm:pt-2", data.simulate_outage ? "text-amber-800" : "text-slate-700")}>
+              {data.simulate_outage ? "On: every Claude call is skipped" : "Off"}
+            </dd>
+            <dt className="pt-2 text-[13px] text-slate-500">Trigger codes</dt>
+            <dd className="flex flex-wrap gap-1 pt-2">
+              {data.trigger_codes.length
+                ? data.trigger_codes.map((c) => (
+                    <code key={c} className="rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800">
+                      {c}
+                    </code>
+                  ))
+                : "—"}
+            </dd>
           </dl>
-          {data.note ? <p className="text-xs text-slate-600">{data.note}</p> : null}
+          {data.note ? <p className="text-xs text-slate-500">{data.note}</p> : null}
 
           <Drill onDone={() => void reload()} />
 
-          <div>
+          <div className="border-t border-slate-200 pt-4">
             <h3 className="text-sm font-semibold text-brand-navy">Recent fallbacks</h3>
             {data.recent_fallbacks.length === 0 ? (
-              <p className="mt-1 text-sm text-slate-600">No call has fallen back yet.</p>
+              <p className="mt-1 text-sm text-slate-500">No call has fallen back yet.</p>
             ) : (
-              <ul className="mt-2 divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
+              <ul className="mt-2 divide-y divide-slate-200 border-y border-slate-200">
                 {data.recent_fallbacks.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                    <span className="whitespace-nowrap text-xs text-slate-600">{fmtDateTime(c.created_at)}</span>
-                    <span className="font-medium text-slate-800">{stageLabel(c.purpose)}</span>
+                  <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+                    <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">{fmtDateTime(c.created_at)}</span>
+                    <span className="text-slate-800">{stageLabel(c.purpose)}</span>
                     <span className="font-mono text-xs text-slate-700">
                       {c.provider} · {c.model_served ?? c.model_requested}
                     </span>
                     <FallbackOutcome call={c} />
                     {c.submission_id ? (
-                      <Link href={`/report/${c.submission_id}`} className="text-xs font-medium text-brand-navy hover:underline">
+                      <Link href={`/report/${c.submission_id}`} className={cn("text-xs text-brand-cyan-600 hover:underline", focusRing)}>
                         Submission #{c.submission_id}
                       </Link>
                     ) : null}
@@ -301,6 +284,6 @@ export function AiProvidersCard() {
           </div>
         </div>
       ) : null}
-    </Card>
+    </Panel>
   );
 }

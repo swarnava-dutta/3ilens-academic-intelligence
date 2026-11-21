@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Building2, FlaskConical, Loader2, LockOpen, RotateCw } from "lucide-react";
+import { Loader2, RotateCw } from "lucide-react";
 import { getOwnerDashboard, seedDemoCohort, updateBatch } from "@/lib/api";
 import type { DemoSet, OwnerDashboard as OwnerData } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { EffectivenessCard } from "./effectiveness-card";
 import { FacultyTable } from "./faculty-table";
 import { fmtDateTime } from "./format";
 import { OwnerKpis, OwnerUrgencyStrip } from "./kpis";
-import { CardSkeleton, ErrorNote, SamplePill } from "./states";
+import { btnQuiet, CardSkeleton, ErrorNote, focusRing, PageHeader, SamplePill } from "./states";
 import { TrendChart } from "./trend-chart";
 import { useAsync } from "./use-async";
 import { WeakestTopics } from "./weakest-topics";
@@ -51,16 +51,16 @@ export function SeedButtons({ onSeeded, only }: { onSeeded: () => Promise<void>;
             type="button"
             onClick={() => void seed(s.set)}
             disabled={busy !== null}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-inset ring-amber-300 transition hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-wait disabled:opacity-70"
+            className={cn(btnQuiet, "h-10 sm:h-8")}
           >
-            {busy === s.set ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FlaskConical className="h-4 w-4" aria-hidden />}
+            {busy === s.set ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             {busy === s.set ? s.busy : s.label}
           </button>
         ))}
       </div>
       <div aria-live="polite" className="mt-2 min-h-5 text-sm">
         {error ? <ErrorNote error={error} prefix="Could not load the sample" /> : null}
-        {message && !error ? <p className="font-medium text-lime-800">{message}</p> : null}
+        {message && !error ? <p className="text-lime-800">{message}</p> : null}
       </div>
     </div>
   );
@@ -70,11 +70,7 @@ function OwnerSkeleton() {
   return (
     <div className="space-y-6">
       <CardSkeleton rows={1} label="Loading owner dashboard…" />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7" aria-hidden>
-        {Array.from({ length: 7 }, (_, i) => (
-          <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-200/60" />
-        ))}
-      </div>
+      <div className="h-20 animate-pulse rounded-md border border-slate-200 bg-white motion-reduce:animate-none" aria-hidden />
       <CardSkeleton rows={4} label="Loading batches…" />
     </div>
   );
@@ -116,7 +112,7 @@ export function OwnerDashboard() {
     if (error) {
       return (
         <div className="space-y-4">
-          <h1 className="text-2xl font-bold tracking-tight text-brand-navy">Owner dashboard</h1>
+          <PageHeader title="Owner dashboard" />
           <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Could not load the owner dashboard" />
           {/* These two sections have their own endpoints, so they still work when the dashboard call fails. */}
           <EffectivenessCard institutionId={institutionId} />
@@ -134,18 +130,23 @@ export function OwnerDashboard() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-cyan-600">Institute owner</p>
-          <h1 className="mt-1 flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight text-brand-navy sm:text-3xl">
-            <Building2 className="h-7 w-7 text-brand-navy/70" aria-hidden />
-            {data.institution?.name ?? "Institution"}
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Generated {fmtDateTime(data.generated_at)} · {data.real_count} live · {data.demo_count} sample results
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader
+        title={data.institution?.name ?? "Institution"}
+        description={
+          <>
+            <p>
+              Owner dashboard · generated {fmtDateTime(data.generated_at)} ·{" "}
+              <span className="tabular-nums">
+                {data.real_count} live · {data.demo_count} sample results
+              </span>
+            </p>
+            <p className="mt-0.5 text-[13px] text-slate-500">
+              No login in this PoC: anyone with the link sees the owner view.{roleNote ? ` ${roleNote}` : ""}
+            </p>
+          </>
+        }
+        actions={
+          <>
           {data.is_demo ? <SamplePill /> : null}
           {data.institutions?.length > 1 ? (
             <label className="text-sm">
@@ -153,7 +154,7 @@ export function OwnerDashboard() {
               <select
                 value={instId ?? ""}
                 onChange={(e) => setInstitutionId(e.target.value ? Number(e.target.value) : null)}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 shadow-sm focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30"
+                className={cn("h-10 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 sm:h-8", focusRing)}
               >
                 {data.institutions.map((i) => (
                   <option key={i.id} value={i.id}>
@@ -167,33 +168,26 @@ export function OwnerDashboard() {
             type="button"
             onClick={() => void reload()}
             disabled={loading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan disabled:opacity-60"
+            className={cn(btnQuiet, "h-10 sm:h-8")}
           >
-            <RotateCw className={cn("h-4 w-4", loading && "animate-spin")} aria-hidden />
+            <RotateCw className={cn("h-4 w-4", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />
             Refresh
           </button>
-        </div>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-amber-900 ring-1 ring-inset ring-amber-300">
-          <LockOpen className="h-3.5 w-3.5" aria-hidden />
-          Owner view - no login in this PoC
-        </span>
-        <span>{roleNote}</span>
-      </div>
+          </>
+        }
+      />
 
       {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Refresh failed (showing the last data)" /> : null}
 
       {empty ? (
-        <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-brand-navy">No submissions in this institution yet</h2>
-          <p className="mx-auto mt-1 max-w-xl text-sm text-slate-600">
+        <section className="rounded-md border border-slate-200 bg-white px-4 py-6 sm:px-5">
+          <h2 className="text-[15px] font-semibold text-brand-navy">No submissions in this institution yet</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-600">
             Upload answer sheets on the Intake page, or load the labelled sample data: first the sample cohorts, then
             the insights sample (NEET MCQ papers, batch NEET-C (sample) and logged interventions). Both are synthetic and
             make no AI calls.
           </p>
-          <div className="mt-5 flex justify-center">
+          <div className="mt-4">
             <SeedButtons onSeeded={reload} />
           </div>
         </section>
@@ -202,7 +196,7 @@ export function OwnerDashboard() {
           <OwnerKpis data={data} />
           <OwnerUrgencyStrip data={data} />
           {data.interventions?.records === 0 ? (
-            <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
+            <div className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
               <p className="mb-2">
                 No interventions logged yet, so effectiveness and calibration are empty. The insights sample adds NEET-C
                 (sample) with MCQ papers and logged interventions.

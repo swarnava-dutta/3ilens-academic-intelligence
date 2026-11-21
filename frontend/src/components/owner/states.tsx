@@ -1,9 +1,73 @@
 "use client";
 
-import { AlertTriangle, FlaskConical, Loader2, RotateCw } from "lucide-react";
+import type { ReactNode } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { errorCode, errorMessage, errorStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+/** Focus ring shared by every control on the owner / integrations / journey pages. */
+export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+
+/** Secondary button (white, slate border). */
+export const btnQuiet = `inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`;
+
+/** Table header cell and thead row. */
+export const thCls = "whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-slate-500";
+export const theadCls = "border-b border-slate-200 bg-slate-50";
+
+/** Small rectangular status tag; pair with a tone such as "bg-amber-50 text-amber-800". */
+export const tagCls = "inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium";
+
+/** Page header: title, one-line description, actions on the right. */
+export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
+  return (
+    <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-[22px] font-semibold leading-tight text-brand-navy sm:text-2xl">{title}</h1>
+        {description ? <div className="mt-1 text-sm text-slate-600">{description}</div> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </header>
+  );
+}
+
+/** White panel with a header row and a hairline divider. */
+export function Panel({
+  id,
+  title,
+  subtitle,
+  action,
+  className,
+  children,
+}: {
+  id: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} className={cn("min-w-0 rounded-md border border-slate-200 bg-white", className)}>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-slate-200 px-4 py-3 sm:px-5">
+        <div className="min-w-0">
+          <h2 id={id} className="text-[15px] font-semibold text-brand-navy">
+            {title}
+          </h2>
+          {subtitle ? <p className="mt-0.5 text-[13px] text-slate-500">{subtitle}</p> : null}
+        </div>
+        {action ? <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div> : null}
+      </div>
+      <div className="space-y-4 px-4 py-4 sm:px-5">{children}</div>
+    </section>
+  );
+}
+
+/** Empty-state line inside a panel. */
+export function EmptyNote({ children }: { children: ReactNode }) {
+  return <p className="py-4 text-center text-sm text-slate-500">{children}</p>;
+}
 
 /** Plain-language next step for the coded API errors. */
 const CODE_HINTS: Record<string, string> = {
@@ -53,11 +117,11 @@ export function ErrorNote({
     <div
       role="alert"
       className={cn(
-        "flex flex-wrap items-start gap-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-900 ring-1 ring-inset ring-rose-200",
+        "flex flex-wrap items-start gap-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900",
         className,
       )}
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" aria-hidden />
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="font-medium break-words">
           {prefix ? `${prefix}: ` : ""}
@@ -70,9 +134,9 @@ export function ErrorNote({
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 ring-1 ring-inset ring-rose-300 hover:bg-rose-100 focus-visible:outline-2 focus-visible:outline-brand-cyan disabled:cursor-wait disabled:opacity-70"
+          className={btnQuiet}
         >
-          {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCw className="h-3.5 w-3.5" aria-hidden />}
+          {retrying ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           Retry
         </button>
       ) : null}
@@ -81,7 +145,7 @@ export function ErrorNote({
 }
 
 function Bone({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-lg bg-slate-200/70", className)} />;
+  return <div className={cn("animate-pulse rounded-sm bg-slate-100 motion-reduce:animate-none", className)} />;
 }
 
 /** Card-shaped loading placeholder. */
@@ -89,17 +153,17 @@ export function CardSkeleton({ rows = 4, className, label }: { rows?: number; cl
   return (
     <div
       aria-busy="true"
-      className={cn("rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6", className)}
+      className={cn("rounded-md border border-slate-200 bg-white p-4 sm:p-5", className)}
     >
       <span role="status" className="sr-only">
         {label}
       </span>
       <div aria-hidden>
-        <Bone className="h-5 w-48" />
+        <Bone className="h-4 w-48" />
         <Bone className="mt-2 h-3 w-72 max-w-full" />
-        <div className="mt-5 space-y-3">
+        <div className="mt-4 space-y-2">
           {Array.from({ length: rows }, (_, i) => (
-            <Bone key={i} className="h-8 w-full" />
+            <Bone key={i} className="h-7 w-full" />
           ))}
         </div>
       </div>
@@ -118,15 +182,11 @@ export function SamplePill({ className, title }: { className?: string; title?: s
   );
 }
 
-/** Small "DEMO" tag for a single sample row in a table. */
+/** Quiet "sample" tag for a single sample row in a table. */
 export function DemoTag() {
   return (
-    <span
-      title="Sample batch (is_demo) - synthetic records"
-      className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 ring-1 ring-inset ring-violet-200"
-    >
-      <FlaskConical className="h-3 w-3" aria-hidden />
-      Demo
+    <span title="Sample batch (is_demo) - synthetic records" className={cn(tagCls, "bg-slate-100 text-slate-600")}>
+      sample
     </span>
   );
 }
