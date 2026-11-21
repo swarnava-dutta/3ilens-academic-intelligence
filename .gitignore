@@ -26,3 +26,4 @@ playwright-report/
 # Local planning notes and tool-generated editor guidance (kept on disk, not in the repo)
 docs/plans/
 frontend/AGENTS.md
+graphify-out/
