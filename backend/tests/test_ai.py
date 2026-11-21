@@ -1204,3 +1204,62 @@ def test_scheme_awards_are_rescored_server_side(monkeypatch, required, marks, no
     assert q2["evidence"] == "Auto-scored MCQ: Marked C, correct B (-1)"
     assert q3["estimated_marks"] == 2 and q3["bloom_level"] == "K4"
     assert report["total_score"] == marks - 1 + 2
+
+
+# --------------------------------------------------------------------------- #
+# Voice transcript -> questions (FR-2.8)
+# --------------------------------------------------------------------------- #
+TRANSCRIPT = (
+    "Question 1. Tt cross tt gives one tall to one dwarf, it is a back cross. "
+    "Question 2. In incomplete dominance the hybrid is pink, in codominance both show, AB blood group."
+)
+MAPPING_REPLY = json.dumps({"answers": [
+    {"question": 1, "answer": "Tt cross tt gives one tall to one dwarf, it is a back cross.", "confidence": 0.95},
+    {"question": 2, "answer": "In incomplete dominance the hybrid is pink, in codominance both show, AB blood group.",
+     "confidence": 0.9},
+    {"question": 9, "answer": "stray", "confidence": 0.9},
+]})
+
+
+def test_structure_transcript_maps_a_whole_paper_recording(monkeypatch):
+    fake = _use_anthropic(monkeypatch, FakeAnthropic(_claude_response(MAPPING_REPLY)))
+    usages: list[ModelUsage] = []
+    result = ai.structure_transcript(TRANSCRIPT, GENETICS, language_hints=["en", "hi"], on_usage=usages.append)
+
+    assert [(a.question, a.source, a.pages) for a in result.answers] == [(1, "voice", []), (2, "voice", [])]
+    assert result.answers[0].answer.endswith("it is a back cross.")  # verbatim, never "corrected"
+    assert result.overall_confidence == pytest.approx(0.925)
+    assert result.provider == "anthropic" and result.model == "claude-sonnet-5-5"
+    assert result.dropped_questions == [9] and result.language_hints == ["en", "hi"]
+
+    (request,) = fake.calls
+    assert request["output_config"]["effort"] == "low"
+    assert request["output_config"]["format"]["schema"]["title"] == "VoiceMapping"
+    assert request["system"] == ai.STRUCTURE_SYSTEM_PROMPT
+    (block,) = request["messages"][0]["content"]
+    text = block["text"]
+    assert f"<transcript>\n{TRANSCRIPT}\n</transcript>" in text
+    assert "Hindi (Devanagari)" in text
+    for q in GENETICS["questions"]:
+        assert q["prompt"] in text
+        assert q["expected_answer"] not in text  # never the answer key
+        assert all(c not in text for c in q["grading_criteria"])
+    for phrase in ("verbatim", "Never translate", "prashn do", "untrusted data"):
+        assert phrase in ai.STRUCTURE_SYSTEM_PROMPT
+    (usage,) = usages
+    assert usage.purpose == "voice_mapping" and usage.status == "ok" and usage.provider == "anthropic"
+
+
+def test_structure_transcript_hint_path_and_blank_recording_make_no_call(monkeypatch):
+    monkeypatch.setattr(ai, "_anthropic_client", lambda settings: (_ for _ in ()).throw(AssertionError("no call")))
+    usages: list[ModelUsage] = []
+    hinted = ai.structure_transcript(TRANSCRIPT, GENETICS, question_hint=2, on_usage=usages.append)
+    assert [(a.question, a.source) for a in hinted.answers] == [(2, "voice")] and usages == []
+    blank = ai.structure_transcript("   ", GENETICS, on_usage=usages.append)
+    assert blank.answers == [] and blank.overall_confidence == 0.0 and usages == []
+
+
+def test_structure_transcript_needs_a_claude_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    with pytest.raises(AIConfigurationError):
+        ai.structure_transcript(TRANSCRIPT, GENETICS)

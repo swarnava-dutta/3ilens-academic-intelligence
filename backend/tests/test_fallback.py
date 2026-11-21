@@ -330,3 +330,22 @@ def test_deprecation_dates_are_prefix_matched(model, expected):
 def test_fallback_trigger_codes_and_exclusions():
     assert "simulated_outage" in ai.FALLBACK_TRIGGER_CODES and "auth" not in ai.FALLBACK_TRIGGER_CODES
     assert set(ai.NO_FALLBACK_PURPOSES) == {"consistency", "rubric_parse", "bloom_detect"}
+
+
+# --------------------------------------------------------------------------- #
+# Voice transcript mapping
+# --------------------------------------------------------------------------- #
+def test_voice_mapping_falls_back(monkeypatch):
+    reply = {"answers": [{"question": 1, "answer": "Tt x tt is a test cross", "confidence": 0.9}]}
+    clients = Clients(monkeypatch, FakeClaude(error=_status_error(anthropic.InternalServerError, 529)),
+                      FakeGPT(json.dumps(reply)))
+    usages: list[ModelUsage] = []
+    result = ai.structure_transcript("Question 1 Tt x tt is a test cross", GENETICS, on_usage=usages.append)
+    assert result.provider == "openai" and result.model == "gpt-4o-2024-08-06"
+    assert [(a.question, a.source) for a in result.answers] == [(1, "voice")]
+    request = clients.gpt.calls[0]
+    assert request["model"] == "gpt-4o" and request["response_format"] == {"type": "json_object"}
+    assert "<transcript>" in request["messages"][1]["content"]
+    assert [(u.purpose, u.provider, u.status, u.fell_back) for u in usages] == [
+        ("voice_mapping", "anthropic", "error", False), ("voice_mapping", "openai", "ok", True),
+    ]
