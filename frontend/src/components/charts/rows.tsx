@@ -27,7 +27,7 @@ import {
 function layout(w: number, labels: string[], domain: Domain) {
   const narrow = w < 480;
   const labelW = narrow ? 0 : Math.min(200, w * 0.35, Math.max(...labels.map(textWidth)) + 8);
-  const rowH = narrow ? 46 : 32;
+  const rowH = narrow ? 42 : 32;
   const x0 = narrow ? 12 : labelW + 16;
   const x1 = w - 20;
   return {
@@ -38,7 +38,7 @@ function layout(w: number, labels: string[], domain: Domain) {
     x1,
     x: scale(domain, [x0, x1]),
     h: labels.length * rowH + 22,
-    cy: (i: number) => i * rowH + (narrow ? 32 : rowH / 2),
+    cy: (i: number) => i * rowH + (narrow ? 25 : rowH / 2),
   };
 }
 
@@ -50,7 +50,7 @@ function Axis({ L, domain, unit, n }: { L: Layout; domain: Domain; unit?: string
 
 function RowLabel({ L, i, text }: { L: Layout; i: number; text: string }) {
   return L.narrow ? (
-    <Text x={0} y={i * L.rowH + 13} width={L.x1} text={text} anchor="start" max={1} fill={INK} />
+    <Text x={0} y={i * L.rowH + 12} width={L.x1} text={text} anchor="start" max={1} fill={INK} />
   ) : (
     <Text x={L.labelW} y={L.cy(i)} dy="0.32em" width={L.labelW} text={text} anchor="end" max={1} fill={INK} />
   );
@@ -182,11 +182,14 @@ export function StackedBars({
   if (!rows.length) return <Empty />;
   const names = seriesOrder.slice(0, 3);
   const stacks = rows.map((r) => {
+    const segs: { name: string; color: string; value: number; from: number; to: number }[] = [];
     let acc = 0;
-    const segs = names
-      .map((name, k) => ({ name, color: SERIES[k], value: r.segments.find((s) => s.name === name)?.value ?? 0 }))
-      .filter((s) => s.value > 0)
-      .map((s) => ({ ...s, from: acc, to: (acc += s.value) }));
+    for (const [k, name] of names.entries()) {
+      const value = r.segments.find((s) => s.name === name)?.value ?? 0;
+      if (value <= 0) continue;
+      segs.push({ name, color: SERIES[k], value, from: acc, to: acc + value });
+      acc += value;
+    }
     return { label: r.label, segs, total: acc };
   });
   const domain = nice(0, Math.max(...stacks.map((s) => s.total)));

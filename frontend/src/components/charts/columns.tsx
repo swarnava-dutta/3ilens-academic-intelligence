@@ -70,7 +70,7 @@ function ColumnPlot({ cols, domain, unit, label, flush, int }: {
                 {d.note}
               </text>
             )}
-            <Text x={cx} y={BASE + 15} width={band - 4} text={d.label} />
+            <Text x={cx} y={BASE + 15} width={band - 2} text={d.label} />
           </g>
         );
       })}

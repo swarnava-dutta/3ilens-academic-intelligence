@@ -22,23 +22,38 @@ export function HeatStrip({
   if (!cells.length) return <Empty />;
   const values = cells.map((d) => d.value);
   const [lo, hi] = domain ?? [Math.min(...values), Math.max(...values)];
-  const cw = c.w / cells.length;
+  // Phones get several rows rather than cells too narrow to label.
+  const perRow = c.w ? Math.max(1, Math.min(cells.length, Math.floor(c.w / 64))) : cells.length;
+  const cw = c.w / perRow;
+  const rowH = CELL + 40;
   return (
-    <Plot chart={c} h={CELL + 34} label={`Heat strip of ${cells.length} cells. ${extremes(cells, format)}`}>
+    <Plot
+      chart={c}
+      h={Math.ceil(cells.length / perRow) * rowH - 6}
+      label={`Heat strip of ${cells.length} cells. ${extremes(cells, format)}`}
+    >
       {cells.map((d, i) => {
         const t = Math.min(1, Math.max(0, (d.value - lo) / (hi - lo || 1)));
         const text = format(d.value);
-        const cx = (i + 0.5) * cw;
+        const x = (i % perRow) * cw;
+        const y = Math.floor(i / perRow) * rowH;
         return (
           <g key={i} {...c.mark(tipBody(d.label, [["Value", text]]))}>
-            <rect x={i * cw} width={cw} height={CELL + 34} fill="transparent" />
-            <rect x={i * cw + 1} width={Math.max(cw - 2, 1)} height={CELL} rx={2} fill={ramp(t)} />
+            <rect x={x} y={y} width={cw} height={rowH - 6} fill="transparent" />
+            <rect x={x + 1} y={y} width={Math.max(cw - 2, 1)} height={CELL} rx={2} fill={ramp(t)} />
             {textWidth(text) + 8 <= cw - 2 && (
-              <text x={cx} y={CELL / 2} dy="0.32em" textAnchor="middle" fontWeight={500} fill={t >= 0.7 ? "#fff" : "#0f172a"}>
+              <text
+                x={x + cw / 2}
+                y={y + CELL / 2}
+                dy="0.32em"
+                textAnchor="middle"
+                fontWeight={500}
+                fill={t >= 0.7 ? "#fff" : "#0f172a"}
+              >
                 {text}
               </text>
             )}
-            <Text x={cx} y={CELL + 14} width={cw - 4} text={d.label} />
+            <Text x={x + cw / 2} y={y + CELL + 14} width={cw - 4} text={d.label} />
           </g>
         );
       })}

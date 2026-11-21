@@ -43,14 +43,14 @@ export function LineChart({
   const ys = [...series.flatMap((s) => s.points.map((p) => p.y)), ...(band ?? []).flatMap((b) => [b.lo, b.hi])];
   const domain = yDomain ?? nice(Math.min(...ys), Math.max(...ys));
   const left = axisWidth(domain, unit, 5);
+  const labelW = Math.max(...xs.map(textWidth)) + 12;
   const ends = c.w >= 640 && series.length > 1;
   const endW = Math.min(120, Math.max(...series.map((s) => textWidth(s.name))) + 8);
-  const x1 = c.w - (ends ? endW + 20 : 12);
+  const x1 = c.w - (ends ? endW + 20 : Math.max(12, labelW / 2));
   const x0 = left + 12;
   const stepX = xs.length > 1 ? (x1 - x0) / (xs.length - 1) : 0;
   const x = (label: string) => (xs.length > 1 ? x0 + xs.indexOf(label) * stepX : (x0 + x1) / 2);
   const y = scale(domain, [BASE, TOP]);
-  const labelW = Math.max(...xs.map(textWidth)) + 12;
   const every = Math.ceil(xs.length / Math.max(1, Math.floor((x1 - x0 + stepX) / labelW)));
   const dots = xs.length <= 12;
   const active = c.tip?.key;

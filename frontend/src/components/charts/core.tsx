@@ -54,23 +54,32 @@ export function ticks([lo, hi]: Domain, n = 5) {
 /** About how many ticks fit along `px` without labels touching. */
 export const tickCount = (px: number) => Math.max(2, Math.min(6, Math.floor(px / 70)));
 
-// Fira Sans at 11px averages a little over 6px per character.
-export const textWidth = (s: string) => s.length * 6.2;
+let ctx: CanvasRenderingContext2D | null | undefined;
 
-/** Greedy word wrap into at most `max` lines; the last line gets an ellipsis if text is cut. */
+/** Width of 11px chart text; measured with the page font in the browser, estimated on the server. */
+export function textWidth(s: string) {
+  if (typeof document === "undefined") return s.length * 5.8;
+  if (ctx === undefined) {
+    ctx = document.createElement("canvas").getContext("2d");
+    if (ctx) ctx.font = `11px ${getComputedStyle(document.body).fontFamily}`;
+  }
+  return ctx ? ctx.measureText(s).width : s.length * 5.8;
+}
+
+/** Greedy word wrap into at most `max` lines of `px` width; cut text ends in an ellipsis. */
 export function wrap(text: string, px: number, max = 2) {
-  const n = Math.max(2, Math.floor(px / 6.2));
   const lines: string[] = [];
   for (const word of text.split(/\s+/)) {
     const last = lines.length - 1;
-    if (last >= 0 && `${lines[last]} ${word}`.length <= n) lines[last] += ` ${word}`;
+    if (last >= 0 && textWidth(`${lines[last]} ${word}`) <= px) lines[last] += ` ${word}`;
     else lines.push(word);
   }
-  return lines
-    .slice(0, max)
-    .map((l, i) =>
-      l.length > n || (i === max - 1 && lines.length > max) ? `${l.slice(0, n - 1).trimEnd()}…` : l,
-    );
+  return lines.slice(0, max).map((l, i) => {
+    if (textWidth(l) <= px && (i < max - 1 || lines.length <= max)) return l;
+    let t = l;
+    while (t.length > 1 && textWidth(`${t}…`) > px) t = t.slice(0, -1);
+    return `${t.trimEnd()}…`;
+  });
 }
 
 /** Rectangle path with only the corners on the `end` side rounded. */
@@ -119,7 +128,7 @@ export function useChart() {
 
 export type Chart = ReturnType<typeof useChart>;
 
-export function Tooltip({ chart: { tip, w } }: { chart: Chart }) {
+function Tooltip({ chart: { tip, w } }: { chart: Chart }) {
   if (!tip) return null;
   const tx = tip.x < 90 ? "0" : tip.x > w - 90 ? "-100%" : "-50%";
   return (
