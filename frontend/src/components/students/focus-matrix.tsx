@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Grid3x3 } from "lucide-react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import type { FocusItem, StudentCard } from "@/lib/types";
@@ -47,14 +46,13 @@ export function FocusMatrix({
   const topics = focusTopics(students);
 
   return (
-    <section aria-labelledby="focus-matrix" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section aria-labelledby="focus-matrix" className="rounded-md border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
-          <h2 id="focus-matrix" className="flex items-center gap-2 text-lg font-semibold text-brand-navy">
-            <Grid3x3 className="h-5 w-5 text-brand-cyan-600" aria-hidden />
+          <h2 id="focus-matrix" className="text-[15px] font-semibold text-brand-navy">
             Preparation focus
           </h2>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="mt-0.5 text-[13px] text-slate-500">
             Each student&apos;s top five study topics; darker = higher rank. Click a topic to filter.
           </p>
         </div>
@@ -62,28 +60,28 @@ export function FocusMatrix({
       </div>
 
       {students.length === 0 || topics.length === 0 ? (
-        <p className="mt-4 rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+        <p className="mt-4 text-sm text-slate-500">
           No completed student has a ranked focus topic in this filter.
         </p>
       ) : (
         <div className="mt-4 relative overflow-x-auto print:overflow-visible">
-          <table className="min-w-full border-separate border-spacing-0.5 text-xs">
+          <table className="min-w-full border-collapse text-xs">
             <caption className="sr-only">Preparation focus by student and topic</caption>
             <thead>
               <tr>
-                <th scope="col" className="sticky left-0 z-10 bg-white px-2 py-1 text-left font-semibold text-slate-600">
+                <th scope="col" className="sticky left-0 z-10 border-b border-slate-200 bg-white px-2 py-1.5 text-left align-bottom font-medium text-slate-500">
                   Student
                 </th>
                 {topics.map((t) => (
-                  <th key={t.topic} scope="col" className="min-w-[5.5rem] max-w-[8rem] px-1 py-1 align-bottom">
+                  <th key={t.topic} scope="col" className="min-w-[5.5rem] max-w-[8rem] border-b border-slate-200 px-0.5 py-1 align-bottom">
                     <button
                       type="button"
                       onClick={() => onTopic(activeTopic === t.topic ? null : t.topic)}
                       aria-pressed={activeTopic === t.topic}
                       title={activeTopic === t.topic ? "Clear the topic filter" : `Filter to ${t.topic}`}
                       className={cn(
-                        "w-full rounded-md px-1.5 py-1 text-left text-[11px] font-semibold leading-tight transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-                        activeTopic === t.topic ? "bg-brand-navy text-white" : "text-brand-navy hover:bg-slate-100",
+                        "min-h-8 w-full rounded-sm px-1.5 py-1 text-left text-xs font-medium leading-tight transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-cyan",
+                        activeTopic === t.topic ? "bg-brand-cyan-50 text-brand-cyan-600 underline" : "text-brand-navy hover:bg-slate-100",
                       )}
                     >
                       {t.topic}
@@ -97,8 +95,8 @@ export function FocusMatrix({
                 const byTopic = new Map<string, FocusItem>(s.top_focus.map((f) => [f.topic, f]));
                 return (
                   <tr key={s.submission_id}>
-                    <th scope="row" className="sticky left-0 z-10 bg-white px-2 py-1 text-left font-normal">
-                      <Link href={`/report/${s.submission_id}`} className="block max-w-[11rem] truncate font-medium text-slate-800 hover:text-brand-cyan-600">
+                    <th scope="row" className="sticky left-0 z-10 border-b border-slate-100 bg-white px-2 py-1 text-left font-normal">
+                      <Link href={`/report/${s.submission_id}`} className="block max-w-[11rem] truncate rounded-sm text-[13px] font-medium text-slate-800 hover:text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-brand-cyan">
                         {s.student_name}
                       </Link>
                       <UrgencyBadge urgency={s.urgency} size="sm" className="mt-0.5" />
@@ -109,8 +107,8 @@ export function FocusMatrix({
                         <td
                           key={t.topic}
                           className={cn(
-                            "h-9 rounded-md text-center font-semibold tabular-nums [print-color-adjust:exact]",
-                            f ? cellClass(f.rank) : "bg-slate-50 text-slate-300",
+                            "h-9 border border-white text-center font-medium tabular-nums [print-color-adjust:exact]",
+                            f ? cellClass(f.rank) : "bg-slate-50 text-slate-400",
                           )}
                           title={
                             f
@@ -128,11 +126,11 @@ export function FocusMatrix({
                 );
               })}
               <tr>
-                <th scope="row" className="sticky left-0 z-10 bg-white px-2 py-1.5 text-left font-semibold text-slate-600">
+                <th scope="row" className="sticky left-0 z-10 border-t border-slate-200 bg-white px-2 py-1.5 text-left font-medium text-slate-600">
                   Cohort ({students.length})
                 </th>
                 {topics.map((t) => (
-                  <td key={t.topic} className="rounded-md bg-slate-100 px-1 py-1.5 text-center text-[11px] text-slate-700 [print-color-adjust:exact]">
+                  <td key={t.topic} className="border-t border-slate-200 px-1 py-1.5 text-center text-[11px] text-slate-700">
                     <span className="block font-semibold tabular-nums">
                       {t.count}/{students.length}
                     </span>
@@ -145,15 +143,15 @@ export function FocusMatrix({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-        <span>Rank</span>
+      <div className="mt-3 flex flex-wrap items-center gap-1 text-xs text-slate-500">
+        <span className="mr-1">Rank</span>
         {[1, 2, 3, 4, 5].map((r) => (
-          <span key={r} className={cn("rounded px-1.5 py-0.5 font-semibold [print-color-adjust:exact]", cellClass(r))}>
+          <span key={r} className={cn("rounded-sm px-1.5 py-0.5 font-medium tabular-nums [print-color-adjust:exact]", cellClass(r))}>
             #{r}
           </span>
         ))}
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+      <p className="mt-2 max-w-3xl text-xs text-slate-500">
         Ranks come from the illustrative ROI engine (sample chapter weightage, effort hours and time-to-exam coefficients);
         they order study time, not predicted marks, and are not calibrated against NEET outcomes.
       </p>

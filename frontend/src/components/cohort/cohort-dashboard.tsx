@@ -4,13 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useState } from "react";
 import { FilterX } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { RubricVersionsPanel } from "@/components/rubrics/rubric-versions";
 import { useDashboardFilters } from "@/components/shared/filter-bar";
 import { hasDashboardFilters } from "@/components/workspace/use-submissions";
 import { CohortToolbar } from "./cohort-actions";
 import { CohortHeader, DemoNotice, StaleBanner } from "./cohort-header";
 import { ConfusionsCard, CommonErrorsCard, InterventionsCard } from "./class-insights";
-import { Toast, type ToastMessage } from "./dialog";
+import { btnSecondary, Toast, type ToastMessage } from "./dialog";
 import { CohortEmptyState } from "./empty-state";
 import { ExamDateCard } from "./exam-date-card";
 import { hasResults } from "./format";
@@ -61,7 +62,7 @@ export function CohortDashboard() {
       {ready ? (
         <>
           <KpiGrid cohort={cohort} />
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <UrgencyStrip cohort={cohort} />
             {cohort.batch ? (
               <ExamDateCard key={`${cohort.batch.id}-${cohort.batch.exam_date ?? ""}`} batch={cohort.batch} onSaved={refresh} />
@@ -99,16 +100,16 @@ export function CohortDashboard() {
         </>
       ) : filtered ? (
         <>
-          <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+          <section className="rounded-md border border-slate-200 bg-white p-5">
             <p className="text-base font-semibold text-brand-navy">No completed students match these filters</p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+            <p className="mt-1 max-w-xl text-sm text-slate-500">
               Sheets still in review, failed or processing are not counted. Change the filters above, or show the
               whole cohort.
             </p>
             <Link
               href={pathname}
               scroll={false}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+              className={cn(btnSecondary, "mt-4")}
             >
               <FilterX className="h-4 w-4" aria-hidden />
               Clear filters

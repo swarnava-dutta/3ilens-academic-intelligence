@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, Check, Loader2, Pencil, RotateCcw, X } from "lucide-react";
+import { Check, Loader2, RotateCcw, X } from "lucide-react";
 import { useHealth } from "@/components/app-shell";
 import { errorCode, errorMessage, errorStatus, updateBatch } from "@/lib/api";
 import type { Batch, StrategyMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card } from "./card";
-import { fieldClass } from "./dialog";
+import { btnPrimary, btnSecondary, fieldClass } from "./dialog";
 import { batchLabel } from "./format";
 
 export const STRATEGY_LOOK: Record<StrategyMode, { label: string; range: string; text: string; className: string }> = {
@@ -15,25 +15,25 @@ export const STRATEGY_LOOK: Record<StrategyMode, { label: string; range: string;
     label: "Broad",
     range: "90+ days",
     text: "Time to learn weak chapters from scratch: cover high-weightage gaps broadly.",
-    className: "bg-sky-50 text-sky-800 ring-sky-200",
+    className: "border-slate-300 text-slate-700",
   },
   focused: {
     label: "Focused",
     range: "30-89 days",
     text: "Concentrate on the top ROI chapters; drill rather than re-learn.",
-    className: "bg-brand-cyan-50 text-brand-cyan-600 ring-brand-cyan/30",
+    className: "border-brand-cyan/40 text-brand-cyan-600",
   },
   revision: {
     label: "Revision",
     range: "7-29 days",
     text: "Revise and fix recurring errors; no new chapters.",
-    className: "bg-amber-50 text-amber-800 ring-amber-200",
+    className: "border-amber-300 text-amber-800",
   },
   consolidation: {
     label: "Consolidation",
     range: "0-6 days",
     text: "Consolidate strengths, light review, rest.",
-    className: "bg-rose-50 text-rose-700 ring-rose-200",
+    className: "border-red-200 text-red-700",
   },
 };
 
@@ -77,26 +77,23 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
   }
 
   return (
-    <Card aria-labelledby="cohort-exam-title" className="py-4 sm:py-5">
+    <Card aria-labelledby="cohort-exam-title" className="p-4 sm:p-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-lime-50 text-lime-700">
-            <CalendarClock className="h-4.5 w-4.5" aria-hidden />
-          </span>
+        <div className="flex min-w-0 items-start">
           <div className="min-w-0">
-            <h2 id="cohort-exam-title" className="flex flex-wrap items-center gap-2 text-base font-semibold text-brand-navy">
+            <h2 id="cohort-exam-title" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold text-brand-navy">
               {exam} exam
               <span className="font-normal text-slate-500">· {batchLabel(batch)}</span>
               {batch.exam_date_assumed ? (
                 <span
-                  className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-inset ring-violet-200"
+                  className="rounded-sm border border-slate-300 px-1.5 text-xs font-normal text-slate-600"
                   title="Default NEET_EXAM_DATE from .env - not a faculty-entered date"
                 >
                   assumed date
                 </span>
               ) : null}
             </h2>
-            <p className="mt-0.5 text-sm text-slate-600">
+            <p className="mt-1 text-sm tabular-nums text-slate-600">
               <span className="font-medium text-slate-800">{formatDate(batch.exam_date)}</span>
               {typeof days === "number" ? (
                 <>
@@ -110,7 +107,7 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
             </p>
             {strategy ? (
               <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                <span className={cn("rounded-full px-2 py-0.5 font-semibold ring-1 ring-inset", strategy.className)}>
+                <span className={cn("rounded-sm border px-1.5 font-medium", strategy.className)}>
                   {strategy.label} mode · {strategy.range}
                 </span>
                 <span>{strategy.text}</span>
@@ -142,7 +139,7 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
             <button
               type="submit"
               disabled={saving || !draft}
-              className="inline-flex items-center gap-1.5 rounded-full bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-navy-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+              className={btnPrimary}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Check className="h-4 w-4" aria-hidden />}
               Save
@@ -154,7 +151,7 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
                 setError(null);
               }}
               disabled={saving}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+              className={cn(btnSecondary, "w-9 px-0")}
               aria-label="Cancel editing"
             >
               <X className="h-4 w-4" aria-hidden />
@@ -168,9 +165,8 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
                 setDraft(batch.exam_date ?? "");
                 setEditing(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+              className={cn(btnSecondary, "whitespace-nowrap")}
             >
-              <Pencil className="h-4 w-4" aria-hidden />
               Set exam date
             </button>
             {!batch.exam_date_assumed ? (
@@ -178,7 +174,7 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
                 type="button"
                 onClick={() => void save(null)}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-brand-cyan-600 transition-colors hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                 title="Go back to the assumed default (NEET_EXAM_DATE)"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RotateCcw className="h-4 w-4" aria-hidden />}
@@ -189,7 +185,7 @@ export function ExamDateCard({ batch, onSaved }: { batch: Batch; onSaved: () => 
         )}
       </div>
       {error ? (
-        <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 ring-1 ring-inset ring-rose-200">
+        <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       ) : null}

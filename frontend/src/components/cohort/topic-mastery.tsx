@@ -1,4 +1,3 @@
-import { Layers } from "lucide-react";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader } from "./card";
@@ -23,72 +22,54 @@ export function TopicMastery({
     <Card aria-labelledby="cohort-topic-title" className={cn("flex flex-col", className)}>
       <CardHeader
         id="cohort-topic-title"
-        icon={Layers}
-        title="Topic mastery across the cohort"
-        subtitle="Average mastery per topic, weakest first"
+        title="Topic mastery"
+        subtitle="Average mastery per topic across the cohort, weakest first"
       />
 
-      <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-500" aria-label="Mastery bands">
+      <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500" aria-label="Mastery bands">
         {LEGEND_ORDER.map((key) => (
           <li key={key} className="inline-flex items-center gap-1.5">
-            <span className={cn("h-2.5 w-2.5 rounded-sm", TONES[key].dot)} aria-hidden />
-            <span className="font-medium text-slate-600">{TONES[key].label}</span>
+            <span className={cn("h-2 w-2 rounded-sm", TONES[key].dot)} aria-hidden />
+            <span className="text-slate-600">{TONES[key].label}</span>
             <span>{TONES[key].range}</span>
           </li>
         ))}
         <li className="inline-flex items-center gap-1.5">
-          <span className="h-3 w-px bg-slate-400" aria-hidden />
+          <span className="h-3 w-px bg-slate-500" aria-hidden />
           <span>Target {MASTERY_TARGET}%</span>
         </li>
       </ul>
 
       {rows.length === 0 ? (
-        <p className="mt-6 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+        <p className="mt-4 text-sm text-slate-500">
           Topic mastery appears once evaluated sheets cover at least one rubric topic.
         </p>
       ) : (
-        <ol className="mt-5 space-y-4">
+        <ol className="mt-3 divide-y divide-slate-100">
           {rows.map((row, i) => {
             const tone = toneFor(row.mastery);
-            const pct = clampPct(row.mastery);
             return (
-              <li key={`${i}-${row.topic}`} className="group">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 text-sm font-medium break-words text-slate-700">
-                    {row.topic}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span
-                      className={cn(
-                        "hidden rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset sm:inline-flex",
-                        tone.chip,
-                      )}
-                    >
-                      {tone.label}
-                    </span>
-                    <span className="w-10 text-right text-sm font-semibold tabular-nums text-slate-800">
-                      {formatPct(row.mastery)}
-                    </span>
-                  </span>
-                </div>
+              <li
+                key={`${i}-${row.topic}`}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_6.5rem_2.75rem]"
+              >
+                <span className="min-w-0 text-sm break-words text-slate-800">{row.topic}</span>
                 <div
                   role="img"
                   aria-label={`${row.topic}: ${formatPct(row.mastery)} average mastery, ${tone.label.toLowerCase()}`}
-                  className="relative mt-1.5 h-3 w-full rounded-full bg-slate-100"
+                  className="relative col-span-2 row-start-2 h-2 bg-slate-100 sm:col-span-1 sm:row-start-auto"
                 >
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-[width] duration-700 group-hover:brightness-110",
-                      tone.bar,
-                    )}
-                    style={{ width: `${pct}%` }}
-                  />
+                  <div className={cn("h-full", tone.bar)} style={{ width: `${clampPct(row.mastery)}%` }} />
                   <span
-                    className="absolute -top-0.5 -bottom-0.5 w-px bg-slate-400/70"
+                    className="absolute -top-1 -bottom-1 w-px bg-slate-500"
                     style={{ left: `${MASTERY_TARGET}%` }}
                     aria-hidden
                   />
                 </div>
+                <span className="hidden text-xs text-slate-500 sm:block">{tone.label}</span>
+                <span className="text-right text-sm font-semibold tabular-nums text-slate-800">
+                  {formatPct(row.mastery)}
+                </span>
               </li>
             );
           })}
@@ -96,10 +77,10 @@ export function TopicMastery({
       )}
 
       {weakest && weakest.mastery !== null ? (
-        <p className="mt-auto pt-5 text-xs text-slate-500">
-          Weakest topic: <span className="font-semibold text-slate-700">{weakest.topic}</span> at{" "}
-          {formatPct(weakest.mastery)} — see the preparation priorities below for the highest-return
-          revision plan.
+        <p className="mt-auto pt-3 text-xs text-slate-500">
+          Weakest: <span className="font-medium text-slate-700">{weakest.topic}</span> at{" "}
+          <span className="tabular-nums">{formatPct(weakest.mastery)}</span>. See preparation priorities for the revision
+          order.
         </p>
       ) : null}
     </Card>

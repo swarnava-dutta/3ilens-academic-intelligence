@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BadgeCheck, Gauge, ScrollText } from "lucide-react";
 import { getOpsCosts } from "@/lib/api";
 import type { Cohort, OpsCosts } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -50,18 +49,14 @@ function Tile({
   verdict?: Verdict;
 }) {
   return (
-    <div
-      className={cn(
-        "min-w-0 rounded-xl px-3 py-2.5 ring-1 ring-inset",
-        verdict === "ok" ? "bg-brand-lime-50/60 ring-brand-lime/40" : verdict === "bad" ? "bg-rose-50/60 ring-rose-200" : "bg-slate-50 ring-slate-200",
-      )}
-    >
-      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-0.5 text-lg font-bold tabular-nums text-brand-navy">{value}</p>
+    <div className="min-w-0 bg-white px-3 py-2.5">
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-0.5 text-base font-semibold tabular-nums text-brand-navy">{value}</dd>
       {hint ? (
-        <p className={cn("text-xs", verdict === "ok" ? "text-lime-800" : verdict === "bad" ? "text-rose-700" : "text-slate-500")}>
+        <dd className={cn("text-xs", verdict === "ok" ? "text-lime-800" : verdict === "bad" ? "text-red-700" : "text-slate-500")}>
+          {verdict === "ok" ? "Met: " : verdict === "bad" ? "Missed: " : null}
           {hint}
-        </p>
+        </dd>
       ) : null}
     </div>
   );
@@ -109,15 +104,14 @@ export function OperationsCard({ cohort }: { cohort: Cohort }) {
     <Card aria-labelledby="cohort-ops-title">
       <CardHeader
         id="cohort-ops-title"
-        icon={Gauge}
         title="Operations"
-        subtitle="Cost, latency and reliability of live AI processing (pilot acceptance targets)"
+        subtitle="Cost, latency and reliability of live processing against the pilot acceptance targets"
       />
 
       {!ops ? (
-        <p className="mt-5 text-sm text-slate-500">Operations data is not available on this API build yet.</p>
+        <p className="mt-4 text-sm text-slate-500">Operations data is not available on this API build yet.</p>
       ) : (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-4">
           <Tile label="LLM calls" value={ops.calls ?? 0} hint={`${plural(cohort.real_count ?? 0, "live sheet")}`} />
           <Tile label="LLM cost" value={inr(ops.total_cost_inr)} hint="tokens priced per model" />
           <Tile
@@ -155,17 +149,17 @@ export function OperationsCard({ cohort }: { cohort: Cohort }) {
             verdict={meanConf === null ? "none" : meanConf >= OCR_QUALITY_KPI ? "ok" : "bad"}
             hint={`KPI > ${Math.round(OCR_QUALITY_KPI * 100)}% (review gate is per page)`}
           />
-        </div>
+        </dl>
       )}
 
-      <div className="mt-5 border-t border-slate-100 pt-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          LLM cost by purpose <span className="font-normal normal-case">· all batches</span>
-        </p>
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        <h3 className="text-sm font-semibold text-brand-navy">
+          LLM cost by purpose <span className="font-normal text-slate-500">· all batches</span>
+        </h3>
         {costsUnavailable ? (
           <p className="mt-2 text-sm text-slate-500">Cost breakdown is not available on this API build yet.</p>
         ) : !costs ? (
-          <div className="mt-2 h-4 w-48 animate-pulse rounded bg-slate-100" aria-hidden />
+          <div className="mt-2 h-4 w-48 animate-pulse rounded-sm bg-slate-100 motion-reduce:animate-none" aria-hidden />
         ) : groups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No live AI calls recorded yet.</p>
         ) : (
@@ -173,9 +167,9 @@ export function OperationsCard({ cohort }: { cohort: Cohort }) {
             {groups.map((g) => (
               <li key={g.key} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-3 text-sm">
                 <span className="truncate text-slate-700">{PURPOSE_LABEL[g.key] ?? g.key}</span>
-                <span className="h-2 rounded-full bg-slate-100" aria-hidden>
+                <span className="h-2 bg-slate-100" aria-hidden>
                   <span
-                    className="block h-full rounded-full bg-brand-cyan"
+                    className="block h-full bg-slate-500"
                     style={{ width: `${maxGroup > 0 ? Math.max(clampPct(((num(g.cost_inr) ?? 0) / maxGroup) * 100), 2) : 0}%` }}
                   />
                 </span>
@@ -194,8 +188,9 @@ export function OperationsCard({ cohort }: { cohort: Cohort }) {
       </div>
 
       {demo > 0 ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
-          {plural(demo, "demo row")}: synthetic - no AI call, so they add no cost or latency here.
+        <p className="mt-3 text-xs text-slate-500">
+          <span className="mr-1.5 rounded-sm border border-amber-300 px-1.5 text-amber-800">Sample data</span>
+          {plural(demo, "demo row")} made no model call, so they add no cost or latency here.
         </p>
       ) : null}
     </Card>
@@ -212,7 +207,7 @@ export function ReleaseCard({ cohort }: { cohort: Cohort }) {
   const excluded = cohort.excluded ?? { review: [], failed: [], processing: [] };
   const groups: { label: string; names: string[]; tone: string }[] = [
     { label: "In faculty review", names: excluded.review ?? [], tone: "text-amber-800" },
-    { label: "Failed (DLQ)", names: excluded.failed ?? [], tone: "text-rose-700" },
+    { label: "Failed (DLQ)", names: excluded.failed ?? [], tone: "text-red-700" },
     { label: "Still processing", names: excluded.processing ?? [], tone: "text-brand-cyan-600" },
   ];
   const excludedCount = groups.reduce((n, g) => n + g.names.length, 0);
@@ -221,12 +216,11 @@ export function ReleaseCard({ cohort }: { cohort: Cohort }) {
     <Card aria-labelledby="cohort-release-title">
       <CardHeader
         id="cohort-release-title"
-        icon={BadgeCheck}
         title="Release & denominator"
         subtitle="Reports stay provisional until a teacher signs them off"
       />
       <div className="mt-4">
-        <div className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+        <div className="flex h-2 w-full gap-px overflow-hidden rounded-sm bg-slate-100" aria-hidden>
           {release.released > 0 ? (
             <span className="h-full bg-brand-lime-600" style={{ width: `${shareOf(release.released, total) ?? 0}%` }} />
           ) : null}
@@ -236,23 +230,22 @@ export function ReleaseCard({ cohort }: { cohort: Cohort }) {
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
           <div>
-            <dt className="text-xs text-slate-500">Released</dt>
-            <dd className="font-semibold tabular-nums text-lime-800">{release.released}</dd>
+            <dt className="flex items-center gap-1.5 text-xs text-slate-500"><span className="h-2 w-2 rounded-sm bg-brand-lime-600" aria-hidden />Released</dt>
+            <dd className="font-semibold tabular-nums text-slate-800">{release.released}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Provisional</dt>
+            <dt className="flex items-center gap-1.5 text-xs text-slate-500"><span className="h-2 w-2 rounded-sm bg-slate-400" aria-hidden />Provisional</dt>
             <dd className="font-semibold tabular-nums text-slate-700">{release.provisional}</dd>
           </div>
         </dl>
       </div>
 
-      <div className="mt-4 border-t border-slate-100 pt-3">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <ScrollText className="h-3.5 w-3.5" aria-hidden />
-          Not in the class numbers ({excludedCount})
-        </p>
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        <h3 className="text-sm font-semibold text-brand-navy">
+          Not in the class numbers <span className="font-normal tabular-nums text-slate-500">({excludedCount})</span>
+        </h3>
         {excludedCount === 0 ? (
-          <p className="mt-1.5 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-500">
             Every submission in this view is completed and counted ({cohort.completed ?? 0}).
           </p>
         ) : (

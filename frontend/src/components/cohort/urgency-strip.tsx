@@ -2,42 +2,20 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { AlertOctagon, AlertTriangle, CheckCircle2, type LucideIcon } from "lucide-react";
 import { URGENCY_RULE } from "@/components/shared/urgency-badge";
 import type { Cohort, Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatPct, shareOf } from "./format";
 
-const SEGMENTS: { key: Urgency; label: string; Icon: LucideIcon; fill: string; card: string; text: string }[] = [
-  {
-    key: "at_risk",
-    label: "At risk",
-    Icon: AlertOctagon,
-    fill: "bg-rose-500",
-    card: "ring-rose-200 hover:bg-rose-50",
-    text: "text-rose-700",
-  },
-  {
-    key: "needs_attention",
-    label: "Needs attention",
-    Icon: AlertTriangle,
-    fill: "bg-amber-400",
-    card: "ring-amber-200 hover:bg-amber-50",
-    text: "text-amber-800",
-  },
-  {
-    key: "on_track",
-    label: "On track",
-    Icon: CheckCircle2,
-    fill: "bg-brand-lime-600",
-    card: "ring-brand-lime/40 hover:bg-brand-lime-50",
-    text: "text-lime-700",
-  },
+const SEGMENTS: { key: Urgency; label: string; fill: string; text: string }[] = [
+  { key: "at_risk", label: "At risk", fill: "bg-red-600", text: "text-red-700" },
+  { key: "needs_attention", label: "Needs attention", fill: "bg-amber-500", text: "text-amber-700" },
+  { key: "on_track", label: "On track", fill: "bg-brand-lime-600", text: "text-brand-navy" },
 ];
 
 /**
- * Urgency split of the completed students (KPI row). Each count links to the same dashboard
- * filtered by that urgency (?urgency=), or back to all when it is already selected.
+ * Urgency split of the completed students. Each count links to the same dashboard filtered by
+ * that urgency (?urgency=), or back to all when it is already selected.
  */
 export function UrgencyStrip({ cohort }: { cohort: Cohort }) {
   const pathname = usePathname();
@@ -55,27 +33,24 @@ export function UrgencyStrip({ cohort }: { cohort: Cohort }) {
   }
 
   return (
-    <section
-      aria-labelledby="cohort-urgency-title"
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="cohort-urgency-title" className="text-sm font-semibold text-brand-navy">
-          Urgency split <span className="font-normal text-slate-500">· {total} completed</span>
+    <section aria-labelledby="cohort-urgency-title" className="min-w-0 rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 id="cohort-urgency-title" className="text-[15px] font-semibold text-brand-navy">
+          Urgency split <span className="font-normal tabular-nums text-slate-500">· {total} completed</span>
         </h2>
         <p className="text-xs text-slate-500" title={URGENCY_RULE}>
           &ge;70% on track · 55-70% needs attention · &lt;55% at risk · one level worse with 2+ topics &lt;40%
         </p>
       </div>
-      <div className="mt-3 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+      <div className="mt-3 flex h-2 w-full gap-px overflow-hidden rounded-sm bg-slate-100" aria-hidden>
         {total > 0
           ? SEGMENTS.filter((s) => counts[s.key] > 0).map((s) => (
               <span key={s.key} className={cn("h-full", s.fill)} style={{ width: `${shareOf(counts[s.key], total) ?? 0}%` }} />
             ))
           : null}
       </div>
-      <ul className="mt-3 grid grid-cols-3 gap-2">
-        {SEGMENTS.map(({ key, label, Icon, card, text }) => {
+      <ul className="mt-3 grid grid-cols-3 divide-x divide-slate-200 rounded-md border border-slate-200">
+        {SEGMENTS.map(({ key, label, fill, text }) => {
           const active = selected === key;
           return (
             <li key={key} className="min-w-0">
@@ -85,18 +60,17 @@ export function UrgencyStrip({ cohort }: { cohort: Cohort }) {
                 aria-current={active ? "true" : undefined}
                 title={active ? "Show every urgency" : `Show only "${label}" students`}
                 className={cn(
-                  "flex h-full flex-col rounded-xl px-3 py-2 ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-                  card,
-                  active && "bg-slate-50 ring-2",
+                  "flex min-h-10 flex-col px-3 py-2 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-cyan",
+                  active && "bg-brand-cyan-50 hover:bg-brand-cyan-50",
                 )}
               >
-                <span className={cn("flex items-center gap-1.5 text-xs font-medium", text)}>
-                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <span className={cn("h-2 w-2 shrink-0 rounded-sm", fill)} aria-hidden />
                   <span className="truncate">{label}</span>
                 </span>
-                <span className="mt-0.5 flex items-baseline gap-1.5">
-                  <span className="text-2xl font-bold tabular-nums text-brand-navy">{counts[key]}</span>
-                  <span className="text-xs tabular-nums text-slate-400">{formatPct(shareOf(counts[key], total))}</span>
+                <span className="mt-0.5 flex items-baseline gap-1.5 tabular-nums">
+                  <span className={cn("text-lg font-semibold", text)}>{counts[key]}</span>
+                  <span className="text-xs text-slate-500">{formatPct(shareOf(counts[key], total))}</span>
                 </span>
               </Link>
             </li>

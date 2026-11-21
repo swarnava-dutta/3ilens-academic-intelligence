@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { WhatsAppDialog } from "./whatsapp-dialog";
 
 const actionClass =
-  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
 
 /**
  * Filters (batch, test, urgency, topic in the URL) plus the batch outputs: cohort PDF, ZIP of every
@@ -26,7 +26,7 @@ export function CohortToolbar({ cohort, filters }: { cohort: Cohort; filters: Da
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterBar show={["batch", "test", "urgency", "topic"]} />
         <div className="flex flex-wrap gap-2">
           <a
@@ -35,7 +35,7 @@ export function CohortToolbar({ cohort, filters }: { cohort: Cohort; filters: Da
             aria-disabled={!hasCompleted}
             className={cn(
               actionClass,
-              "bg-brand-navy text-white ring-brand-navy hover:bg-brand-navy-700",
+              "border-brand-navy bg-brand-navy text-white hover:bg-brand-navy-700",
               !hasCompleted && "pointer-events-none opacity-50",
             )}
           >
@@ -48,7 +48,7 @@ export function CohortToolbar({ cohort, filters }: { cohort: Cohort; filters: Da
             aria-disabled={!hasCompleted}
             className={cn(
               actionClass,
-              "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50",
+              "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
               !hasCompleted && "pointer-events-none opacity-50",
             )}
             title="Every completed student PDF plus the cohort PDF, for the current filters"
@@ -60,10 +60,10 @@ export function CohortToolbar({ cohort, filters }: { cohort: Cohort; filters: Da
             type="button"
             onClick={() => setWhatsAppOpen(true)}
             disabled={completedIds.length === 0}
-            className={cn(actionClass, "bg-white text-emerald-800 ring-emerald-300 hover:bg-emerald-50 disabled:opacity-50")}
+            className={cn(actionClass, "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50")}
           >
             <MessageCircle className="h-4 w-4" aria-hidden />
-            WhatsApp batch <span className="text-xs font-normal text-emerald-700/80">(simulated)</span>
+            WhatsApp batch <span className="text-xs font-normal text-slate-500">simulated</span>
           </button>
         </div>
       </div>
@@ -71,11 +71,11 @@ export function CohortToolbar({ cohort, filters }: { cohort: Cohort; filters: Da
       {cohort.mixed_rubrics ? (
         <p
           role="note"
-          className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900"
+          className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
           <span>
-            <span className="font-semibold">Mixing tests - compared by percentage; pick a test to compare like with like.</span>{" "}
+            <span className="font-medium">Mixed tests are compared by percentage; pick a test to compare like with like.</span>{" "}
             {(cohort.rubric_versions ?? []).length > 0 ? (
               <span className="text-amber-800">
                 In this view: {(cohort.rubric_versions ?? []).map((r) => `${r.name} ${r.version}`).join(" · ")}.

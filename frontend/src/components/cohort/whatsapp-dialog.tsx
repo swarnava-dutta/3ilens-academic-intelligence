@@ -14,16 +14,16 @@ export const MAX_DELIVERY_IDS = 200;
 const STATUS_LOOK: Record<DeliveryStatus, { label: string; className: string }> = {
   BLOCKED_TEMPLATE_PENDING: {
     label: "BLOCKED - template pending",
-    className: "bg-rose-50 text-rose-700 ring-rose-200",
+    className: "bg-red-50 text-red-700",
   },
   SIMULATED_NOT_SENT: {
     label: "Simulated - NOT sent",
-    className: "bg-amber-50 text-amber-800 ring-amber-300",
+    className: "bg-amber-50 text-amber-800",
   },
 };
 
 function statusLook(status: string) {
-  return STATUS_LOOK[status as DeliveryStatus] ?? { label: status, className: "bg-slate-100 text-slate-600 ring-slate-200" };
+  return STATUS_LOOK[status as DeliveryStatus] ?? { label: status, className: "bg-slate-100 text-slate-600" };
 }
 
 function formatExpiry(iso: string | null): string | null {
@@ -116,7 +116,7 @@ export function WhatsAppDialog({
     >
       {!results ? (
         <div className="space-y-4 text-sm">
-          <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-amber-900 ring-1 ring-inset ring-amber-200">
+          <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
             <span>
               WhatsApp Business delivery needs an approved message template, guardian consent and a data-residency
@@ -131,8 +131,8 @@ export function WhatsAppDialog({
             {truncated ? ` Only the first ${MAX_DELIVERY_IDS} are sent per request.` : ""}
           </p>
           <div className="space-y-1.5">
-            <label htmlFor="wa-recipient" className="text-sm font-medium text-slate-700">
-              Test recipient <span className="font-normal text-slate-400">(optional, stored masked)</span>
+            <label htmlFor="wa-recipient" className="block text-[13px] font-medium text-slate-700">
+              Test recipient <span className="font-normal text-slate-500">(optional, stored masked)</span>
             </label>
             <input
               id="wa-recipient"
@@ -145,7 +145,7 @@ export function WhatsAppDialog({
             />
           </div>
           {error ? (
-            <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-rose-800 ring-1 ring-inset ring-rose-200">
+            <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
               {error}
             </p>
           ) : null}
@@ -153,18 +153,18 @@ export function WhatsAppDialog({
       ) : (
         <div className="space-y-4 text-sm">
           <p className="flex flex-wrap items-center gap-2 font-medium text-brand-navy">
-            <Ban className="h-4 w-4 text-rose-500" aria-hidden />
+            <Ban className="h-4 w-4 text-red-600" aria-hidden />
             {plural(results.length, "delivery", "deliveries")} recorded - none sent.
             {[...counts.entries()].map(([status, n]) => (
               <span
                 key={status}
-                className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset", statusLook(status).className)}
+                className={cn("rounded-sm px-1.5 py-0.5 text-xs font-medium", statusLook(status).className)}
               >
                 {n} {statusLook(status).label}
               </span>
             ))}
           </p>
-          <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
+          <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
             {results.map((d) => {
               const look = statusLook(d.status);
               const expires = formatExpiry(d.link_expires_at);
@@ -174,7 +174,7 @@ export function WhatsAppDialog({
                     <span className="font-medium text-slate-800">
                       {names.get(d.submission_id) ?? `Submission #${d.submission_id}`}
                     </span>
-                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset", look.className)}>
+                    <span className={cn("rounded-sm px-1.5 py-0.5 text-xs font-medium", look.className)}>
                       {look.label}
                     </span>
                   </div>
@@ -188,7 +188,7 @@ export function WhatsAppDialog({
                       href={downloadUrl(d.download_url)}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-cyan-600 hover:underline"
+                      className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
                     >
                       Signed PDF link{expires ? ` (expires ${expires})` : ""}
                       <ExternalLink className="h-3 w-3" aria-hidden />

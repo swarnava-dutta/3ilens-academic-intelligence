@@ -1,175 +1,198 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Download, FileText, MessageCircle, Target } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import { reportPdfUrl } from "@/lib/api";
 import type { StudentCard, SubmissionStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { NUDGE_LOOK, TONE, clampPct, fmtNumber, fraction, toneFor } from "@/components/report/format";
+import { TONE, fmtNumber, fraction, toneFor } from "@/components/report/format";
 
 const STATUS_NOTE: Record<SubmissionStatus, string> = {
   PENDING: "Queued for processing.",
-  PROCESSING: "In the AI pipeline now.",
+  PROCESSING: "In the pipeline now.",
   COMPLETED: "",
   FAILED: "Processing failed: open the report to retry.",
   HUMAN_REVIEW_REQUIRED: "Low OCR confidence: waiting for faculty transcript review.",
 };
 
-const actionClass =
-  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ring-1 ring-inset transition focus-visible:outline-2 focus-visible:outline-brand-cyan";
+const TH = "whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-slate-500";
+const TD = "px-3 py-2.5 align-top text-sm text-slate-700";
+const TAG = "inline-flex items-center whitespace-nowrap rounded-sm border px-1.5 text-xs";
+const ACTION =
+  "inline-flex h-8 items-center rounded-md px-2 text-[13px] font-medium text-brand-cyan-600 transition-colors hover:bg-slate-50 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
 
-function MiniBars({ card }: { card: StudentCard }) {
-  const topics = [...card.topic_mastery].sort((a, b) => a.mastery - b.mastery).slice(0, 5);
-  if (topics.length === 0) return null;
+/** Weakest three topics as "Genetics 32%", with a tone square. */
+function WeakTopics({ card }: { card: StudentCard }) {
+  const topics = [...card.topic_mastery].sort((a, b) => a.mastery - b.mastery).slice(0, 3);
+  if (topics.length === 0) return <span className="text-slate-400">—</span>;
   return (
-    <ul className="space-y-1" aria-label="Topic scores, weakest first">
-      {topics.map((t) => {
-        const tone = TONE[toneFor(t.mastery)];
-        return (
-          <li key={t.topic} className="grid grid-cols-[minmax(0,1fr)_5rem_2.5rem] items-center gap-2 text-[11px]">
-            <span className="truncate text-slate-600" title={`${t.topic} (${t.subject})`}>
-              {t.topic}
-            </span>
-            <span className={cn("h-1.5 rounded-full [print-color-adjust:exact]", tone.track)}>
-              <span className={cn("block h-full rounded-full", tone.fill)} style={{ width: `${clampPct(t.mastery)}%` }} />
-            </span>
-            <span className="text-right tabular-nums text-slate-500">{fmtNumber(t.mastery, 0)}%</span>
-          </li>
-        );
-      })}
+    <ul className="space-y-0.5 text-[13px]" aria-label="Weakest topics">
+      {topics.map((t) => (
+        <li key={t.topic} className="flex items-center gap-1.5" title={`${t.topic} (${t.subject})`}>
+          <span className={cn("h-2 w-2 shrink-0 rounded-sm [print-color-adjust:exact]", TONE[toneFor(t.mastery)].fill)} aria-hidden />
+          <span className="max-w-40 truncate">{t.topic}</span>
+          <span className="ml-auto pl-2 tabular-nums text-slate-500">{fmtNumber(t.mastery, 0)}%</span>
+        </li>
+      ))}
     </ul>
   );
 }
 
-function Card({ card, onWhatsApp }: { card: StudentCard; onWhatsApp: (card: StudentCard) => void }) {
-  const done = card.status === "COMPLETED";
+function FirstItems({ items }: { items: string[] }) {
+  if (items.length === 0) return <span className="text-slate-400">None recorded</span>;
   return (
-    <article className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <header className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold text-brand-navy">{card.student_name}</h3>
-          <p className="truncate text-xs text-slate-500">
-            {card.batch.name}
-            {card.batch.exam_type ? ` · ${card.batch.exam_type}` : ""} · {card.test.name} {card.test.version}
-          </p>
-        </div>
-        {done ? <UrgencyBadge urgency={card.urgency} size="sm" /> : <StatusBadge status={card.status} />}
-      </header>
-
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-        {card.is_demo ? (
-          <span className="rounded-full bg-brand-lime-50 px-2 py-0.5 font-medium text-lime-800 ring-1 ring-inset ring-brand-lime/50">
-            Synthetic demo
-          </span>
-        ) : (
-          <span className="rounded-full bg-brand-cyan-50 px-2 py-0.5 font-medium text-cyan-800 ring-1 ring-inset ring-brand-cyan/30">
-            Live upload
-          </span>
-        )}
-        {done && card.release_status ? (
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 font-medium ring-1 ring-inset",
-              card.release_status === "RELEASED" ? "bg-brand-lime-50 text-lime-800 ring-brand-lime/50" : "bg-amber-50 text-amber-800 ring-amber-200",
-            )}
-          >
-            {card.release_status === "RELEASED" ? "Released" : "Provisional"}
-          </span>
-        ) : null}
-        {card.student_ref ? <span className="font-mono text-slate-400">{card.student_ref}</span> : null}
-      </div>
-
-      {done ? (
-        <>
-          <p className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-semibold tabular-nums text-brand-navy">{fraction(card.score, card.total_marks)}</span>
-            <span className="text-sm tabular-nums text-slate-500">
-              {card.percentage === null ? "" : `${fmtNumber(card.percentage)}%`}
-            </span>
-          </p>
-          <div className="mt-2">
-            <MiniBars card={card} />
-          </div>
-          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-            <div className="min-w-0">
-              <p className="mb-1 font-semibold text-lime-800">Strengths</p>
-              <ul className="space-y-0.5 text-slate-600">
-                {card.strengths.slice(0, 2).map((s, i) => (
-                  <li key={i} className="flex gap-1">
-                    <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-lime-600" aria-hidden />
-                    <span className="line-clamp-2">{s}</span>
-                  </li>
-                ))}
-                {card.strengths.length === 0 ? <li className="text-slate-400">None recorded</li> : null}
-              </ul>
-            </div>
-            <div className="min-w-0">
-              <p className="mb-1 font-semibold text-amber-800">Gaps</p>
-              <ul className="space-y-0.5 text-slate-600">
-                {card.gaps.slice(0, 2).map((g, i) => (
-                  <li key={i} className="flex gap-1">
-                    <Target className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
-                    <span className="line-clamp-2">{g}</span>
-                  </li>
-                ))}
-                {card.gaps.length === 0 ? <li className="text-slate-400">None recorded</li> : null}
-              </ul>
-            </div>
-          </div>
-          {card.nudges.length ? (
-            <ul className="mt-3 space-y-1.5">
-              {card.nudges.slice(0, 2).map((n, i) => (
-                <li key={i} className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs">
-                  <span className={cn("mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset", NUDGE_LOOK[n.priority].pill)}>
-                    {n.priority}
-                  </span>
-                  <span className="font-medium text-slate-800">{n.label}</span>
-                  {n.text ? <span className="mt-0.5 line-clamp-2 block text-slate-600">{n.text}</span> : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </>
-      ) : (
-        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{STATUS_NOTE[card.status] || card.status}</p>
-      )}
-
-      <div className="mt-auto flex flex-wrap gap-1.5 pt-4">
-        <Link href={`/report/${card.submission_id}`} className={cn(actionClass, "bg-brand-navy text-white ring-brand-navy hover:bg-brand-navy-700")}>
-          <FileText className="h-3.5 w-3.5" aria-hidden />
-          View report
-        </Link>
-        {done ? (
-          <>
-            <a href={reportPdfUrl(card.submission_id)} className={cn(actionClass, "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              PDF
-            </a>
-            <button
-              type="button"
-              onClick={() => onWhatsApp(card)}
-              className={cn(actionClass, "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}
-              title="Simulated channel - nothing is sent"
-            >
-              <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-              WhatsApp
-              <span className="rounded-full bg-amber-100 px-1 text-[9px] font-semibold uppercase text-amber-900">sim</span>
-            </button>
-          </>
-        ) : null}
-      </div>
-    </article>
+    <ul className="space-y-0.5 text-[13px]" title={items.join("\n")}>
+      {items.slice(0, 2).map((s, i) => (
+        <li key={i} className="line-clamp-2">
+          {s}
+        </li>
+      ))}
+    </ul>
   );
 }
 
+function Row({ card, onWhatsApp }: { card: StudentCard; onWhatsApp: (card: StudentCard) => void }) {
+  const done = card.status === "COMPLETED";
+  const topNudge = card.nudges[0];
+  return (
+    <tr className="hover:bg-slate-50/70">
+      <th scope="row" className={cn(TD, "text-left font-normal")}>
+        <Link
+          href={`/report/${card.submission_id}`}
+          className="rounded-sm font-medium text-brand-navy hover:text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+        >
+          {card.student_name}
+        </Link>
+        <p className="text-xs text-slate-500">
+          {card.batch.name}
+          {card.batch.exam_type ? ` · ${card.batch.exam_type}` : ""} · {card.test.name} {card.test.version}
+        </p>
+        <p className="mt-1 flex flex-wrap items-center gap-1.5">
+          {card.is_demo ? (
+            <span className={cn(TAG, "border-amber-300 text-amber-800")}>Synthetic demo</span>
+          ) : (
+            <span className={cn(TAG, "border-slate-300 text-slate-600")}>Live upload</span>
+          )}
+          {card.student_ref ? <span className="font-mono text-xs text-slate-500">{card.student_ref}</span> : null}
+        </p>
+        <div className="-ml-2 mt-1 flex flex-wrap items-center">
+          <Link href={`/report/${card.submission_id}`} className={ACTION}>
+            Report
+          </Link>
+          {done ? (
+            <>
+              <a href={reportPdfUrl(card.submission_id)} className={ACTION}>
+                PDF
+              </a>
+              <button
+                type="button"
+                onClick={() => onWhatsApp(card)}
+                className={ACTION}
+                title="Simulated channel - nothing is sent"
+                aria-label={`WhatsApp ${card.student_name} (simulated)`}
+              >
+                WhatsApp<span className="ml-1 text-xs font-normal text-slate-500">sim</span>
+              </button>
+            </>
+          ) : null}
+        </div>
+      </th>
+      <td className={TD}>
+        {done ? <UrgencyBadge urgency={card.urgency} size="sm" /> : <StatusBadge status={card.status} />}
+        {done && card.release_status ? (
+          <p className="mt-1 text-xs text-slate-500">{card.release_status === "RELEASED" ? "Released" : "Provisional"}</p>
+        ) : null}
+      </td>
+      {done ? (
+        <>
+          <td className={cn(TD, "text-right whitespace-nowrap tabular-nums")}>
+            <span className="font-semibold text-brand-navy">{fraction(card.score, card.total_marks)}</span>
+            <p className="text-xs text-slate-500">{card.percentage === null ? "" : `${fmtNumber(card.percentage)}%`}</p>
+          </td>
+          <td className={TD}>
+            <WeakTopics card={card} />
+          </td>
+          <td className={TD}>
+            <FirstItems items={card.strengths} />
+          </td>
+          <td className={TD}>
+            <FirstItems items={card.gaps} />
+          </td>
+          <td className={cn(TD, "text-[13px]")}>
+            {topNudge ? (
+              <>
+                <span className="font-medium text-slate-800">{topNudge.label}</span>
+                <span className="ml-1 text-xs text-slate-500">({topNudge.priority})</span>
+                {topNudge.text ? (
+                  <span className="mt-0.5 line-clamp-2 text-slate-600" title={topNudge.text}>
+                    {topNudge.text}
+                  </span>
+                ) : null}
+                {card.nudges.length > 1 ? (
+                  <span className="block text-xs tabular-nums text-slate-500">+{card.nudges.length - 1} more</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-slate-400">—</span>
+            )}
+          </td>
+        </>
+      ) : (
+        <td colSpan={5} className={cn(TD, "text-slate-600")}>
+          {STATUS_NOTE[card.status] || card.status}
+        </td>
+      )}
+    </tr>
+  );
+}
+
+/** Dense results table: one row per submission, most useful fields only. */
 export function StudentCardsGrid({ cards, onWhatsApp }: { cards: StudentCard[]; onWhatsApp: (card: StudentCard) => void }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {cards.map((c) => (
-        <Card key={c.submission_id} card={c} onWhatsApp={onWhatsApp} />
-      ))}
+    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+      <table className="w-full min-w-[1160px] table-fixed border-collapse">
+        <colgroup>
+          <col className="w-56" />
+          <col className="w-28" />
+          <col className="w-20" />
+          <col className="w-60" />
+          <col />
+          <col />
+          <col className="w-60" />
+        </colgroup>
+        <caption className="sr-only">Students and their latest results</caption>
+        <thead className="border-b border-slate-200 bg-slate-50">
+          <tr>
+            <th scope="col" className={TH}>
+              Student
+            </th>
+            <th scope="col" className={TH}>
+              Status
+            </th>
+            <th scope="col" className={cn(TH, "text-right")}>
+              Score
+            </th>
+            <th scope="col" className={TH}>
+              Weakest topics
+            </th>
+            <th scope="col" className={TH}>
+              Strengths
+            </th>
+            <th scope="col" className={TH}>
+              Gaps
+            </th>
+            <th scope="col" className={TH}>
+              Top nudge
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {cards.map((c) => (
+            <Row key={c.submission_id} card={c} onWhatsApp={onWhatsApp} />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

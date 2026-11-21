@@ -46,18 +46,18 @@ export function Dialog({
         if (e.target === e.currentTarget) onClose();
       }}
       className={cn(
-        "m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] rounded-2xl border border-slate-200 bg-white p-0 text-slate-800 shadow-2xl backdrop:bg-slate-900/55 backdrop:backdrop-blur-[2px] print:hidden",
+        "m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] rounded-md border border-slate-200 bg-white p-0 text-slate-800 shadow-xl backdrop:bg-slate-900/50 print:hidden",
         size === "md" ? "max-w-lg" : "max-w-2xl",
       )}
     >
       {open ? (
         <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
-          <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div className="min-w-0">
               {eyebrow ? (
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-cyan-600">{eyebrow}</p>
+                <p className="text-xs text-slate-500">{eyebrow}</p>
               ) : null}
-              <h2 id={titleId} className="text-lg font-semibold leading-snug tracking-tight text-brand-navy">
+              <h2 id={titleId} className="text-base font-semibold leading-snug text-brand-navy">
                 {title}
               </h2>
               {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
@@ -65,14 +65,14 @@ export function Dialog({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-brand-cyan"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
               aria-label="Close"
             >
-              <X className="h-5 w-5" aria-hidden />
+              <X className="h-4 w-4" aria-hidden />
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-          {footer ? <div className="border-t border-slate-100 px-5 py-3">{footer}</div> : null}
+          {footer ? <div className="border-t border-slate-200 px-5 py-3">{footer}</div> : null}
         </div>
       ) : null}
     </dialog>
@@ -80,11 +80,11 @@ export function Dialog({
 }
 
 export const btnPrimary =
-  "inline-flex items-center justify-center gap-2 rounded-full bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-navy-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "inline-flex h-9 items-center justify-center gap-2 rounded-md bg-brand-navy px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-navy-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
 export const btnSecondary =
-  "inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
 export const fieldClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:bg-slate-50";
+  "h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:bg-slate-50";
 
 export type ToastMessage = { kind: "success" | "error"; message: string };
 
@@ -104,22 +104,22 @@ export function Toast({ toast, onClose }: { toast: ToastMessage | null; onClose:
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
-        "fixed inset-x-4 bottom-4 z-50 flex items-start gap-3 rounded-2xl px-4 py-3 text-sm shadow-lg ring-1 ring-inset sm:inset-x-auto sm:right-6 sm:max-w-md print:hidden",
-        toast.kind === "success" ? "bg-brand-navy text-white ring-brand-navy-700" : "bg-rose-50 text-rose-900 ring-rose-200",
+        "fixed inset-x-4 bottom-4 z-50 flex items-start gap-3 rounded-md border px-4 py-3 text-sm shadow-lg sm:inset-x-auto sm:right-6 sm:max-w-md print:hidden",
+        toast.kind === "success" ? "border-brand-navy-700 bg-brand-navy text-white" : "border-red-200 bg-red-50 text-red-900",
       )}
     >
       {toast.kind === "success" ? (
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-lime" aria-hidden />
       ) : (
-        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" aria-hidden />
+        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
       )}
       <p className="min-w-0 flex-1">{toast.message}</p>
       <button
         type="button"
         onClick={onClose}
         className={cn(
-          "rounded-full p-1 transition focus-visible:outline-2 focus-visible:outline-brand-cyan",
-          toast.kind === "success" ? "text-white/70 hover:bg-white/10 hover:text-white" : "text-rose-500 hover:bg-rose-100",
+          "rounded-sm p-1 transition-colors focus-visible:outline-2 focus-visible:outline-brand-cyan",
+          toast.kind === "success" ? "text-white/70 hover:bg-white/10 hover:text-white" : "text-red-600 hover:bg-red-100",
         )}
         aria-label="Dismiss"
       >
