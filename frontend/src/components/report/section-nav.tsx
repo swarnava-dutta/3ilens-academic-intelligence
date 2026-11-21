@@ -4,15 +4,16 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { currentHash, focusQuestion, replaceHash, scrollToId } from "./report-events";
 
-/** label = the section heading; nav = the desktop tab text (seven tabs fit one row); short = phones. */
+/** label = the section heading; nav = the desktop tab text (eight tabs fit one row); short = phones. */
 export const REPORT_SECTIONS = [
   { id: "overview", n: "01", label: "Executive overview", nav: "Executive overview", short: "Overview" },
-  { id: "diagnostics", n: "02", label: "Subject & topic diagnostics", nav: "Topic diagnostics", short: "Diagnostics" },
-  { id: "action-plan", n: "03", label: "Teacher action plan", nav: "Action plan", short: "Action plan" },
-  { id: "behaviour", n: "04", label: "Exam behaviour", nav: "Exam behaviour", short: "Behaviour" },
-  { id: "interventions", n: "05", label: "Interventions", nav: "Interventions", short: "Interventions" },
-  { id: "evidence", n: "06", label: "Question evidence & controls", nav: "Evidence & controls", short: "Evidence" },
-  { id: "pages", n: "07", label: "Original pages", nav: "Original pages", short: "Pages" },
+  { id: "analytics", n: "02", label: "Performance analytics", nav: "Analytics", short: "Analytics" },
+  { id: "diagnostics", n: "03", label: "Subject & topic diagnostics", nav: "Topic diagnostics", short: "Diagnostics" },
+  { id: "action-plan", n: "04", label: "Teacher action plan", nav: "Action plan", short: "Action plan" },
+  { id: "behaviour", n: "05", label: "Exam behaviour", nav: "Exam behaviour", short: "Behaviour" },
+  { id: "interventions", n: "06", label: "Interventions", nav: "Interventions", short: "Interventions" },
+  { id: "evidence", n: "07", label: "Question evidence & controls", nav: "Evidence & controls", short: "Evidence" },
+  { id: "pages", n: "08", label: "Original pages", nav: "Original pages", short: "Pages" },
 ] as const;
 
 export type ReportSectionId = (typeof REPORT_SECTIONS)[number]["id"];

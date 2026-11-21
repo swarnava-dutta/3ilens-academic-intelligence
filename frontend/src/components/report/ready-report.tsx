@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Delivery, ReleaseInfo, Result } from "@/lib/types";
 import { ActionPlanTable, ConfusionsCard, InterventionChooser } from "./action-plan";
+import { PerformanceAnalytics } from "./analytics/performance-analytics";
 import { AuditTrailCard } from "./audit-trail";
 import {
   ConsistencyCheckCard,
@@ -102,6 +103,10 @@ export function ReadyReport({
         </div>
         <StatCards result={result} />
         <ImmediateReadingCard result={result} />
+      </ReportSection>
+
+      <ReportSection id="analytics" description="This paper, the batch and the study plan in charts.">
+        <PerformanceAnalytics result={result} />
       </ReportSection>
 
       <ReportSection id="diagnostics" description="Screening results, not certified competencies.">
