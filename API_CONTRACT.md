@@ -1,4 +1,4 @@
-# 3iLens local API (contract v2)
+# 3iLens local API (contract v3)
 
 Frontend: Next.js App Router at `http://localhost:3000`. Backend: FastAPI (port 8000 by default; `start.bat` may use 8001). JSON keys use snake_case. Scores, mastery, urgency and costs are computed on the backend. All demo records carry `is_demo: true`; live uploads always use real AI providers and never fall back to sample grades.
 
@@ -117,6 +117,85 @@ Upload error codes (detail texts unchanged from v1): 422 `invalid_student_name`,
 - `cohort`: `build_cohort(db, *, batch_id=None, rubric_id=None, urgency=None, topic=None)`.
 - `seed`: `seed_demo_set(db, set_name)`, `seed_demo_extended(db)`.
 
+## Wave 2 (contract v3)
+
+Additive like v2: no existing field was renamed, retyped or removed. Every new response field is always present (`null` / `[]` / `false` defaults; old rows get read-time defaults). Owners: **W2-0** contract (done), **W2-1** AI evaluation, **W2-2** voice + LMS + owner, **W2-3** learning analytics + sample data, **W2-4/W2-5** frontend. A route marked "implemented by W2-n" is documented here but its router is empty until that package lands (FastAPI answers 404 until then).
+
+**Labelled defaults and simulations.** OpenAI routes (GPT-4o fallback, voice transcription) are ON by default and always labelled **"Not residency-approved - PoC only"**; `LLM_FALLBACK=0` / `VOICE_ANSWERS=0` switch them off. `LLM_FALLBACK_MODEL` defaults to `gpt-4o` (announced shutdown **2027-01-14**). Voice transcription cost is shown as **unknown** (no invented price). Pattern thresholds are the plan defaults, labelled **"default - confirm with academic lead"** (`patterns.THRESHOLD_LABEL`). The `insights` sample set, the calibration factor and what-if numbers are sample / illustrative. The owner view has no login. LMS export returns **released results only** unless `include_provisional=true`.
+
+### Scoring (W2-0, real now; `marking.py`, `bloom.py`, `insights.py`)
+
+- **MCQ** (`question_type: "mcq"`, FR-4.8): scored by option letter only; the grader's marks are ignored. Correct `+max_marks`; wrong or more than one option `-negative_marks` (question value, else `marking_policy.negative_marks`, clamped 0..max); blank `0`; unreadable (`UNKNOWN`) `0` with "check the sheet". `estimated_marks` is net and may be negative; `penalty` carries the deduction. The outcome of a wrong MCQ is `ZERO`. Totals are net sums (may be negative); `overall_mastery` and topic mastery are clamped to 0-100.
+- **Descriptive** (FR-3.8): with no policy and no scheme the wave-1 rule is unchanged (clamp, round half-up to 0.5). `marking_policy.partial_credit` / per-question `partial_credit`: `steps` (round to `mark_step` 0.25 / 0.5 / 1 / 2), `proportional` (2 dp), `all_or_nothing`. With a `marking_scheme` and per-step `criteria_awards` from the grader, each step is clamped and rounded, then summed; a `required` step below 50% of its marks scores the question 0. A scheme without awards uses the overall marks (noted in `marking_note`).
+- `scoring_controls.marking_rule` = the wave-1 text for rubrics without MCQs or a policy, else a composed sentence, e.g. `NEET +4/-1 (sample): MCQs +4 correct, -1 wrong, 0 blank; descriptive partial credit in 0.5-mark steps; totals summed server-side`.
+- **Bloom K1-K5** (FR-3.9): rubric `bloom_level` (source `bloom_source`, default `faculty`) else a verb heuristic over the prompt (source `heuristic`; highest-level verb wins; default K2). The Genetics demo resolves to Q1 K3, Q2 K2, Q3 K2, Q4 K3, Q5 K1. `demonstrated_level` comes from the grader (null for MCQs and blanks).
+- Legacy and seeded rows gain the new question keys at read time (`marking.annotate_questions`); they are never re-scored.
+
+### Rubric authoring additions (`RubricQuestion`, `RubricContent`)
+
+`question_type?`, `options?` (2-6 strings, MCQ only), `correct_option?` (normalised to one letter; required for MCQs; must be within the options), `negative_marks?` (MCQ only, 0..max), `bloom_level?` (`"apply"` -> `K3`; anything else 422), `bloom_source?`, `concept?` (<= 200), `marking_scheme?` (`MarkingStep[]`, 1-20 steps, descriptive only, marks must add up to `max_marks`: `Q<n> marking_scheme marks (x) must add up to max_marks (y)`), `partial_credit?`, `mark_step?`; `RubricContent.marking_policy?` (`MarkingPolicy {partial_credit, mark_step, negative_marks, scheme_name?}`). An MCQ without `expected_answer` / `grading_criteria` gets `Option X` / one generated criterion; a scheme without criteria gets one per step. All new fields default to absent, so every existing rubric's stored content and `rubric_hash` are byte-identical. Invalid values -> 422 `invalid_rubric` (upload, create, version).
+
+### Changed core shapes
+
+- **Health** += `voice_enabled`, `voice_ready` (enabled AND an OpenAI key), `transcription_model` (`gpt-transcribe`), `accepted_voice_types` (`["mp3","wav","m4a","ogg"]`; `accepted_upload_types` stays documents only), `llm_fallback` (model name or `"off"`), `lms_api_enabled`.
+- **Batch** += `faculty_lead` (free text). `PATCH /api/batches/{id}` accepts `faculty_lead` (whitespace normalised, max 120 -> 422; `null` or blank clears it).
+- **Submission** += `input_kind` (`document` \| `voice`; NULL reads `document`), `audio_seconds`, `voice_question`, `detected_languages` (NULL reads `[]`).
+- **QuestionEvaluation** += `question_type`, `bloom_level`, `bloom_source`, `demonstrated_level`, `concept`, `penalty`, `selected_option` (letter / `MULTI` / `UNKNOWN` / null), `correct_option`, `marking_breakdown` (`MarkingAward[]`), `marking_note`.
+- **Result** += `llm_routes: LlmRoute[]`, `patterns: StudentPatterns`, `interventions: InterventionRecord[]`, `voice: VoiceInfo | null`. **Cohort** += `patterns: CohortPatterns`.
+- These come from **guarded hooks** run after `analytics.result_extras`, in order `llm_route` (W2-1), `patterns` (W2-3), `outcomes` (W2-3), `voice` (W2-2); `cohort.build_cohort` guards `patterns.cohort_extras`. A hook that raises or returns a malformed payload is logged and replaced by its default (`[]`, empty patterns with null profiles, `null`), so a wave-2 bug never breaks the report, cohort, PDF or LMS export.
+- `InvocationPurpose` += `transcription`, `voice_mapping`, `bloom_detect`, `llm_drill`. `DemoSet` += `insights`.
+
+New shapes (field lists in `types.ts`): `VoiceInfo`, `VoiceTranscript`, `LlmRoute`, `LlmProvider`, `LlmChainStatus`, `LlmDrillInput`, `LlmDrillResult`, `BloomTag`, `BloomDetectInput`, `BloomDetection`, `MarkingStep`, `MarkingPolicy`, `MarkingAward`, `TopicRisk`, `NegativeMarkingProfile`, `QuestionAccuracy`, `FatigueProfile`, `ConceptTransfer`, `TransferProfile`, `BloomBucket`, `StudentPatterns`, `StudentRiskRow`, `CohortTopicRisk`, `CohortNegativeMarking`, `CohortFatigue`, `ConceptSummary`, `CohortTransfer`, `CohortPatterns`, `InterventionOutcome`, `InterventionRecord` (schemas `InterventionRecordOut`), `InterventionInput`, `EffectRow`, `InstitutionEffect`, `InterventionEffectiveness`, `InterventionSummary`, `WhatIfScenarioInput`, `WhatIfInput`, `WhatIfImpact`, `WhatIfStudentRow`, `WhatIfScenarioResult`, `WhatIfResult`, `WhatIfTopicOption`, `WhatIfOptions`, `OwnerTotals`, `BatchSummary`, `FacultySummary`, `TrendPoint`, `OwnerDashboard`, `ApiKey` (schemas `ApiKeyOut`), `ApiKeyInput`, `ApiKeyCreated`, `LmsEndpoint`, `LmsInfo`, `LmsTopic`, `LmsResultRow`, `LmsBatch`, `LmsStudent`. New unions: `QuestionType`, `BloomLevel`, `BloomSource`, `PartialCreditMode`, `InputKind`, `RiskLevel`, `TransferClass`, `InterventionKind`, `OutcomeStatus`, `BloomDetectMode`, `LlmRole`.
+
+### Routes
+
+| Method & path | Response | Owner | Notes / error codes |
+|---|---|---|---|
+| `GET /api/health` | `Health` | W2-0 (done) | New fields above. |
+| `PATCH /api/batches/{id}` | `Batch` | W2-0 (done) | `faculty_lead`. |
+| `POST /api/demo/seed?set=insights` | `DemoSeedResult` | W2-0 stub (0) -> W2-3 | NEET MCQ Mock 09/10 sample papers, batch NEET-C (sample), 12 students, interventions, a sample voice answer; all `is_demo`. `set=all` stays genetics + mixed (27). |
+| `GET /api/ops/llm-chain` | `LlmChainStatus` | W2-1 | Providers (Claude primary; OpenAI fallback + transcription "not residency-approved"; Gemini "not configured"), trigger codes, recent fallbacks. |
+| `POST /api/ops/llm-chain/drill` | `LlmDrillResult` | W2-1 | Body `LlmDrillInput {simulate_outage}`; REAL provider calls. 503 `ai_not_configured` (no Anthropic key and no simulated outage); 409 `fallback_unavailable` (outage simulated but `LLM_FALLBACK=0` or no OpenAI key); 502 `ai_failed`. |
+| `POST /api/rubrics/{rubric_id}/bloom-levels` | `BloomDetection` | W2-1 | Body `BloomDetectInput {mode: "ai" \| "heuristic"}`; never modifies the rubric. 404 `unknown_rubric`; 503 `ai_not_configured` (mode ai); 502 `ai_failed`. |
+| `POST /api/upload` | 202 `Submission` | W2-2 | Audio (MP3/WAV/M4A/OGG) accepted; optional form field `voice_question` (per-question recording; omit for a whole-paper recording mapped by Claude). 415 `voice_disabled`, 415 `unsupported_audio`, 422 `corrupt_audio`, 422 `invalid_question`. The old `voice_phase2` code is retired. |
+| `GET /api/submissions/{id}/audio` | audio bytes (inline) | W2-2 | 404 `no_audio`. |
+| `GET /api/submissions/{id}/transcript` | `VoiceTranscript` | W2-2 | 404 `no_transcript`. |
+| `POST /api/submissions/{id}/rescan` | 202 `Submission` | W2-2 | + 422 `input_kind_mismatch` (audio for a document row or vice versa). |
+| `GET /api/owner/dashboard?institution_id` | `OwnerDashboard` | W2-2 | 404 `unknown_institution`. "Owner view - no login in this PoC". |
+| `GET /api/lms/info` | `LmsInfo` | W2-2 | Local admin, no key needed. |
+| `GET /api/lms/keys` | `ApiKey[]` | W2-2 | Never returns secrets. |
+| `POST /api/lms/keys` | 201 `ApiKeyCreated` | W2-2 | Body `ApiKeyInput {name, institution_id}`. The secret is returned once; only its SHA-256 is stored. |
+| `POST /api/lms/keys/{id}/revoke` | `ApiKey` | W2-2 | 404 `unknown_key`. |
+| `GET /api/lms/v1/batches` | `LmsBatch[]` | W2-2 | Header `X-API-Key` on every `/api/lms/v1/*` call. |
+| `GET /api/lms/v1/students?batch_id` | `LmsStudent[]` | W2-2 | |
+| `GET /api/lms/v1/results?batch_id&rubric_id&since&include_provisional=false&include_demo=true&limit=500&offset=0` | `LmsResultRow[]` + header `X-Total-Count` | W2-2 | Released results only by default. |
+| `GET /api/lms/v1/results.csv` (same params) | `text/csv; charset=utf-8` (UTF-8 BOM) | W2-2 | |
+| `GET /api/lms/v1/topic-mastery.csv` (same params) | `text/csv` (long format) | W2-2 | LMS errors: 401 `missing_api_key`, 403 `invalid_api_key`, 503 `lms_disabled`, 422 `invalid_since`. |
+| `POST /api/interventions` | 201 `InterventionRecord` | W2-3 | Body `InterventionInput` (topic 1-200, action 1-1000, applied_by 1-120, hours 0-100, compliance 0-1, note <= 1000, `applied_at` null = now). 404 `unknown_submission`; 409 `invalid_state` (not COMPLETED); 422 `unknown_topic`. |
+| `GET /api/interventions?batch_id&student_ref&submission_id&institution_id` | `InterventionRecord[]` | W2-3 | Newest first. |
+| `DELETE /api/interventions/{id}` | 204 | W2-3 | 404 `unknown_intervention`. |
+| `GET /api/interventions/effectiveness?batch_id&institution_id` | `InterventionEffectiveness` | W2-3 | Observational (treated vs untreated topics); never changes the BRD ROI. |
+| `POST /api/whatif` | `WhatIfResult` | W2-3 | Body `WhatIfInput` (1-5 scenarios, `extra_hours` 0.5-40, `use_calibration`). 404 `unknown_batch`; 422 `no_results`; 422 `unknown_topic`. Illustrative. |
+| `GET /api/whatif/options?batch_id&institution_id` | `WhatIfOptions` | W2-3 | |
+
+### Database additions
+
+- `batches` + `faculty_lead`; `student_submissions` + `input_kind` (NULL = `document`), `audio_seconds`, `voice_question`, `detected_languages` (NULL = `[]`). Added by `_ensure_columns` (the live DB keeps working; tested on a v2-shaped copy of `backend/3ilens.db`).
+- New tables: `intervention_records` (ORM `InterventionRecord`: the baseline `submission_id`, student, topic, kind, action, source, applied_by/at, hours, compliance, baseline mastery and predicted gain captured at record time, note, is_demo) and `api_keys` (ORM `ApiKey`: name, 8-char prefix, `key_hash` = SHA-256 hex UNIQUE, institution scope, last use, use count, revoked_at).
+
+### Module seams (final signatures; stubs return schema-valid defaults)
+
+- `marking` (W2-0, then W2-1): `policy_for`, `question_policy`, `question_type`, `normalise_option(raw, n_options=None)`, `score_mcq`, `score_descriptive(question, *, estimated_marks, criteria_awards, policy)`, `score_question`, `round_to_step`, `rule_for_question`, `marking_rule_text`, `annotate_questions`.
+- `bloom` (W2-0, then W2-1): `LEVELS`, `LABELS`, `GUIDANCE`, `parse_level`, `heuristic_level`, `resolve_levels`, `concept_key`, `is_transfer`.
+- `ai` (W2-1): `run_evaluation(..., answer_medium="handwriting", simulate_outage=None)` (new kwargs accepted, unused until W2-1); `structure_transcript(transcript, rubric_content, *, language_hints=None, question_hint=None, on_usage=None) -> OcrResult` (the `question_hint` path is real: one answer, confidence 0.85, or 0.5 under 20 characters, no provider call; without a hint `not_implemented` until W2-1); `detect_bloom_levels(questions, *, on_usage=None)`; `FALLBACK_TRIGGER_CODES`; `fallback_available(settings=None)`.
+- `llm_route` (W2-1): `STAGES`, `derive_routes(rows)`, `result_extras(db, *, sub, result, rubric)`, `chain_status(db)`.
+- `voice` (W2-2): `transcribe(path, mime_type, *, language_hints, keywords, on_usage=None) -> Transcript`, `wav_seconds(path)`, `result_extras(db, *, sub)`.
+- `patterns` (W2-3): threshold constants, `empty_student_patterns()`, `empty_cohort_patterns()`, `result_extras(db, *, sub, result, rubric)`, `cohort_extras(db, *, pairs, rubrics)`, `concept_group(question_eval, rubric_question)`.
+- `outcomes` (W2-3): `result_extras(db, *, sub, result)`, `effectiveness(db, *, institution_id=None, batch_id=None)`. `seed_insights` (W2-3): `seed_insights_demo(session)`.
+- Routers (empty until their owner lands): `routers/ai_ops.py` (W2-1), `voice_routes.py`, `lms.py`, `owner_routes.py` (W2-2), `insights_routes.py` (W2-3).
+- `config`: `AUDIO_MIME_TYPES`, `AUDIO_LABELS`, `accepted_voice_types(settings)`, `llm_fallback_label(settings)`, `RESIDENCY_NOTE`. `result_view`: `guarded(name, hook, default)`, `wave2_result_extras`, `cohort_patterns`.
+- Tests: `FakeAI.structure_transcript` (counted in `structure_calls`, not `calls`), fixture `fake_transcriber`, `wav_bytes` / `_wav(seconds)`; `forbid_ai` also forbids `ai.structure_transcript`, `ai.detect_bloom_levels` and `voice.transcribe`.
+
 ## Settings (`.env` in the project root; restart the backend after changes)
 
 | Variable | Default | Meaning |
@@ -149,5 +228,14 @@ Upload error codes (detail texts unchanged from v1): 422 `invalid_student_name`,
 | `DOWNLOAD_LINK_SECRET` | random per start | HMAC secret for signed report links. |
 | `DOWNLOAD_LINK_TTL_HOURS` | `24` | Signed link lifetime. |
 | `REPORT_LOGO_PATH` | - | Optional logo for the PDF header. |
+| `VOICE_ANSWERS` | `1` | Voice answers (FR-2.8) via OpenAI transcription - not residency-approved, PoC only. `0` disables (upload then returns 415 `voice_disabled`). |
+| `OPENAI_TRANSCRIBE_MODEL` | `gpt-transcribe` | Transcription model (stand-in for Whisper large-v3 / Sarvam Saarika). The only non-deprecated transcription model in openai 3.57; cost shown as "unknown". |
+| `LLM_FALLBACK` | `1` | Claude -> OpenAI fallback for OCR / grading / voice mapping (FR-3.10). Not residency-approved, PoC only. `0` disables. |
+| `LLM_FALLBACK_MODEL` | `gpt-4o` | Fallback model. gpt-4o has an announced shutdown of 2027-01-14 - change it before then. |
+| `LLM_SIMULATE_PRIMARY_OUTAGE` | `0` | Demo switch: every Claude call for OCR / grading / voice mapping is skipped and logged as `simulated_outage`, so the fallback runs. |
+| `LMS_API` | `1` | Read-only LMS export (FR-5.10). `0` -> 503 `lms_disabled`. |
+| `LMS_API_KEY` | - | Optional static export key, accepted alongside keys created in the UI. Never logged or returned. |
+| `LMS_MAX_ROWS` | `5000` | Max rows per LMS export call (clamped 100-50000). |
+| `INTERVENTION_DEFAULT_HOURS` | `3` | Default hours for a logged intervention (clamped 0.5-40). |
 | `CORS_ORIGINS` | localhost:3000 | Extra allowed origins (loopback ports are always allowed). |
 | `DATABASE_URL` / `UPLOAD_DIR` / `ARTIFACT_DIR` | `backend/3ilens.db`, `uploads/`, `artifacts/` | Local stand-ins for RDS and S3. |

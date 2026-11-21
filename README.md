@@ -231,6 +231,15 @@ the backend after editing it: `--reload` watches only Python files.
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Browser origins allowed to call the API. Any `localhost`/`127.0.0.1` port is also accepted. |
 | `DATABASE_URL`, `UPLOAD_DIR`, `ARTIFACT_DIR` | `backend/3ilens.db`, `uploads/`, `artifacts/` | Optional overrides, mainly for tests. |
 | `NEXT_PUBLIC_API_BASE_URL` (frontend env) | `http://localhost:8000` | Where the browser finds the API. `start.bat` sets it for you. |
+| `VOICE_ANSWERS` | `1` | Voice answers (MP3/WAV/M4A/OGG) transcribed by OpenAI. **Not residency-approved - PoC only.** `0` turns voice intake off. Needs `OPENAI_API_KEY`. |
+| `OPENAI_TRANSCRIBE_MODEL` | `gpt-transcribe` | Transcription model (stand-in for Whisper large-v3 / Sarvam Saarika). Its per-minute price is not known, so voice cost is shown as "unknown". |
+| `LLM_FALLBACK` | `1` | When Claude fails (timeout, outage, rate limit, refusal, empty reply), retry OCR / grading / voice mapping once on OpenAI. **Not residency-approved - PoC only.** `0` turns it off. |
+| `LLM_FALLBACK_MODEL` | `gpt-4o` | Fallback model. gpt-4o has an announced shutdown of **2027-01-14**; change it before then. |
+| `LLM_SIMULATE_PRIMARY_OUTAGE` | `0` | Demo switch for the outage drill: skips every Claude call so the fallback runs. |
+| `LMS_API` | `1` | Read-only LMS export API (`/api/lms/v1/*`, header `X-API-Key`). `0` -> 503. |
+| `LMS_API_KEY` | *(empty)* | Optional static LMS key, accepted alongside keys created in the UI (those are stored only as SHA-256 and shown once). Never logged. |
+| `LMS_MAX_ROWS` | `5000` | Max rows per LMS export call (100-50000). |
+| `INTERVENTION_DEFAULT_HOURS` | `3` | Default hours for a logged intervention (0.5-40). |
 
 **Model note:** the original spec named Claude 3.5 Sonnet (`claude-3-5-sonnet-20241022`).
 That model was retired on 2025-10-28, so the PoC uses the current Sonnet,
@@ -308,6 +317,17 @@ Interactive docs: <http://localhost:8000/docs>.
 Upload rules: PDF, JPEG, PNG or WEBP, detected from the file content rather than the
 extension (otherwise 415); at most 20 MB (413); PDFs at most 10 pages; corrupt files and
 invalid rubric JSON return 422.
+
+Wave 2 (contract v3) adds MCQ +4/-1 scoring, marking schemes, Bloom levels, voice answers, the
+GPT-4o fallback chain, exam-behaviour patterns, interventions, what-if, an owner dashboard and a
+read-only LMS export; see the "Wave 2 (contract v3)" section of API_CONTRACT.md. LMS export
+example (released results only unless `include_provisional=true`; create a key on the
+Integrations page or set `LMS_API_KEY`):
+
+```bash
+curl -H "X-API-Key: $LMS_KEY" "http://localhost:8000/api/lms/v1/results?batch_id=1&limit=50"
+curl -H "X-API-Key: $LMS_KEY" -o results.csv "http://localhost:8000/api/lms/v1/results.csv"
+```
 
 ---
 
