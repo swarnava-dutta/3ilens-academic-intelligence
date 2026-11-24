@@ -73,7 +73,7 @@ UNSHARP_THRESHOLD = 3
 
 # Typed DOCX -> PDF (pymupdf.Story).
 DOCX_MARGIN_PT = 54  # 0.75 inch
-DOCX_HARD_PAGE_CAP = 60  # stop laying out runaway documents (the upload limit is far lower)
+DOCX_HARD_PAGE_CAP = 60  # stop laying out runaway documents (the default upload limit is 40 pages)
 DOCX_CSS = (
     "body {font-family: sans-serif; font-size: 12pt; line-height: 1.35;}"
     "h2 {font-size: 16pt; margin-top: 10pt;} h3 {font-size: 13pt; margin-top: 8pt;}"
@@ -516,7 +516,7 @@ def _story_pdf(html: str, images: dict[str, bytes]) -> tuple[bytes, int]:
             writer.close()
             raise PreprocessingError(
                 f"The Word document has more than {DOCX_HARD_PAGE_CAP} pages; the limit is "
-                f"{get_settings().max_pdf_pages} pages per answer sheet.",
+                f"{min(get_settings().max_pdf_pages, DOCX_HARD_PAGE_CAP)} pages per answer sheet.",
                 "too_many_pages",
             )
     writer.close()

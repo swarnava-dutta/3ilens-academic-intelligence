@@ -5,7 +5,8 @@
 - GET   /api/exams                          target exams (only NEET has a matrix in this PoC)
 - PATCH /api/batches/{id}                   exam / exam date (null = the assumed NEET_EXAM_DATE)
 - POST  /api/results/{id}/consistency-check FR-3.5 re-grade (one live Claude call), tolerance +/-2
-- POST  /api/rubrics/parse                  FR-3.4 rubric draft from text / PDF / DOCX / JSON
+- POST  /api/rubrics/parse                  FR-3.4 rubric draft from text / PDF / DOCX / JSON; a PDF of
+                                            3+ pages (a full printed paper) is read as page images
 - POST  /api/rubrics                        save a rubric (AUTHOR_DRAFT or FACULTY_APPROVED)
 """
 from __future__ import annotations
@@ -26,6 +27,8 @@ import analytics
 import docx_reader
 import insights
 import marking
+import paper_detect
+import paper_pages
 import pipeline
 import provenance
 import result_view
@@ -66,6 +69,16 @@ CONSISTENCY_FILE = "consistency.json"
 TRANSCRIPT_FILES = ("ocr_reviewed.json", "ocr.json")  # faculty-reviewed transcript first
 MIN_PDF_TEXT_CHARS = 200  # a PDF with at least this much text is sent as text, else as a scan
 MAX_RUBRIC_PDF_PAGES = 40
+# A PDF with at least this many pages is a full printed paper: drafted from page images, a few
+# pages per AI call (ai.parse_rubric_pages), whatever its text layer holds.
+PAGED_RUBRIC_MIN_PAGES = 3
+# ... when it is a printed paper: paper_detect sees a question paper (with or without a printed
+# key), faculty say the ticks mark the key, or there is no usable text layer. A typed descriptive
+# marking scheme with a text layer keeps the single text call.
+PAGED_PAPER_ROLES = ("answer_key_paper", "question_paper")
+SPARSE_PAGE_CHARS = 100  # a page with less text than this counts as scanned (no text layer)
+PAGED_MIN_QUESTIONS = 30  # an unplaced layout with this many numbered questions is still paged
+KEY_SOURCES = ("auto", "marks")  # rubric parse key_source: printed key / table / ticks, or "ticks are the key"
 ZIP_MAGIC = b"PK\x03\x04"
 
 
@@ -344,8 +357,9 @@ def _decode_text(data: bytes) -> str:
                        "unsupported_signature") from exc
 
 
-def _pdf_source(data: bytes) -> tuple[str | None, bytes | None]:
-    """(text, None) for a PDF with a text layer, (None, pdf bytes) for a scanned one."""
+def _pdf_source(data: bytes) -> tuple[str | None, bytes | None, int, list[str]]:
+    """(text, None, pages, page texts) for a PDF with a text layer, (None, pdf bytes, pages, page
+    texts) for a scanned one."""
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception as exc:  # noqa: BLE001 - pymupdf raises several types for corrupt files
@@ -360,12 +374,48 @@ def _pdf_source(data: bytes) -> tuple[str | None, bytes | None]:
                 422, f"The PDF has {doc.page_count} pages; the limit for rubric drafting is {MAX_RUBRIC_PDF_PAGES}.",
                 "too_many_pages",
             )
-        text = "\n".join(page.get_text() for page in doc).strip()
+        pages = doc.page_count
+        page_texts = [page.get_text() for page in doc]
+        text = "\n".join(page_texts).strip()
     finally:
         doc.close()
     if len(text) >= MIN_PDF_TEXT_CHARS:
-        return text, None
-    return None, data
+        return text, None, pages, page_texts
+    return None, data, pages, page_texts
+
+
+def _sparse_text_layer(page_texts: list[str]) -> bool:
+    """True when fewer than half of the pages carry real text (SPARSE_PAGE_CHARS non-space
+    characters): a scan with only a cover page or a header typed in, whose text would hide most of
+    the paper from a single text call."""
+    if not page_texts:
+        return True
+    filled = sum(1 for text in page_texts if len("".join(str(text or "").split())) >= SPARSE_PAGE_CHARS)
+    return filled * 2 < len(page_texts)
+
+
+def _paged_paper(source_text: str | None, page_texts: list[str], pages: int, key_from_marks: bool) -> bool:
+    """True when a PDF is drafted from page images (ai.parse_rubric_pages): PAGED_RUBRIC_MIN_PAGES or
+    more pages AND one of: the ticks mark the key; no usable text layer, or text on fewer than half
+    of its pages; paper_detect reads it as a printed question paper (with or without its key); or
+    it has PAGED_MIN_QUESTIONS or more numbered questions in a layout paper_detect cannot place
+    (a long paper would overflow a single call). Detection never fails the request: an error falls
+    back to paged."""
+    if pages < PAGED_RUBRIC_MIN_PAGES:
+        return False
+    if key_from_marks or source_text is None or _sparse_text_layer(page_texts):
+        return True
+    try:
+        found = paper_detect.classify(page_texts, file_type="pdf", pages=pages, settings=get_settings())
+    except Exception:  # noqa: BLE001 - a routing hint only
+        logger.warning("Paper detection failed for a %d-page rubric PDF - drafting it from page images", pages)
+        return True
+    logger.info(
+        "Rubric PDF (%d pages) detected as %s (%d numbered questions)", pages, found.role, found.numbered_questions
+    )
+    if not found.text_layer or found.role in PAGED_PAPER_ROLES:
+        return True
+    return found.role == "unknown" and found.numbered_questions >= PAGED_MIN_QUESTIONS
 
 
 def _json_rubric(text: str) -> dict[str, Any] | None:
@@ -392,10 +442,20 @@ def parse_rubric(
     text: Annotated[str | None, Form()] = None,
     subject: Annotated[str | None, Form(max_length=100)] = None,
     exam: Annotated[str | None, Form(max_length=50)] = None,
+    key_source: Annotated[str | None, Form(max_length=20)] = None,
 ) -> RubricDraft:
-    """Draft a rubric. JSON is validated locally (no AI). A PDF with a text layer, a DOCX or plain
-    text is sent to Claude as text; a scanned PDF as a document block. AI-drafted expected answers
-    are listed in ai_drafted_questions and must be reviewed before the rubric is approved."""
+    """Draft a rubric. JSON is validated locally (no AI). key_source=marks: faculty confirm that the
+    ticks / circles on a PDF mark the answer key (read from page images, never from the text layer).
+    A PDF of PAGED_RUBRIC_MIN_PAGES or more pages that is a printed paper (paper_detect: question
+    paper with or without its key; or key_source=marks; or no usable text layer) is read as page
+    images a few pages per call. Any other PDF with a text layer (e.g. a typed descriptive marking
+    scheme), a DOCX or plain text is sent to Claude as text, and a short scanned PDF as a document
+    block. AI-drafted expected answers are listed in ai_drafted_questions and must be reviewed
+    before the rubric is approved."""
+    key_mode = (key_source or "auto").strip().lower() or "auto"
+    if key_mode not in KEY_SOURCES:
+        raise ApiError(422, "key_source must be 'auto' or 'marks'.", "invalid_request")
+    key_from_marks = key_mode == "marks"
     source: str = "text"
     source_text: str | None = None
     pdf_bytes: bytes | None = None
@@ -403,7 +463,11 @@ def parse_rubric(
     if data:
         if data.startswith(b"%PDF"):
             source = "pdf"
-            source_text, pdf_bytes = _pdf_source(data)
+            source_text, pdf_bytes, pages, page_texts = _pdf_source(data)
+            if _paged_paper(source_text, page_texts, pages, key_from_marks):
+                return _parse_paper_pages(db, data, subject=subject, exam=exam, key_from_marks=key_from_marks)
+            if key_from_marks:  # ticks are only visible on the page images, not in the text layer
+                source_text, pdf_bytes = None, data
         elif data.startswith(ZIP_MAGIC):
             kind = docx_reader.package_kind(data) if hasattr(docx_reader, "package_kind") else "docx"
             if kind == "zip":
@@ -447,6 +511,7 @@ def parse_rubric(
             subject_hint=subject,
             exam_hint=exam,
             on_usage=usages.append,
+            key_from_marks=key_from_marks and pdf_bytes is not None,
         )
     except ai.AIConfigurationError as exc:
         raise ApiError(503, str(exc), "ai_not_configured") from exc
@@ -458,6 +523,35 @@ def parse_rubric(
         _record_usages(db, usages, None)
     return RubricDraft(
         draft=result["draft"], warnings=result["warnings"], source=source,
+        ai_drafted_questions=result["ai_drafted_questions"],
+    )
+
+
+def _parse_paper_pages(
+    db: Session, data: bytes, *, subject: str | None, exam: str | None, key_from_marks: bool = False
+) -> RubricDraft:
+    """A full printed paper: page images -> ai.parse_rubric_pages (parallel page chunks)."""
+    if not get_settings().anthropic_api_key:
+        raise _ai_not_configured("AI rubric drafting (paste a JSON rubric to skip AI)")
+    try:
+        pages = paper_pages.render_pdf_pages(data)
+    except paper_pages.PaperPagesError as exc:
+        raise ApiError(422, str(exc), exc.code) from exc
+    usages: list[ModelUsage] = []
+    try:
+        result = ai.parse_rubric_pages(
+            pages, subject_hint=subject, exam_hint=exam, on_usage=usages.append, key_from_marks=key_from_marks
+        )
+    except ai.AIConfigurationError as exc:
+        raise ApiError(503, str(exc), "ai_not_configured") from exc
+    except ai.AIServiceError as exc:
+        raise _ai_failure(exc) from exc
+    except ValueError as exc:
+        raise ApiError(422, str(exc), "empty_rubric_source") from exc
+    finally:
+        _record_usages(db, usages, None)
+    return RubricDraft(
+        draft=result["draft"], warnings=result["warnings"], source="pdf",
         ai_drafted_questions=result["ai_drafted_questions"],
     )
 

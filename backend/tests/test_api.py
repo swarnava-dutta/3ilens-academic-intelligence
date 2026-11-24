@@ -42,6 +42,8 @@ HEALTH_KEYS = {
     # contract v3
     "voice_enabled", "voice_ready", "transcription_model", "accepted_voice_types", "llm_fallback", "lms_api_enabled",
     "intervention_default_hours",
+    # printed question papers
+    "max_pdf_pages",
 }
 BATCH_KEYS = {
     "id", "name", "exam_type", "exam", "exam_date", "exam_date_assumed", "days_to_exam", "strategy_mode",
@@ -201,10 +203,10 @@ def test_upload_rejects_files_over_20_mb(upload, forbid_ai, tmp_path, png_bytes)
     assert uploaded_files(tmp_path) == []
 
 
-def test_upload_rejects_pdf_over_10_pages(upload, forbid_ai, make_pdf, tmp_path):
-    response = upload(filename="long.pdf", content=make_pdf(11))
+def test_upload_rejects_pdf_over_the_page_limit(upload, forbid_ai, make_pdf, tmp_path):
+    response = upload(filename="long.pdf", content=make_pdf(41))
     assert response.status_code == 422
-    assert "11 pages" in response.json()["detail"]
+    assert "41 pages; the limit is 40 pages" in response.json()["detail"]
     assert response.json()["code"] == "too_many_pages"
     assert uploaded_files(tmp_path) == []
 
@@ -500,6 +502,7 @@ def test_health_reports_ocr_adapter_targets_and_upload_limits(client):
     assert body["batch_target_seconds"] == 1800
     assert body["whatsapp_mode"] == "blocked"
     assert body["max_upload_mb"] == 20
+    assert body["max_pdf_pages"] == 40
     assert body["accepted_upload_types"] == ["pdf", "jpeg", "png", "webp", "docx"]
 
 

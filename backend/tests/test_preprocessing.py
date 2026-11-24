@@ -287,17 +287,20 @@ def test_pdf_master_dpi_is_configurable(tmp_path, log, monkeypatch):
 
 
 def test_pdf_with_too_many_pages_is_rejected(tmp_path, log):
-    source = _make_pdf(tmp_path / "long.pdf", pages=11)
-    with pytest.raises(PreprocessingError, match="11 pages; the limit is 10") as excinfo:
+    source = _make_pdf(tmp_path / "long.pdf", pages=41)  # default limit: 40 (a full printed paper fits)
+    with pytest.raises(PreprocessingError, match="41 pages; the limit is 40") as excinfo:
         preprocess_document(source, "application/pdf", tmp_path / "out", log)
     assert excinfo.value.code == "too_many_pages"
     assert not (tmp_path / "out").exists()  # rejected before any page is rendered
 
 
-def test_pdf_at_the_page_limit_is_accepted(tmp_path, log):
+def test_pdf_at_the_page_limit_is_accepted(tmp_path, log, monkeypatch):
+    monkeypatch.setenv("MAX_PDF_PAGES", "10")  # configurable; a lower limit keeps the test fast
     source = _make_pdf(tmp_path / "ten.pdf", pages=10, size=(300, 400))
     pages = preprocess_document(source, "application/pdf", tmp_path / "out", log)
     assert [p.page_number for p in pages] == list(range(1, 11))
+    with pytest.raises(PreprocessingError, match="11 pages; the limit is 10"):
+        preprocess_document(_make_pdf(tmp_path / "eleven.pdf", pages=11), "application/pdf", tmp_path / "o2", log)
 
 
 def test_password_protected_pdf_is_rejected(tmp_path, log):

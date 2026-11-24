@@ -48,7 +48,8 @@ from database import (
 )
 from errors import ApiError, install_error_handlers
 from hashing import student_ref_for
-from routers import ai_ops, analytics_routes, insights_routes, lms, outputs, owner_routes, pipeline_ops, voice_routes
+from routers import ai_ops, analytics_routes, insights_routes, intake_routes, lms, outputs, owner_routes, pipeline_ops
+from routers import voice_routes
 from schemas import (
     LANGUAGE_HINTS,
     CohortOut,
@@ -347,6 +348,7 @@ def health(db: DbSession) -> HealthOut:
         batch_target_seconds=settings.batch_target_seconds,
         whatsapp_mode=settings.whatsapp_mode,
         max_upload_mb=settings.max_upload_mb,
+        max_pdf_pages=settings.max_pdf_pages,
         accepted_upload_types=accepted_upload_types(settings),
         voice_enabled=settings.voice_answers_enabled,
         voice_ready=settings.voice_answers_enabled and bool(settings.openai_api_key),
@@ -495,6 +497,7 @@ def upload_answer_sheet(
             )
         pipeline.append_log(sub, "Ingestion", received)
         uploads.duplicate_notice(db, sub)
+        uploads.paper_notice(sub, path, mime_type, settings)
         pipeline.append_log(
             sub, "Queue",
             f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric '{rubric.name}' ({rubric.version}).",
@@ -597,3 +600,5 @@ app.include_router(voice_routes.router)
 app.include_router(lms.router)
 app.include_router(owner_routes.router)
 app.include_router(insights_routes.router)
+# Intake: local paper detection before upload (printed MCQ papers, answer-key papers).
+app.include_router(intake_routes.router)

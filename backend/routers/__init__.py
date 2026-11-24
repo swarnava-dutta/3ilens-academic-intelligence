@@ -10,6 +10,7 @@
 - lms               read-only LMS export (X-API-Key) + key management
 - owner_routes      institute-owner dashboard
 - insights_routes   intervention log + effectiveness / what-if
+- intake_routes     intake file inspection (printed MCQ paper / answer-key paper / answer sheet)
 
 Endpoint shapes are fixed in /API_CONTRACT.md; use errors.ApiError for coded errors.
 """

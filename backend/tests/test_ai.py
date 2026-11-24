@@ -785,7 +785,7 @@ def test_client_factories_configure_timeout_retries_and_base_url(monkeypatch):
 # OCR v2: page refs, uncertain words, page assessments, dropped questions, languages
 # --------------------------------------------------------------------------- #
 def test_prompt_versions_were_bumped():
-    assert ai.OCR_PROMPT_VERSION == "ocr-v3"
+    assert ai.OCR_PROMPT_VERSION == "ocr-v4"
     assert ai.EVALUATION_PROMPT_VERSION == "eval-v3"
 
 

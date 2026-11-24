@@ -2,7 +2,8 @@
 
 Routes are derived from the model_invocations rows of the latest run, so there is no new result
 column: for each stage (transcription, voice mapping, OCR, grading) the first row names the
-primary model and the last successful row names the model that actually served the answer.
+primary model and the last successful row names the model that actually served the answer (for a
+stage with several successful rows - chunked OCR - the last row served by the fallback, if any).
 Every OpenAI route is labelled "not residency-approved - PoC only".
 """
 from __future__ import annotations
@@ -44,7 +45,15 @@ def _route(stage: str, rows: list[Any]) -> dict[str, Any]:
     primary_provider = first.provider
     if primary_provider == "cache":  # a cache hit stands in for the configured vision model
         primary_provider = _provider_of_model(first.model_requested)
-    served_index = next((i for i in range(len(rows) - 1, -1, -1) if rows[i].status in SERVED_STATUSES), None)
+    served_rows = [i for i, row in enumerate(rows) if row.status in SERVED_STATUSES]
+    # Chunked OCR has several successful rows per run: when any of them was served by the
+    # fallback (another vendor, or flagged fell_back), that row names the route, whatever order
+    # the chunks finished in.
+    fallback_rows = [
+        i for i in served_rows
+        if (rows[i].provider not in ('cache', primary_provider)) or rows[i].fell_back
+    ]
+    served_index = (fallback_rows or served_rows or [None])[-1]
     served = rows[served_index] if served_index is not None else None
     before = rows[:served_index] if served_index is not None else rows
     failed = [r for r in before if r.status not in SERVED_STATUSES]

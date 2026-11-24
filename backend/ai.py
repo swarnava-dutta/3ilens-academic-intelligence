@@ -11,7 +11,11 @@ drafting from a question paper (FR-3.4).
   instruction header + rubric form one content block with a ``cache_control`` breakpoint, so
   every student graded on the same rubric within 5 minutes reads that prefix from the prompt
   cache (FR-3.6); only the student answers (block 2) change between students.
-* ``parse_rubric`` drafts a rubric from pasted/extracted text or a scanned PDF (FR-3.4).
+* ``parse_rubric`` drafts a rubric from pasted/extracted text or a scanned PDF (FR-3.4);
+  ``parse_rubric_pages`` drafts one from a full printed paper (page images, read a few pages per
+  call in parallel and merged by question number).
+* Long answer sheets (more than OCR_PAGES_PER_CALL pages, e.g. a printed 19-page MCQ paper the
+  student ticked) are transcribed in page chunks, in parallel, and merged into one OcrResult.
 
 Claude calls use structured outputs (``output_config.format`` with a JSON schema generated
 from STRICT LLM-facing pydantic models defined here) and opt into server-side refusal
@@ -30,12 +34,15 @@ keys are never logged or included in error messages; prompt and answer text is n
 from __future__ import annotations
 
 import base64
+import difflib
 import json
 import logging
 import math
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar
 
 import anthropic
@@ -77,6 +84,7 @@ CLAUDE_MAX_TOKENS = 16000
 OCR_EFFORT = "medium"
 EVALUATION_EFFORT = "high"
 RUBRIC_PARSE_EFFORT = "high"
+RUBRIC_PAGES_EFFORT = "medium"  # one call per page chunk of a printed paper
 BLOOM_DETECT_EFFORT = "low"
 MAX_BLOOM_RATIONALE_WORDS = 25
 SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -84,9 +92,10 @@ SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 OPENAI_MAX_COMPLETION_TOKENS = 8000
 
 # Bumped whenever a prompt or output schema changes; part of the OCR cache key.
-OCR_PROMPT_VERSION = "ocr-v3"
+OCR_PROMPT_VERSION = "ocr-v4"
 EVALUATION_PROMPT_VERSION = "eval-v3"
 RUBRIC_PARSE_PROMPT_VERSION = "rubric-v2"
+RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v1"
 BLOOM_DETECT_PROMPT_VERSION = "bloom-v1"
 
 # Post-processing caps (structured outputs cannot enforce maxItems / minLength).
@@ -95,6 +104,10 @@ UNCERTAIN_WORD_CEILING = 0.8  # only words below this confidence are "uncertain"
 MAX_SUMMARY_CHARS = 1200
 MAX_RUBRIC_SOURCE_CHARS = 150_000  # pasted/extracted rubric text sent to Claude
 DEFAULT_EFFORT_HOURS = 2.0
+# OCR question list for long papers: question numbers are printed on the paper, so each
+# question's text is shortened once the rubric has more than this many questions.
+OCR_LONG_RUBRIC_QUESTIONS = 60
+OCR_SHORT_PROMPT_CHARS = 160
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -247,6 +260,26 @@ class RubricDraftWire(BaseModel):
     questions: list[_RubricQuestionWire]
 
 
+class _AnswerKeyEntryWire(BaseModel):
+    model_config = ConfigDict(title="AnswerKeyEntry")
+
+    question: int = Field(description="The question number as printed in the answer-key table.")
+    option: str = Field(description="The correct option as printed in the table: a letter A-F or a number 1-6.")
+
+
+class RubricPagesWire(BaseModel):
+    """Exact JSON shape returned for one page chunk of a printed paper."""
+
+    model_config = ConfigDict(title="RubricPages")
+
+    name: str = Field(description="The paper title when it is printed on these pages, else an empty string.")
+    subject: str
+    questions: list[_RubricQuestionWire]
+    answer_key: list[_AnswerKeyEntryWire] = Field(
+        description="Entries of an answer-key table printed on these pages; empty when there is none."
+    )
+
+
 class _VoiceAnswerWire(BaseModel):
     model_config = ConfigDict(title="VoiceAnswer")
 
@@ -313,6 +346,18 @@ class _RubricDraftParse(BaseModel):
     questions: list[_RubricQuestionParse] = Field(default_factory=list)
 
 
+class _AnswerKeyEntryParse(BaseModel):
+    question: Any = None
+    option: Any = None
+
+
+class _RubricPagesParse(BaseModel):
+    name: str = ""
+    subject: str = ""
+    questions: list[_RubricQuestionParse] = Field(default_factory=list)
+    answer_key: list[_AnswerKeyEntryParse] = Field(default_factory=list)
+
+
 class AIConfigurationError(RuntimeError):
     """Required key/model setting is missing (e.g. ANTHROPIC_API_KEY not set)."""
 
@@ -371,8 +416,19 @@ answers. An answer can continue onto the next page; combine the parts into one e
 list every page it appears on.
 - Omit questions the student did not attempt; do not create entries for blank questions.
 - Multiple-choice questions are marked [MCQ] in the question list: transcribe only the \
-option letter(s) the student ticked, circled, shaded or wrote (A-F), never the option \
-text, and never pick an option yourself.
+option letter(s) (A-F) or option number(s) (1-6) the student ticked, circled, shaded or \
+wrote, never the option text, and never pick an option yourself.
+- The pages may be the printed question paper itself, on which the student answered by \
+ticking, circling, underlining or shading an option, or by writing the option next to the \
+question. Read only the student's own marks. Ignore everything PRINTED: the question and \
+option text, printed answer keys, printed "Ans." lines and printed solutions (a printed key \
+is never the student's answer), watermarks, publisher logos and adverts. Anything written \
+by hand is the student's: a handwritten "Ans.", "Ans: (b)" or "3" next to a question is the \
+student's own answer - transcribe it. When the options are printed as (1)-(4), \
+give the number the student marked (for example "3"); when they are printed as letters, give \
+the letter. A question without a mark from the student is not attempted - omit it. When a \
+mark is ambiguous (two options ticked, or a tick between two options), give both, for \
+example "2, 3", and lower the confidence.
 - confidence is your calibrated certainty, from 0.0 to 1.0, that the transcription \
 matches what is written: around 0.95 for clear handwriting, 0.7-0.85 when several words \
 were hard to read, and below 0.6 when much of the answer is guesswork or [illegible].
@@ -408,11 +464,42 @@ Use only these question numbers:
 </questions>\
 """
 
+# A sheet longer than OCR_PAGES_PER_CALL pages is read in page chunks; each chunk call names
+# its absolute page range so page references and assessments line up across chunks.
+OCR_CHUNK_INSTRUCTION_TEMPLATE = """\
+Extract handwritten text from these page images and map it to question numbers. The images \
+above are pages {first} to {last} of a {page_count}-page answer sheet, in order, each labelled \
+with its page number; the other pages are read separately.{context_note} An answer can start \
+before page {first} or continue after page {last}: transcribe the part on pages {first} to \
+{last} under the question it belongs to. Output JSON in the format: {{"answers": [{{"question": 1, "answer": "...", \
+"confidence": 0.9, "pages": [{first}], "uncertain_words": [{{"text": "hetrozygous", \
+"confidence": 0.6}}]}}], "page_assessments": [{{"page": {first}, "legibility_confidence": 0.9}}]}}
+
+- pages: the page numbers ({first} to {last}) on which each answer appears - the page labels \
+above, never counted from 1 within this request.
+- uncertain_words: only words transcribed with confidence below 0.8, at most 8 per answer; \
+an empty list when every word is clear.
+- page_assessments: exactly one entry for every page from {first} to {last}.
+
+The exam paper "{rubric_name}" contains these questions (number - topic: question text). \
+Use only these question numbers:
+<questions>
+{question_lines}
+</questions>\
+"""
+OCR_CONTEXT_NOTE_TEMPLATE = (
+    " Page {context} comes first, as context only (it was read in another request): use it only to see "
+    "which question an answer, tick or continuation at the top of page {first} belongs to. Never transcribe "
+    "anything that is on page {context} itself, never list page {context} in pages, and give it no "
+    "page_assessments entry."
+)
+OCR_CONTEXT_LABEL = "Page {page} of {total} (context only - read in another request; do not transcribe it):"
+
 # Appended to MCQ question lines in the OCR instruction (FR-4.8); marking.normalise_option reads
 # the letters back. The correct option is never sent.
 OCR_MCQ_SUFFIX = (
-    " [MCQ: transcribe ONLY the option letter the student marked or wrote, e.g. B; if two options are "
-    "marked write both, e.g. 'B, C'; omit the question if nothing is marked]"
+    " [MCQ: transcribe ONLY the option letter or number the student marked or wrote, e.g. B or 2; if two "
+    "options are marked write both, e.g. 'B, C'; omit the question if nothing is marked]"
 )
 
 LANGUAGE_NOTE_TEMPLATE = "Answers may be written in {languages}. Transcribe in the original script; do not translate."
@@ -618,6 +705,45 @@ Also return name (the paper title from the source, or a short descriptive title)
 subject (the single subject of the paper, or "Mixed" when it covers several).\
 """
 
+# Appended to the rubric-parse system prompt for a printed paper read a few pages per call
+# (parse_rubric_pages). The page range is named in each request, so the system prompt is
+# identical across the chunk calls of one paper.
+RUBRIC_PAGES_ADDENDUM = """
+
+The source arrives as page images of a printed paper, a few pages per request; the request \
+names which pages you are seeing. Other requests cover the other pages and the results are \
+merged by question number, so:
+- Return every question that STARTS on these pages. Skip a question that starts on an \
+earlier page (its options or its end may continue here). A request may end with the next \
+page as context only (its label says so): when a question that starts on these pages \
+continues onto it (the rest of its stem, its remaining options, its "Ans." line), complete \
+the question from it, but never return a question that starts on the context page and \
+never list answer-key table entries printed on it. Without a context page, include a \
+question that runs past the last page with what is visible.
+- Use the question numbers exactly as printed; never renumber.
+- The correct option of an MCQ may be printed under the question ("Ans. (2)", "Answer: B"), \
+listed in an answer-key table, or shown by a tick, circle, underline or highlight on one \
+option. Options printed as (1)-(4) map to A-D: (1) = A, (2) = B, (3) = C, (4) = D. When \
+nothing on the page marks the correct option, correct_option is null and expected_answer is \
+an empty string - never solve the question yourself.
+- answer_key: every entry of an answer-key table printed on these pages (question number and \
+the option as printed), including questions that are not on these pages; an empty list when \
+there is no such table. Do not repeat "Ans." lines that sit under a question here.
+- Ignore publisher adverts and banners, watermarks, logos, page headers and footers, and \
+instructions to candidates.
+- Keep it compact: an MCQ prompt of at most 300 characters (shorten a long stem without \
+losing what is asked) and each option at most 120 characters. Write formulas, symbols and \
+units in plain text, for example "d2y/dx2 = (rho g / S) x" or "27 x 10^4 V m^-1"; describe a \
+figure in a few words, for example "[figure: circuit with a 2 uF capacitor and switch S]".
+- For an MCQ, expected_answer is "Option B: <option text>" and grading_criteria is one item \
+for the full marks, for example ["4 marks: option B"]; use the marks printed for the \
+question when the paper shows them. effort_hours may be 0.
+- subject: from the section heading (Physics, Chemistry, Biology, Botany, Zoology, \
+Mathematics, ...) or, when no heading is visible on these pages, from the question content. \
+On NEET papers, Botany and Zoology questions are Biology.
+- name: the paper title when it is printed on these pages, else an empty string.\
+"""
+
 
 # --------------------------------------------------------------------------- #
 # SDK client factories (tests monkeypatch these)
@@ -656,6 +782,12 @@ def ai_readiness() -> tuple[bool, list[str]]:
     return (not missing, missing)
 
 
+def ocr_pages_per_call(settings: Settings, rubric_content: dict | None = None) -> int:
+    """Pages per transcription call (OCR_PAGES_PER_CALL, default 10). Printed MCQ papers do not
+    come here: the pipeline reads their marked options with mcq_marks (MCQ_OCR_PAGES_PER_CALL)."""
+    return settings.ocr_pages_per_call
+
+
 def run_ocr(
     pages: list[PreparedPage],
     rubric_content: dict,
@@ -683,31 +815,13 @@ def run_ocr(
 
     pages = sorted(pages, key=lambda page: page.page_number)
     hints = clean_language_hints(language_hints)
+    per_call = ocr_pages_per_call(settings, rubric_content)
+    if len(pages) > per_call:
+        return _run_ocr_chunked(settings, provider, pages, rubric_content, hints, on_usage, per_call=per_call)
     instruction = _ocr_instruction(rubric_content, len(pages), hints)
-    if provider == "anthropic":
-        def primary() -> tuple[OcrExtraction, str, str, str]:
-            request = _claude_ocr_request(settings, pages, instruction)
-            extraction, response, raw_text = _claude_structured(
-                settings, request, step="OCR", usage_purpose="ocr", on_usage=on_usage,
-                image_count=len(pages), parse_model=OcrExtraction,
-            )
-            model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
-            return extraction, raw_text, "anthropic", model
-
-        def fallback() -> tuple[OcrExtraction, str, str, str]:
-            extraction, raw_text, model = _run_openai_ocr(
-                settings, pages, instruction, model=settings.llm_fallback_model, fell_back=True, on_usage=on_usage
-            )
-            return extraction, raw_text, "openai", model
-
-        extraction, raw_text, served_provider, model_used = _with_fallback(
-            settings, purpose="ocr", primary=primary, fallback=fallback, on_usage=on_usage
-        )
-    else:  # VISION_PROVIDER=openai: OpenAI is the primary; there is no reverse fallback
-        extraction, raw_text, model_used = _run_openai_ocr(
-            settings, pages, instruction, model=settings.openai_vision_model, fell_back=False, on_usage=on_usage
-        )
-        served_provider = "openai"
+    extraction, raw_text, served_provider, model_used = _ocr_call(
+        settings, provider, pages, instruction, on_usage, page_total=len(pages)
+    )
 
     answers, dropped = _normalise_ocr_answers(extraction.answers, rubric_content, len(pages))
     page_assessments = _normalise_page_assessments(extraction.page_assessments, len(pages))
@@ -727,6 +841,304 @@ def run_ocr(
         dropped_questions=dropped,
         language_hints=hints,
     )
+
+
+def _ocr_call(
+    settings: Settings,
+    provider: str,
+    pages: list[PreparedPage],
+    instruction: str,
+    on_usage: UsageCallback | None,
+    *,
+    page_total: int,
+    context: PreparedPage | None = None,
+) -> tuple[OcrExtraction, str, str, str]:
+    """One OCR provider call (Claude with the OpenAI fallback, or OpenAI as the primary).
+    context: a neighbouring page sent as context only (counted in image_count).
+    Returns (extraction, raw text, served provider, model used)."""
+    images = len(pages) + (1 if context is not None else 0)
+    if provider == "anthropic":
+        def primary() -> tuple[OcrExtraction, str, str, str]:
+            request = _claude_ocr_request(settings, pages, instruction, page_total=page_total, context=context)
+            extraction, response, raw_text = _claude_structured(
+                settings, request, step="OCR", usage_purpose="ocr", on_usage=on_usage,
+                image_count=images, parse_model=OcrExtraction,
+            )
+            model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
+            return extraction, raw_text, "anthropic", model
+
+        def fallback() -> tuple[OcrExtraction, str, str, str]:
+            extraction, raw_text, model = _run_openai_ocr(
+                settings, pages, instruction, model=settings.llm_fallback_model, fell_back=True, on_usage=on_usage,
+                page_total=page_total, context=context,
+            )
+            return extraction, raw_text, "openai", model
+
+        return _with_fallback(settings, purpose="ocr", primary=primary, fallback=fallback, on_usage=on_usage)
+    # VISION_PROVIDER=openai: OpenAI is the primary; there is no reverse fallback.
+    extraction, raw_text, model_used = _run_openai_ocr(
+        settings, pages, instruction, model=settings.openai_vision_model, fell_back=False, on_usage=on_usage,
+        page_total=page_total, context=context,
+    )
+    return extraction, raw_text, "openai", model_used
+
+
+# --------------------------------------------------------------------------- #
+# Page chunks (long answer sheets, printed papers)
+# --------------------------------------------------------------------------- #
+_PageT = TypeVar("_PageT")
+
+
+def chunk_pages(pages: Sequence[_PageT], size: int) -> list[list[_PageT]]:
+    """Consecutive chunks of at most `size` pages (size < 1 is treated as 1)."""
+    size = max(1, int(size))
+    return [list(pages[start : start + size]) for start in range(0, len(pages), size)]
+
+
+def _page_span(first: int, last: int) -> str:
+    return f"page {first}" if first == last else f"pages {first}-{last}"
+
+
+def _run_chunks(
+    chunks: Sequence[_PageT],
+    call: Callable[[_PageT, UsageCallback], _T],
+    *,
+    concurrency: int,
+    on_usage: UsageCallback | None,
+    stop_on_error: bool,
+) -> list[tuple[_T | None, Exception | None]]:
+    """Run call(chunk, record_usage) for every chunk on up to `concurrency` threads; returns
+    (result, error) per chunk, in chunk order. Worker threads only buffer their ModelUsage
+    records: on_usage is always called from this (the calling) thread, because the pipeline's
+    callback writes through a database session that must not be shared across threads. With
+    stop_on_error, chunks that have not started yet are cancelled after the first failure
+    (their result and error are both None)."""
+    results: list[tuple[_T | None, Exception | None]] = [(None, None)] * len(chunks)
+
+    def work(index: int) -> tuple[int, _T | None, Exception | None, list[ModelUsage]]:
+        buffer: list[ModelUsage] = []
+        try:
+            return index, call(chunks[index], buffer.append), None, buffer
+        except Exception as exc:  # noqa: BLE001 - handed back to the caller, which decides
+            return index, None, exc, buffer
+
+    if not chunks:
+        return results
+    workers = max(1, min(int(concurrency), len(chunks)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ai-chunk") as pool:
+        futures = [pool.submit(work, index) for index in range(len(chunks))]
+        for future in as_completed(futures):
+            if future.cancelled():
+                continue
+            index, result, error, buffer = future.result()
+            for usage in buffer:
+                _emit_usage(on_usage, usage)
+            results[index] = (result, error)
+            if error is not None and stop_on_error:
+                for other in futures:
+                    other.cancel()
+    return results
+
+
+@dataclass
+class _OcrChunk:
+    first: int
+    last: int
+    answers: list[OcrAnswer]
+    dropped: list[int]
+    page_assessments: list[PageAssessment]
+    raw_text: str
+    provider: str
+    model: str
+
+
+def _run_ocr_chunked(
+    settings: Settings,
+    provider: str,
+    pages: list[PreparedPage],
+    rubric_content: dict,
+    hints: list[str],
+    on_usage: UsageCallback | None,
+    *,
+    per_call: int | None = None,
+) -> OcrResult:
+    """OCR for a sheet longer than ocr_pages_per_call() pages: consecutive page chunks, read in
+    parallel (AI_CHUNK_CONCURRENCY), each with its own fallback, merged into one OcrResult.
+    Every chunk after the first also gets the previous page as context only, so a tick or an
+    answer continuing at the top of its first page is mapped to the question that started on
+    the previous page; only the chunk's own pages are transcribed and assessed.
+    Any chunk that still fails after its fallback fails the whole call (the pipeline's retry /
+    dead-letter logic then handles the sheet)."""
+    total = len(pages)
+    chunks = chunk_pages(pages, per_call or ocr_pages_per_call(settings, rubric_content))
+    previous = {page.page_number: before for before, page in zip(pages, pages[1:])}
+
+    def read(chunk: list[PreparedPage], record_usage: UsageCallback) -> _OcrChunk:
+        first, last = chunk[0].page_number, chunk[-1].page_number
+        context = previous.get(first)
+        instruction = _ocr_instruction(
+            rubric_content, total, hints, page_range=(first, last),
+            context_page=context.page_number if context is not None else None,
+        )
+        extraction, raw_text, served, model = _ocr_call(
+            settings, provider, chunk, instruction, record_usage, page_total=total, context=context
+        )
+        image_pages = ([context.page_number] if context is not None else []) + [p.page_number for p in chunk]
+        extraction = _absolute_page_refs(extraction, first, last, image_pages)
+        extraction = _drop_context_only_answers(extraction, first, last)
+        answers, dropped = _normalise_ocr_answers(
+            extraction.answers, rubric_content, total, page_range=(first, last)
+        )
+        assessments = _normalise_page_assessments(extraction.page_assessments, total, page_range=(first, last))
+        return _OcrChunk(first, last, answers, dropped, assessments, raw_text, served, model)
+
+    outcomes = _run_chunks(
+        chunks, read, concurrency=settings.ai_chunk_concurrency, on_usage=on_usage, stop_on_error=True
+    )
+    for result, error in outcomes:
+        if error is not None:
+            raise error
+    done = [result for result, _error in outcomes if result is not None]
+    if len(done) != len(chunks):  # defensive: a cancelled chunk always follows a failed one
+        raise AIServiceError("Part of the answer sheet could not be transcribed.", code="ai_error")
+
+    threshold = settings.ocr_confidence_threshold
+    answers, review_pages = _merge_ocr_chunks(done, _mcq_option_counts(rubric_content), threshold)
+    assessed: dict[int, float] = {}
+    for chunk in done:
+        for item in chunk.page_assessments:
+            assessed[item.page] = min(assessed.get(item.page, 1.0), item.legibility_confidence)
+    for page in review_pages:  # an MCQ two chunks read differently: hold the sheet for review
+        assessed[page] = min(assessed.get(page, 1.0), _below(threshold))
+    page_assessments = [PageAssessment(page=page, legibility_confidence=assessed[page]) for page in sorted(assessed)]
+    dropped = sorted({n for chunk in done for n in chunk.dropped})
+    fallback_chunks = [chunk for chunk in done if chunk.provider != provider]
+    served_by = fallback_chunks[0] if fallback_chunks else done[0]
+    overall = round(sum(a.confidence for a in answers) / len(answers), 4) if answers else 0.0
+    raw_response = json.dumps(
+        {
+            "chunks": [
+                {"pages": [chunk.first, chunk.last], "provider": chunk.provider, "model": chunk.model,
+                 "response": chunk.raw_text}
+                for chunk in done
+            ]
+        },
+        ensure_ascii=False,
+    )
+    logger.info(
+        "OCR structured %d answer(s) from %d page(s) in %d chunk(s) via %s/%s%s; overall confidence %.2f; "
+        "dropped question number(s): %s",
+        len(answers), total, len(done), served_by.provider, served_by.model,
+        f" ({len(fallback_chunks)} chunk(s) served by the fallback)" if fallback_chunks else "",
+        overall, dropped or "none",
+    )
+    return OcrResult(
+        answers=answers,
+        overall_confidence=overall,
+        # Any chunk served by the fallback labels the whole result with it, so the pipeline
+        # never stores a mixed transcript under the primary model's OCR cache key.
+        provider=served_by.provider,
+        model=served_by.model,
+        raw_response=raw_response,
+        page_assessments=page_assessments,
+        dropped_questions=dropped,
+        language_hints=hints,
+    )
+
+
+def _mcq_option_counts(rubric_content: dict) -> dict[int, int | None]:
+    """MCQ number -> its number of options (None when the rubric lists none)."""
+    out: dict[int, int | None] = {}
+    for question in _rubric_questions(rubric_content):
+        number = _question_number(question)
+        if number is not None and marking.question_type(question) == "mcq":
+            options = question.get("options") if isinstance(question.get("options"), list) else []
+            out[number] = len(options) or None
+    return out
+
+
+def _joined(existing: OcrAnswer, answer: OcrAnswer) -> OcrAnswer:
+    """Two readings of one question joined in page order, as the single-call path does."""
+    return OcrAnswer(
+        question=answer.question,
+        answer=f"{existing.answer}\n{answer.answer}",
+        confidence=min(existing.confidence, answer.confidence),
+        pages=sorted(set(existing.pages) | set(answer.pages)),
+        uncertain_words=_clean_uncertain_words(answer.uncertain_words, existing.uncertain_words),
+    )
+
+
+def _below(threshold: float) -> float:
+    """A confidence just under the OCR review threshold."""
+    return round(max(0.0, float(threshold) - 0.01), 4)
+
+
+def _drop_context_only_answers(extraction: OcrExtraction, first: int, last: int) -> OcrExtraction:
+    """A chunk reply without the answers it read only from the context page (or only from pages
+    outside first..last): the chunk that owns that page transcribes them, so keeping them would
+    duplicate or contradict that reading. Answers without page refs are kept."""
+    kept: list[Any] = []
+    for answer in extraction.answers:
+        refs = [p for p in answer.pages or [] if isinstance(p, int) and not isinstance(p, bool)]
+        if refs and not any(first <= p <= last for p in refs):
+            logger.info(
+                "OCR chunk %d-%d: dropped Q%s read only from page(s) %s (context / another chunk)",
+                first, last, answer.question, refs,
+            )
+            continue
+        kept.append(answer)
+    if len(kept) == len(extraction.answers):
+        return extraction
+    return OcrExtraction(answers=kept, page_assessments=extraction.page_assessments)
+
+
+def _merge_ocr_chunks(
+    chunks: list[_OcrChunk], mcq_options: dict[int, int | None], threshold: float | None = None
+) -> tuple[list[OcrAnswer], list[int]]:
+    """Answers from consecutive page chunks, by question number, and the pages to hold for
+    review. A descriptive answer that spans chunks is joined in page order (pages unioned, lowest
+    confidence, uncertain words merged). An MCQ read in two chunks:
+    - a blank reading ("not attempted", "-") counts as absent: the other reading is kept;
+    - the same option twice keeps the higher-confidence reading;
+    - two different options are joined like a duplicate in one reply ("B\\nC" reads as more than
+      one option marked); with a threshold the confidence is capped just under it and the pages
+      of both readings are returned, so the sheet goes to faculty review instead of a chunking
+      conflict being scored as a multi-marked answer."""
+    merged: dict[int, OcrAnswer] = {}
+    review_pages: set[int] = set()
+    for chunk in sorted(chunks, key=lambda c: c.first):
+        for answer in chunk.answers:
+            existing = merged.get(answer.question)
+            if existing is None:
+                merged[answer.question] = answer
+            elif answer.question in mcq_options:
+                n_options = mcq_options[answer.question]
+                before = marking.normalise_option(existing.answer, n_options)
+                after = marking.normalise_option(answer.answer, n_options)
+                if before is None and after is not None:
+                    merged[answer.question] = answer  # the earlier reading was blank
+                elif after is None and before is not None:
+                    pass  # the later reading is blank: keep the option already read
+                elif before == after:
+                    logger.info(
+                        "OCR chunks read MCQ %d twice as %s (pages %s and %s); kept the higher-confidence reading.",
+                        answer.question, after, existing.pages or "?", answer.pages or "?",
+                    )
+                    merged[answer.question] = answer if answer.confidence > existing.confidence else existing
+                else:
+                    logger.warning(
+                        "OCR chunks read MCQ %d as %s (pages %s) and %s (pages %s); both readings kept and the "
+                        "sheet held for review.",
+                        answer.question, before, existing.pages or "?", after, answer.pages or "?",
+                    )
+                    joined = _joined(existing, answer)
+                    if threshold is not None:
+                        joined = joined.model_copy(update={"confidence": min(joined.confidence, _below(threshold))})
+                        review_pages.update(joined.pages or [chunk.first])
+                    merged[answer.question] = joined
+            else:
+                merged[answer.question] = _joined(existing, answer)
+    return [merged[number] for number in sorted(merged)], sorted(review_pages)
 
 
 def run_evaluation(
@@ -1052,9 +1464,10 @@ def parse_rubric(
     subject_hint: str | None = None,
     exam_hint: str | None = None,
     on_usage: UsageCallback | None = None,
+    key_from_marks: bool = False,
 ) -> dict:
     """FR-3.4: draft a rubric from pasted/extracted text or a scanned PDF (sent as a base64
-    document block). Returns {'draft': RubricContent dict, 'warnings': [str],
+    document block). key_from_marks: faculty confirm that ticks on the paper mark the key. Returns {'draft': RubricContent dict, 'warnings': [str],
     'ai_drafted_questions': [int]}; the draft is validated with schemas.RubricContentIn and
     validation problems are reported as warnings (the teacher fixes them before saving)."""
     settings = get_settings()
@@ -1069,7 +1482,7 @@ def parse_rubric(
         )
     request = _claude_rubric_request(
         settings, text=source_text or None, pdf_bytes=pdf_bytes if not source_text else None,
-        subject_hint=subject_hint, exam_hint=exam_hint,
+        subject_hint=subject_hint, exam_hint=exam_hint, key_from_marks=key_from_marks,
     )
     parsed, _response, _text = _claude_structured(
         settings, request, step="rubric_parse", usage_purpose="rubric_parse", on_usage=on_usage,
@@ -1080,6 +1493,476 @@ def parse_rubric(
         "Rubric draft: %d question(s), %d AI-drafted, %d warning(s)",
         len(result["draft"].get("questions") or []), len(result["ai_drafted_questions"]), len(result["warnings"]),
     )
+    return result
+
+
+@dataclass
+class _RubricChunkOutcome:
+    parts: list[_RubricPagesParse] = field(default_factory=list)
+    failures: list[tuple[int, int, AIServiceError]] = field(default_factory=list)  # (first, last, error)
+    calls: int = 0
+
+
+_SHORT_REASONS = {
+    "truncated": "the reply was too long",
+    "timeout": "timed out",
+    "connection": "connection error",
+    "rate_limited": "rate limit reached",
+    "provider_unavailable": "service unavailable",
+    "refusal": "declined",
+    "empty_response": "empty reply",
+    "invalid_json": "unreadable reply",
+}
+
+
+def parse_rubric_pages(
+    pages: Sequence[Any],
+    *,
+    subject_hint: str | None = None,
+    exam_hint: str | None = None,
+    on_usage: UsageCallback | None = None,
+    key_from_marks: bool = False,
+) -> dict:
+    """FR-3.4 for a full printed paper (question paper with its answer key, or one whose ticks
+    mark the key): page images (paper_pages.PageImage or PreparedPage - page_number,
+    media_type, data) are read RUBRIC_PAGES_PER_CALL pages per Claude call, AI_CHUNK_CONCURRENCY
+    calls at a time, and merged by question number. Same return shape as parse_rubric.
+
+    A chunk is retried once after a transient error; a chunk whose reply was truncated is read
+    again page by page. A chunk that still fails is reported in the warnings and the other
+    chunks are kept; when every chunk fails the first error is raised."""
+    settings = get_settings()
+    _require_anthropic_key(settings)
+    ordered = sorted(pages, key=lambda page: page.page_number)
+    if not ordered:
+        raise ValueError("The question paper has no pages to read.")
+    total = max(len(ordered), max(page.page_number for page in ordered))
+    system = _rubric_parse_system_prompt() + RUBRIC_PAGES_ADDENDUM
+    hints = _rubric_hints(subject_hint, exam_hint, key_from_marks)
+    chunks = chunk_pages(ordered, settings.rubric_pages_per_call)
+    following = {page.page_number: after for page, after in zip(ordered, ordered[1:])}
+
+    def call(pages_in_call: list[Any], record_usage: UsageCallback) -> _RubricPagesParse:
+        # The next page goes along as context only, so a question that starts here and runs onto
+        # it (remaining options, its "Ans." line) is completed in this call.
+        context = following.get(pages_in_call[-1].page_number)
+        request = _claude_rubric_pages_request(settings, system, pages_in_call, total, hints, context=context)
+        parsed, _response, _text = _claude_structured(
+            settings, request, step="rubric_parse", usage_purpose="rubric_parse", on_usage=record_usage,
+            image_count=len(pages_in_call) + (1 if context is not None else 0), parse_model=_RubricPagesParse,
+        )
+        return parsed
+
+    def read(chunk: list[Any], record_usage: UsageCallback) -> _RubricChunkOutcome:
+        outcome = _RubricChunkOutcome()
+
+        def attempt(pages_in_call: list[Any]) -> _RubricPagesParse:
+            outcome.calls += 1
+            try:
+                return call(pages_in_call, record_usage)
+            except AIServiceError as exc:
+                if not exc.transient:
+                    raise
+                logger.warning("Rubric pages %s: %s - retrying once", _page_span(
+                    pages_in_call[0].page_number, pages_in_call[-1].page_number), exc.code)
+                outcome.calls += 1
+                return call(pages_in_call, record_usage)
+
+        first, last = chunk[0].page_number, chunk[-1].page_number
+        try:
+            outcome.parts.append(attempt(chunk))
+        except AIServiceError as exc:
+            if exc.code == "truncated" and len(chunk) > 1:
+                logger.warning("Rubric %s: reply truncated - reading page by page", _page_span(first, last))
+                for page in chunk:
+                    try:
+                        outcome.parts.append(attempt([page]))
+                    except AIServiceError as page_error:
+                        outcome.failures.append((page.page_number, page.page_number, page_error))
+            else:
+                outcome.failures.append((first, last, exc))
+        return outcome
+
+    results = _run_chunks(
+        chunks, read, concurrency=settings.ai_chunk_concurrency, on_usage=on_usage, stop_on_error=False
+    )
+    outcomes: list[_RubricChunkOutcome] = []
+    for result, error in results:
+        if error is not None:
+            raise error  # configuration problems and unexpected errors are not per-chunk failures
+        if result is not None:
+            outcomes.append(result)
+    parts = [part for outcome in outcomes for part in outcome.parts]
+    failures = sorted((f for outcome in outcomes for f in outcome.failures), key=lambda f: f[0])
+    if not parts:
+        raise failures[0][2] if failures else AIServiceError("No page of the paper could be read.", code="ai_error")
+    calls = sum(outcome.calls for outcome in outcomes)
+
+    merged, notes = _merge_rubric_parts(parts)
+    result = finalise_rubric_draft(merged, subject_hint=subject_hint)
+    questions = _rubric_questions(result["draft"])
+    numbers = sorted(n for n in (_question_number(q) for q in questions) if n is not None)
+    mcqs = [q for q in questions if marking.question_type(q) == "mcq"]
+    keyed = sum(
+        1 for q in mcqs
+        if marking.normalise_option(q.get("correct_option"), len(q.get("options") or []) or None)
+        not in (None, marking.MULTI, marking.UNKNOWN)
+    )
+    summary = (
+        f"Read {_count(total, 'page')} in {_count(calls, 'AI call')}; {_count(len(questions), 'question')}"
+        + (f"; answer key found for {keyed} of {_count(len(mcqs), 'MCQ')}." if mcqs else ".")
+    )
+    head = [summary]
+    if numbers:
+        missing = sorted(set(range(numbers[0], numbers[-1] + 1)) - set(numbers))
+        if missing:
+            head.append(
+                f"Question numbers missing from the sequence: {marking._ranges(missing)} - check those pages."
+            )
+    for first, last, error in failures:
+        reason = _SHORT_REASONS.get(error.code, error.code.replace("_", " "))
+        head.append(
+            f"{_page_span(first, last).capitalize()} could not be read ({reason}) - their questions are missing; "
+            "add them by hand or draft again."
+        )
+    head.extend(notes)
+    rest = _aggregate_question_warnings(result["warnings"], result["ai_drafted_questions"])
+    fix = [line for line in rest if line.startswith(FIX_BEFORE_SAVING)]
+    # the contract: warnings start with "Fix before saving: ..." when the draft fails validation
+    warnings = fix + head + [line for line in rest if not line.startswith(FIX_BEFORE_SAVING)]
+    logger.info(
+        "Paged rubric draft: %d page(s), %d call(s), %d question(s), %d/%d MCQ keys, %d failed chunk(s)",
+        total, calls, len(questions), keyed, len(mcqs), len(failures),
+    )
+    return {**result, "warnings": warnings}
+
+
+FIX_BEFORE_SAVING = "Fix before saving"
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+# Faculty chose "the ticks mark the answer key" (rubric parse key_source=marks): without it a
+# page whose marks look like a student's attempt is (rightly) read as having no key.
+MARKED_KEY_NOTE = (
+    "Hand-marked answer key: faculty confirm that the ticks, circles or highlights on this paper "
+    "mark the correct options. Read those marks as the answer key and set correct_option to the "
+    "marked option even though no key is printed. When more than one option of a question carries "
+    "a mark, take the option whose number or letter has the clearest tick or circle; crossed-out "
+    "marks, stray ticks after the option text and doodles do not count. correct_option is null "
+    "only when no option of the question is marked."
+)
+
+
+def _rubric_hints(subject_hint: str | None, exam_hint: str | None, key_from_marks: bool = False) -> list[str]:
+    hints = []
+    if (exam_hint or "").strip():
+        hints.append(f"Exam: {' '.join(str(exam_hint).split())}.")
+    if (subject_hint or "").strip():
+        hints.append(f"Subject: {' '.join(str(subject_hint).split())}.")
+    if key_from_marks:
+        hints.append(MARKED_KEY_NOTE)
+    return hints
+
+
+RUBRIC_CONTEXT_LABEL = (
+    "Page {page} of {total} (context only - complete questions that started on the pages above; do not "
+    "return questions that start on this page):"
+)
+
+
+def _claude_rubric_pages_request(
+    settings: Settings, system: str, pages: list[Any], total: int, hints: list[str], *, context: Any = None
+) -> dict[str, Any]:
+    """Page images labelled "Page n of total:"; context (the next page) is sent last with a
+    context-only label."""
+    content: list[dict[str, Any]] = []
+    for page in list(pages) + ([context] if context is not None else []):
+        label = (
+            RUBRIC_CONTEXT_LABEL.format(page=page.page_number, total=total) if page is context
+            else f"Page {page.page_number} of {total}:"
+        )
+        content.append({"type": "text", "text": label})
+        content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": page.media_type,
+                    "data": base64.standard_b64encode(page.data).decode("ascii"),
+                },
+            }
+        )
+    first, last = pages[0].page_number, pages[-1].page_number
+    span = _page_span(first, last)
+    if context is not None:
+        instruction = (
+            f"These are {span} of a {total}-page paper, followed by page {context.page_number} as context only. "
+            f"Convert every question that starts on {span} into the rubric JSON; when one continues onto page "
+            f"{context.page_number} (the rest of its stem, its remaining options, its \"Ans.\" line), complete it "
+            f"from there, but never return a question that starts on page {context.page_number}. List the "
+            f"answer-key table entries printed on {span} only."
+        )
+    else:
+        instruction = (
+            f"These are {span} of a {total}-page paper. Convert every question that starts on "
+            "these pages into the rubric JSON, and list any answer-key table entries on these pages."
+        )
+    instruction += f" {' '.join(hints)}" if hints else ""
+    content.append({"type": "text", "text": instruction})
+    return _claude_request(settings, system, content, RubricPagesWire, RUBRIC_PAGES_EFFORT)
+
+
+def _has_key(question: dict[str, Any]) -> bool:
+    options = question.get("options") if isinstance(question.get("options"), list) else []
+    return marking.normalise_option(question.get("correct_option"), len(options) or None) not in (
+        None, marking.MULTI, marking.UNKNOWN,
+    )
+
+
+def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any], list[str]]:
+    """One raw draft from the page-chunk replies (in page order): one entry per question number,
+    two readings of a number merged field by field (_merge_entries); MCQs without a key take it
+    from any answer-key table entries. Returns (raw draft, notes for the warnings list)."""
+    by_number: dict[int, dict[str, Any]] = {}
+    key_clashes: dict[int, tuple[str, str]] = {}
+    seen_in: dict[int, list[tuple[int, str]]] = {}  # number -> [(part index, prompt)]
+    key_table: dict[int, str] = {}
+    name = subject = ""
+    unnumbered = 0
+    for index, part in enumerate(parts):
+        name = name or " ".join(part.name.split())
+        subject = subject or " ".join(part.subject.split())
+        for entry in part.answer_key:
+            number = insights._as_int(entry.question)
+            option = " ".join(str(entry.option or "").split())
+            if number is not None and number > 0 and option:
+                key_table.setdefault(number, option)
+        for question in part.questions:
+            data = question.model_dump()
+            number = insights._as_int(data.get("question"))
+            if number is None or number <= 0:
+                unnumbered += 1
+                continue
+            data["question"] = number
+            seen_in.setdefault(number, []).append((index, str(data.get("prompt") or "")))
+            existing = by_number.get(number)
+            by_number[number] = data if existing is None else _merge_entries(existing, data, key_clashes)
+    clashes = sorted(
+        number for number, seen in seen_in.items()
+        if any(
+            a_part != b_part and not _same_question_text(a_text, b_text)
+            for i, (a_part, a_text) in enumerate(seen) for b_part, b_text in seen[i + 1:]
+        )
+    )
+    filled: list[int] = []
+    conflicts: list[str] = []
+    unmatched: list[int] = []
+    for number, question in by_number.items():
+        if marking.question_type(question) != "mcq" or number not in key_table:
+            continue
+        options = question.get("options") or []
+        table = marking.normalise_option(key_table[number], len(options) or None)
+        if table in (None, marking.MULTI, marking.UNKNOWN):
+            unmatched.append(number)
+            continue
+        if not _has_key(question):
+            question["correct_option"] = table
+            if not str(question.get("expected_answer") or "").strip():
+                question["expected_answer"] = f"Option {table}"
+            filled.append(number)
+        else:
+            marked = marking.normalise_option(question.get("correct_option"), len(options) or None)
+            if marked != table:
+                conflicts.append(f"Q{number} (table {table}, under the question {marked})")
+    for question in by_number.values():
+        _fill_mcq_criteria(question)
+    notes: list[str] = []
+    if filled:
+        notes.append(f"Answer key for {marking._ranges(filled)} taken from the answer-key table.")
+    if conflicts:
+        notes.append(
+            "The answer-key table disagrees with the option marked under " + ", ".join(conflicts[:10])
+            + (f" and {len(conflicts) - 10} more" if len(conflicts) > 10 else "")
+            + " - the option under the question was kept; check before approving."
+        )
+    if unmatched:
+        notes.append(
+            f"Answer-key table entries for {marking._ranges(sorted(unmatched))} could not be matched to the options "
+            "- set the key by hand."
+        )
+    if key_clashes:
+        listed = ", ".join(f"Q{n} ({a} and {b})" for n, (a, b) in sorted(key_clashes.items())[:10])
+        more = f" and {len(key_clashes) - 10} more" if len(key_clashes) > 10 else ""
+        notes.append(
+            f"Two different answer keys were read for {listed}{more} - the first was kept; check before approving."
+        )
+    if clashes:
+        notes.append(
+            f"{marking._ranges(clashes)} appear{'s' if len(clashes) == 1 else ''} more than once with different "
+            "text - one was kept; check the numbering on those pages."
+        )
+    if unnumbered:
+        notes.append(f"{_count(unnumbered, 'question')} without a printed number skipped.")
+    merged = {
+        "name": name or "Question paper",
+        "subject": subject,
+        "questions": [by_number[number] for number in sorted(by_number)],
+    }
+    return merged, notes
+
+
+def _fill_mcq_criteria(question: dict[str, Any]) -> None:
+    """An MCQ returned without grading criteria gets the criterion schemas.RubricQuestionIn would
+    write, so one MCQ still missing its key (which keeps the whole draft unvalidated) does not
+    make every other MCQ report missing criteria."""
+    if marking.question_type(question) != "mcq":
+        return
+    if any(str(c).strip() for c in question.get("grading_criteria") or []):
+        return
+    try:
+        marks = float(question.get("max_marks") or 0)
+    except (TypeError, ValueError):
+        marks = 0.0
+    options = question.get("options") if isinstance(question.get("options"), list) else []
+    letter = marking.normalise_option(question.get("correct_option"), len(options) or None)
+    target = f"option {letter}" if letter not in (None, marking.MULTI, marking.UNKNOWN) else "the correct option"
+    question["grading_criteria"] = [
+        f"{_fmt_marks(marks if marks > 0 else 4.0)} marks for {target}; a wrong option follows the "
+        "negative-marking rule; 0 if blank"
+    ]
+
+
+_TEXT_KEY = re.compile(r"[^0-9a-z]+")
+SAME_TEXT_RATIO = 0.75
+
+
+def _same_question_text(a: str, b: str) -> bool:
+    """True when two readings of one question number are the same question: either is empty,
+    one contains the other (a truncated stem, or only the options / tail that ran onto the next
+    page), or they are mostly the same characters (a re-spelt formula). Compared on lower-case
+    letters and digits only."""
+    a_key = _TEXT_KEY.sub("", a.casefold())
+    b_key = _TEXT_KEY.sub("", b.casefold())
+    if not a_key or not b_key or a_key in b_key or b_key in a_key:
+        return True
+    return difflib.SequenceMatcher(None, a_key, b_key, autojunk=False).ratio() >= SAME_TEXT_RATIO
+
+
+def _key_letter(question: dict[str, Any]) -> str | None:
+    """The question's answer-key letter read without its option count (a continuation fragment
+    may list only the options that ran onto its page), or None."""
+    letter = marking.normalise_option(question.get("correct_option"))
+    return letter if letter not in (None, marking.MULTI, marking.UNKNOWN) else None
+
+
+def _filled_options(question: dict[str, Any]) -> int:
+    return sum(1 for option in question.get("options") or [] if str(option or "").strip())
+
+
+def _merge_entries(
+    old: dict[str, Any], new: dict[str, Any], key_clashes: dict[int, tuple[str, str]] | None = None
+) -> dict[str, Any]:
+    """Two chunks returned the same question number (normally a question whose options, "Ans."
+    line or marking scheme ran onto the next page). Merged field by field so that neither reading
+    wipes out what only the other one has:
+    - question text, topic, chapter, subject and Bloom level from the fuller reading (longer
+      prompt), with gaps filled from the other;
+    - options from the reading with more transcribed options;
+    - correct_option with its expected_answer, grading_criteria and ai_drafted_answer from a keyed
+      reading; otherwise from a reading taken from the paper (ai_drafted_answer false) over an
+      AI-drafted one; otherwise the reading with more criteria / the longer expected answer.
+    Both readings keyed with different letters: the first (page order) is kept and the clash is
+    recorded in key_clashes."""
+    fuller, other = (new, old) if len(str(new.get("prompt") or "")) > len(str(old.get("prompt") or "")) else (old, new)
+    merged = dict(fuller)
+    for field in ("topic", "subject", "chapter", "bloom_level"):
+        if not str(merged.get(field) or "").strip() and str(other.get(field) or "").strip():
+            merged[field] = other.get(field)
+    old_n, new_n = _filled_options(old), _filled_options(new)
+    source = new if new_n > old_n else old if old_n > new_n else fuller
+    merged["options"] = list(source.get("options") or [])
+    if marking.question_type(old) == "mcq" or marking.question_type(new) == "mcq":
+        merged["question_type"] = "mcq"
+
+    old_key, new_key = _key_letter(old), _key_letter(new)
+    if old_key and new_key:
+        answer = old
+        if old_key != new_key and key_clashes is not None:
+            number = insights._as_int(old.get("question"))
+            if number is not None:
+                key_clashes.setdefault(number, (old_key, new_key))
+    elif old_key or new_key:
+        answer = old if old_key else new
+    elif bool(old.get("ai_drafted_answer")) != bool(new.get("ai_drafted_answer")):
+        answer = new if old.get("ai_drafted_answer") else old
+    else:
+        def weight(q: dict[str, Any]) -> tuple[int, int]:
+            criteria = [c for c in q.get("grading_criteria") or [] if str(c).strip()]
+            return len(criteria), len(str(q.get("expected_answer") or ""))
+
+        answer = new if weight(new) > weight(old) else old
+    for field in ("correct_option", "expected_answer", "grading_criteria", "ai_drafted_answer"):
+        merged[field] = answer.get(field)
+    for field in ("max_marks", "effort_hours"):
+        values = [q.get(field) for q in (answer, fuller, other)]
+        merged[field] = next((v for v in values if isinstance(v, (int, float)) and v > 0), values[0])
+    return merged
+
+
+# Per-question draft warnings that repeat across a long paper, folded into one line each.
+_AGGREGATED_WARNINGS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^Q(\d+) is an MCQ without an answer key - set correct_option\.$"),
+     "No answer key for {ranges} ({count} MCQs) - set correct_option before approving."),
+    (re.compile(r"^Q(\d+): effort_hours defaulted to (?P<value>[\d.]+) h\.$"),
+     "effort_hours defaulted to {value} h for {ranges}."),
+    (re.compile(r"^Q(\d+) has no expected answer\.$"), "No expected answer for {ranges}."),
+    (re.compile(r"^Q(\d+) has no grading criteria - add at least one before saving\.$"),
+     "No grading criteria for {ranges} - add at least one before saving."),
+    (re.compile(r"^Q(\d+) has no marks - set max_marks\.$"), "No marks for {ranges} - set max_marks."),
+)
+_DRAFTED_PREFIX = "Expected answers or criteria for "
+
+
+def _aggregate_question_warnings(warnings: list[str], drafted: Iterable[int]) -> list[str]:
+    """Fold repeated per-question warnings into one line listing the questions as ranges
+    (Q1-Q45, Q50), so a 180-question paper keeps a readable warnings list. A warning that occurs
+    for one question only is kept as written."""
+    groups: dict[tuple[int, str], list[tuple[int, str]]] = {}  # (pattern, value) -> [(question, line)]
+    out: list[str | tuple[int, str]] = []
+    for line in warnings:
+        if line.startswith(_DRAFTED_PREFIX):
+            numbers = sorted({int(n) for n in drafted})
+            out.append(
+                f"{_DRAFTED_PREFIX}{marking._ranges(numbers)} were drafted by AI - review them before approving "
+                "the rubric." if numbers else line
+            )
+            continue
+        for index, (pattern, _template) in enumerate(_AGGREGATED_WARNINGS):
+            match = pattern.match(line)
+            if match:
+                key = (index, match.groupdict().get("value") or "")
+                if key not in groups:
+                    groups[key] = []
+                    out.append(key)
+                groups[key].append((int(match.group(1)), line))
+                break
+        else:
+            out.append(line)
+    result: list[str] = []
+    for item in out:
+        if isinstance(item, str):
+            result.append(item)
+            continue
+        entries = groups[item]
+        if len(entries) == 1:
+            result.append(entries[0][1])
+            continue
+        numbers = [number for number, _line in entries]
+        template = _AGGREGATED_WARNINGS[item[0]][1]
+        result.append(template.format(ranges=marking._ranges(numbers), count=len(numbers), value=item[1]))
     return result
 
 
@@ -1148,8 +2031,15 @@ def language_note(hints: Iterable[Any] | None) -> str:
     return LANGUAGE_NOTE_TEMPLATE.format(languages=", ".join(names)) if names else ""
 
 
-def _question_lines(rubric_content: dict) -> list[str]:
-    """'<number> - <topic>: <question text>' per rubric question (MCQs flagged) - never the answer key."""
+def _shorten(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 3)].rstrip() + "..."
+
+
+def _question_lines(rubric_content: dict, *, max_prompt_chars: int | None = None) -> list[str]:
+    """'<number> - <topic>: <question text>' per rubric question (MCQs flagged) - never the answer key.
+    max_prompt_chars shortens each question text (long printed papers)."""
     lines = []
     for question in _rubric_questions(rubric_content):
         number = _question_number(question)
@@ -1157,6 +2047,8 @@ def _question_lines(rubric_content: dict) -> list[str]:
             continue
         topic = str(question.get("topic") or "").strip() or "General"
         prompt = " ".join(str(question.get("prompt") or "").split())
+        if max_prompt_chars:
+            prompt = _shorten(prompt, max_prompt_chars)
         line = f"{number} - {topic}: {prompt}" if prompt else f"{number} - {topic}"
         if marking.question_type(question) == "mcq":
             line += OCR_MCQ_SUFFIX
@@ -1174,14 +2066,36 @@ def _structure_instruction(transcript: str, rubric_content: dict, hints: Iterabl
     )
 
 
-def _ocr_instruction(rubric_content: dict, page_count: int, language_hints: Iterable[Any] | None = None) -> str:
-    """OCR prompt: question numbers, topics and question text only - never the answer key."""
-    lines = _question_lines(rubric_content)
-    instruction = OCR_INSTRUCTION_TEMPLATE.format(
-        page_count=page_count,
-        rubric_name=str(rubric_content.get("name") or "Answer sheet") if isinstance(rubric_content, dict) else "Answer sheet",
-        question_lines="\n".join(lines) or "(no questions listed)",
+def _ocr_instruction(
+    rubric_content: dict,
+    page_count: int,
+    language_hints: Iterable[Any] | None = None,
+    *,
+    page_range: tuple[int, int] | None = None,
+    context_page: int | None = None,
+) -> str:
+    """OCR prompt: question numbers, topics and question text only - never the answer key.
+    page_range = (first, last) for one chunk of a longer sheet (absolute page numbers);
+    context_page = the page before it, sent as context only."""
+    long_paper = len(_rubric_questions(rubric_content)) > OCR_LONG_RUBRIC_QUESTIONS
+    lines = _question_lines(rubric_content, max_prompt_chars=OCR_SHORT_PROMPT_CHARS if long_paper else None)
+    rubric_name = (
+        str(rubric_content.get("name") or "Answer sheet") if isinstance(rubric_content, dict) else "Answer sheet"
     )
+    question_lines = "\n".join(lines) or "(no questions listed)"
+    if page_range is not None:
+        context_note = (
+            OCR_CONTEXT_NOTE_TEMPLATE.format(context=context_page, first=page_range[0])
+            if context_page is not None else ""
+        )
+        instruction = OCR_CHUNK_INSTRUCTION_TEMPLATE.format(
+            first=page_range[0], last=page_range[1], page_count=page_count,
+            rubric_name=rubric_name, question_lines=question_lines, context_note=context_note,
+        )
+    else:
+        instruction = OCR_INSTRUCTION_TEMPLATE.format(
+            page_count=page_count, rubric_name=rubric_name, question_lines=question_lines,
+        )
     note = language_note(language_hints)
     return f"{instruction}\n\n{note}" if note else instruction
 
@@ -1274,11 +2188,25 @@ def _json_schema_format(model: type[BaseModel]) -> dict[str, Any]:
     return {"type": "json_schema", "schema": anthropic.transform_schema(model)}
 
 
-def _claude_ocr_request(settings: Settings, pages: list[PreparedPage], instruction: str) -> dict[str, Any]:
+def _claude_ocr_request(
+    settings: Settings,
+    pages: list[PreparedPage],
+    instruction: str,
+    *,
+    page_total: int | None = None,
+    context: PreparedPage | None = None,
+) -> dict[str, Any]:
+    """page_total: pages in the whole sheet (images are labelled "Page 7 of 19:"); defaults to
+    the number of images in this request. context: the previous page, sent first and labelled
+    as context only."""
     content: list[dict[str, Any]] = []
-    total = len(pages)
-    for page in pages:
-        content.append({"type": "text", "text": f"Page {page.page_number} of {total}:"})
+    total = page_total or len(pages)
+    for page in ([context] if context is not None else []) + list(pages):
+        label = (
+            OCR_CONTEXT_LABEL.format(page=page.page_number, total=total) if page is context
+            else f"Page {page.page_number} of {total}:"
+        )
+        content.append({"type": "text", "text": label})
         content.append(
             {
                 "type": "image",
@@ -1320,12 +2248,9 @@ def _claude_rubric_request(
     pdf_bytes: bytes | None,
     subject_hint: str | None,
     exam_hint: str | None,
+    key_from_marks: bool = False,
 ) -> dict[str, Any]:
-    hints = []
-    if (exam_hint or "").strip():
-        hints.append(f"Exam: {' '.join(str(exam_hint).split())}.")
-    if (subject_hint or "").strip():
-        hints.append(f"Subject: {' '.join(str(subject_hint).split())}.")
+    hints = _rubric_hints(subject_hint, exam_hint, key_from_marks)
     instruction = (
         "Convert the source document above into the rubric JSON, one entry per question in the source."
         + (f" {' '.join(hints)}" if hints else "")
@@ -1638,13 +2563,17 @@ def _run_openai_ocr(
     model: str | None = None,
     fell_back: bool = False,
     on_usage: UsageCallback | None = None,
+    page_total: int | None = None,
+    context: PreparedPage | None = None,
 ) -> tuple[OcrExtraction, str, str]:
     """(parsed extraction, raw text, model used). model defaults to OPENAI_VISION_MODEL; the
     Claude -> OpenAI fallback passes settings.llm_fallback_model and fell_back=True."""
     model = model or settings.openai_vision_model
+    request = _openai_ocr_request(settings, pages, instruction, model=model, page_total=page_total, context=context)
     return _openai_json_call(
-        settings, _openai_ocr_request(settings, pages, instruction, model=model), model=model, step="OCR",
-        usage_purpose="ocr", parse_model=OcrExtraction, on_usage=on_usage, image_count=len(pages),
+        settings, request, model=model, step="OCR",
+        usage_purpose="ocr", parse_model=OcrExtraction, on_usage=on_usage,
+        image_count=len(pages) + (1 if context is not None else 0),
         fell_back=fell_back,
     )
 
@@ -1718,13 +2647,23 @@ def _openai_output_text(choice: Any, *, purpose: str = "OCR") -> str:
 
 
 def _openai_ocr_request(
-    settings: Settings, pages: list[PreparedPage], instruction: str, *, model: str | None = None
+    settings: Settings,
+    pages: list[PreparedPage],
+    instruction: str,
+    *,
+    model: str | None = None,
+    page_total: int | None = None,
+    context: PreparedPage | None = None,
 ) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
-    total = len(pages)
-    for page in pages:
+    total = page_total or len(pages)
+    for page in ([context] if context is not None else []) + list(pages):
         encoded = base64.standard_b64encode(page.data).decode("ascii")
-        content.append({"type": "text", "text": f"Page {page.page_number} of {total}:"})
+        label = (
+            OCR_CONTEXT_LABEL.format(page=page.page_number, total=total) if page is context
+            else f"Page {page.page_number} of {total}:"
+        )
+        content.append({"type": "text", "text": label})
         content.append(
             {"type": "image_url", "image_url": {"url": f"data:{page.media_type};base64,{encoded}", "detail": "high"}}
         )
@@ -1786,8 +2725,13 @@ def _short_validation_error(exc: Exception | None) -> str:
     return str(exc)[:200] if exc else "unknown error"
 
 
-def _clean_pages(pages: Iterable[Any] | None, page_count: int) -> list[int]:
-    """Page refs limited to 1..page_count, de-duplicated and sorted."""
+def _clean_pages(
+    pages: Iterable[Any] | None, page_count: int, page_range: tuple[int, int] | None = None
+) -> list[int]:
+    """Page refs limited to 1..page_count, de-duplicated and sorted. With page_range = (first,
+    last) (one chunk of a longer sheet) only first..last is kept - a context page or a page of
+    another chunk is dropped. Refs are absolute here: _absolute_page_refs translates a reply that
+    counted its images from 1 before this runs."""
     out: set[int] = set()
     for raw in pages or []:
         if isinstance(raw, bool):
@@ -1796,9 +2740,54 @@ def _clean_pages(pages: Iterable[Any] | None, page_count: int) -> list[int]:
             number = int(raw)
         except (TypeError, ValueError):
             continue
-        if number == raw and 1 <= number <= page_count:
+        if number != raw:
+            continue
+        if page_range is not None and not page_range[0] <= number <= page_range[1]:
+            continue
+        if 1 <= number <= page_count:
             out.add(number)
     return sorted(out)
+
+
+def _absolute_page_refs(extraction: OcrExtraction, first: int, last: int, image_pages: list[int]) -> OcrExtraction:
+    """One chunk reply with its page refs made absolute. The mode is decided once for the whole
+    reply (answers' pages and page_assessments together), by which reading explains more refs:
+    absolute (a ref is one of the request's pages, image_pages - context page included) or
+    relative (a ref is an image index 1..len(image_pages); image i is page image_pages[i - 1]).
+    A tie is read as absolute, which is what the prompt asks for. Refs that fit neither are
+    dropped later by _clean_pages, as is the context page."""
+    refs = [p for answer in extraction.answers for p in answer.pages or []]
+    refs += [item.page for item in extraction.page_assessments]
+    refs = [r for r in refs if isinstance(r, int) and not isinstance(r, bool)]
+    lowest = min(image_pages) if image_pages else first
+    as_absolute = sum(1 for r in refs if lowest <= r <= last)
+    as_relative = sum(1 for r in refs if 1 <= r <= len(image_pages))
+    if as_relative <= as_absolute:
+        return extraction
+    mapping = list(image_pages)
+    own = [page for page in image_pages if first <= page <= last]
+    how = "counted its images from 1"
+    if len(own) < len(image_pages):  # a context image was sent too
+        assessed = {item.page for item in extraction.page_assessments if isinstance(item.page, int)}
+        reaches_last_image = any(r == len(image_pages) for r in refs)
+        if not reaches_last_image and assessed == set(range(1, len(own) + 1)):
+            mapping, how = own, "counted only its own pages from 1"
+        elif not reaches_last_image and not assessed:
+            logger.warning(
+                "OCR reply for pages %d-%d numbers pages from 1 in a way that fits both its own pages and all "
+                "its images - read as image numbers (context page first)", first, last,
+            )
+    logger.info("OCR reply for pages %d-%d %s - page refs translated", first, last, how)
+
+    def absolute(ref: Any) -> Any:
+        return mapping[ref - 1] if isinstance(ref, int) and 1 <= ref <= len(mapping) else ref
+
+    return OcrExtraction(
+        answers=[a.model_copy(update={"pages": [absolute(p) for p in a.pages or []]}) for a in extraction.answers],
+        page_assessments=[
+            item.model_copy(update={"page": absolute(item.page)}) for item in extraction.page_assessments
+        ],
+    )
 
 
 def _clean_uncertain_words(words: Iterable[Any] | None, existing: list[UncertainWord] | None = None) -> list[UncertainWord]:
@@ -1821,10 +2810,15 @@ def _clean_uncertain_words(words: Iterable[Any] | None, existing: list[Uncertain
 
 
 def _normalise_ocr_answers(
-    raw_answers: list[OcrAnswer], rubric_content: dict, page_count: int | None = None
+    raw_answers: list[OcrAnswer],
+    rubric_content: dict,
+    page_count: int | None = None,
+    *,
+    page_range: tuple[int, int] | None = None,
 ) -> tuple[list[OcrAnswer], list[int]]:
     """Clamp confidences, validate page refs, merge duplicate question numbers (text, pages and
-    uncertain words) and drop numbers not in the rubric. Returns (answers, dropped numbers)."""
+    uncertain words) and drop numbers not in the rubric. Returns (answers, dropped numbers).
+    page_range limits page refs to one chunk of a longer sheet (see _clean_pages)."""
     valid_numbers = {n for n in (_question_number(q) for q in _rubric_questions(rubric_content)) if n is not None}
     pages_total = page_count if page_count is not None else 10_000
     merged: dict[int, OcrAnswer] = {}
@@ -1837,7 +2831,7 @@ def _normalise_ocr_answers(
         if not text:
             continue  # an empty transcription means "not attempted"
         confidence = _clamp_confidence(raw.confidence)
-        pages = _clean_pages(raw.pages, pages_total)
+        pages = _clean_pages(raw.pages, pages_total, page_range)
         existing = merged.get(raw.question)
         if existing is None:
             merged[raw.question] = OcrAnswer(
@@ -1864,11 +2858,14 @@ def _normalise_ocr_answers(
     return [merged[number] for number in sorted(merged)], sorted(dropped)
 
 
-def _normalise_page_assessments(raw: Iterable[PageAssessment] | None, page_count: int) -> list[PageAssessment]:
-    """One entry per valid page (1..page_count), confidence clamped; duplicates keep the lowest."""
+def _normalise_page_assessments(
+    raw: Iterable[PageAssessment] | None, page_count: int, *, page_range: tuple[int, int] | None = None
+) -> list[PageAssessment]:
+    """One entry per valid page (1..page_count, or the chunk's page_range), confidence clamped;
+    duplicates keep the lowest."""
     by_page: dict[int, float] = {}
     for item in raw or []:
-        pages = _clean_pages([getattr(item, "page", None)], page_count)
+        pages = _clean_pages([getattr(item, "page", None)], page_count, page_range)
         if not pages:
             continue
         confidence = _clamp_confidence(getattr(item, "legibility_confidence", None))
@@ -2014,6 +3011,34 @@ def _format_validation_error(exc: ValidationError, limit: int = 5) -> str:
     return "; ".join(parts) + (f" (+{extra} more)" if extra > 0 else "")
 
 
+MAX_OPTION_CHARS = 500  # schemas.RubricQuestionIn limit per option
+UNTRANSCRIBED_OPTION = "(option {letter} - not transcribed)"
+
+
+def _positional_options(raw: Any, correct_option: Any) -> list[str]:
+    """MCQ option texts with their letter positions kept: a blank option is replaced by a
+    placeholder ("(option C - not transcribed)") when a non-blank option, or the answer key on a
+    position the model returned, comes after it, so option C stays C and a key of D is never lost;
+    trailing blanks beyond the key and the last option are dropped. A key beyond every returned
+    position adds nothing (it stays unresolved and is reported as a missing key). At most 6
+    options (A-F)."""
+    texts = [
+        " ".join(str(o or "").split())[:MAX_OPTION_CHARS] for o in (raw if isinstance(raw, list) else [])
+    ][: len(marking.OPTION_LETTERS)]
+    last = max((i for i, text in enumerate(texts) if text), default=-1)
+    key = marking.normalise_option(correct_option)
+    if isinstance(key, str) and len(key) == 1 and key in marking.OPTION_LETTERS and last >= 0:
+        # a key on a blank position the model returned keeps its letter (placeholders up to it);
+        # a key beyond every returned position is left unresolved (no phantom option is added)
+        index = marking.OPTION_LETTERS.index(key)
+        if index < len(texts):
+            last = max(last, index)
+    return [
+        texts[i] if i < len(texts) and texts[i] else UNTRANSCRIBED_OPTION.format(letter=marking.OPTION_LETTERS[i])
+        for i in range(last + 1)
+    ]
+
+
 def finalise_rubric_draft(raw: dict[str, Any], *, subject_hint: str | None = None) -> dict[str, Any]:
     """Clean a model-drafted rubric, fill effort_hours from the weightage matrix when the model
     could not judge it, and validate with schemas.RubricContentIn. Returns {draft, warnings,
@@ -2053,9 +3078,9 @@ def finalise_rubric_draft(raw: dict[str, Any], *, subject_hint: str | None = Non
             "chapter": chapter,
         }
         if marking.question_type(q) == "mcq":
-            options = [" ".join(str(o).split()) for o in q.get("options") or [] if str(o or "").strip()]
+            options = _positional_options(q.get("options"), q.get("correct_option"))
             item["question_type"] = "mcq"
-            item["options"] = options[:6] or None
+            item["options"] = options or None
             correct = marking.normalise_option(q.get("correct_option"), len(options) or None)
             item["correct_option"] = correct if correct not in (None, marking.MULTI, marking.UNKNOWN) else None
         else:

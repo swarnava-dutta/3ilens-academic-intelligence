@@ -43,6 +43,29 @@ def test_cross_vendor_fallback():
     assert route["cross_vendor"] and route["fell_back"] and route["reason"] == "timeout" and route["attempts"] == 2
 
 
+def test_chunked_ocr_names_the_fallback_chunk_whatever_order_the_chunks_finished_in():
+    # chunk 1 fell back to OpenAI and finished first; chunks 2 and 3 finished later on Claude
+    (route,) = llm_route.derive_routes([
+        _row(1, "ocr", "anthropic", "error", error_code="overloaded"),
+        _row(2, "ocr", "openai", served="gpt-4o-2024-08-06", fell_back=True),
+        _row(3, "ocr", "anthropic", served="claude-sonnet-5-5"),
+        _row(4, "ocr", "anthropic", served="claude-sonnet-5-5"),
+    ])
+    assert (route["served_provider"], route["served_model"]) == ("openai", "gpt-4o-2024-08-06")
+    assert route["cross_vendor"] and route["fell_back"] and route["reason"] == "overloaded"
+    assert route["attempts"] == 4
+
+
+def test_chunked_ocr_all_on_claude_keeps_the_last_row():
+    (route,) = llm_route.derive_routes([
+        _row(1, "ocr", "anthropic", served="claude-sonnet-5-5"),
+        _row(2, "ocr", "anthropic", "error", error_code="timeout"),
+        _row(3, "ocr", "anthropic", served="claude-sonnet-5-5"),
+    ])
+    assert route["served_provider"] == "anthropic" and not route["fell_back"] and not route["cross_vendor"]
+    assert route["reason"] == "timeout"
+
+
 def test_claude_server_side_fallback_is_not_cross_vendor():
     (route,) = llm_route.derive_routes([_row(1, "evaluation", "anthropic", served="claude-sonnet-5", fell_back=True)])
     assert route["fell_back"] is True and route["cross_vendor"] is False and route["served_model"] == "claude-sonnet-5"

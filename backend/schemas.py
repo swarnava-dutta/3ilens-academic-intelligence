@@ -281,6 +281,10 @@ class RubricQuestionIn(BaseModel):
         return self
 
 
+# A full printed paper fits in one rubric (NEET: 180 MCQs; JEE: 90).
+MAX_RUBRIC_QUESTIONS = 200
+
+
 class RubricContentIn(BaseModel):
     """A complete rubric content object, as stored in Rubric.content."""
 
@@ -288,7 +292,7 @@ class RubricContentIn(BaseModel):
 
     name: str = Field(max_length=200)
     subject: str | None = None
-    questions: list[RubricQuestionIn] = Field(min_length=1, max_length=60)
+    questions: list[RubricQuestionIn] = Field(min_length=1, max_length=MAX_RUBRIC_QUESTIONS)
     marking_policy: MarkingPolicyIn | None = None  # None keeps the default marking rule
 
     @field_validator("name", mode="before")
@@ -393,6 +397,7 @@ class HealthOut(BaseModel):
     batch_target_seconds: int = 1800
     whatsapp_mode: str = "blocked"
     max_upload_mb: int = 20
+    max_pdf_pages: int = 40
     accepted_upload_types: list[str] = Field(default_factory=list)
     voice_enabled: bool = True
     voice_ready: bool = False  # enabled AND an OpenAI key is present
@@ -1440,6 +1445,30 @@ class RubricDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     source: RubricSourceLit
     ai_drafted_questions: list[int] = Field(default_factory=list)
+
+
+PaperRoleLit = Literal["answer_key_paper", "question_paper", "answer_sheet", "unknown"]
+
+
+class PaperInspection(BaseModel):
+    """POST /api/intake/inspect: what an intake file looks like, read locally from its text layer
+    (no AI call, nothing stored). role: answer_key_paper = printed questions with their answer key
+    (draft the rubric from it); question_paper = a printed MCQ paper without a printed key (a
+    student's ticks are read as answers, or ticks mark the key); answer_sheet = handwritten /
+    scanned sheet with little printed question text; unknown = could not tell."""
+
+    file_type: str                      # pdf | jpeg | png | webp | docx | mp3 | wav | m4a | ogg
+    pages: int | None = None            # None for audio
+    text_layer: bool = False            # the PDF / DOCX has extractable text
+    role: PaperRoleLit = "unknown"
+    numbered_questions: int = 0         # distinct question numbers found in the text
+    answer_markers: int = 0             # "Ans. (2)" / answer-key table entries found
+    option_groups: int = 0              # option lists "(1)..(4)" / "(a)..(d)" found
+    subjects: list[str] = Field(default_factory=list)  # section headings: Physics, Chemistry, Biology, ...
+    title: str | None = None            # exam / paper title line, when found
+    max_pdf_pages: int = 40
+    within_page_limit: bool = True
+    message: str = ""                   # one plain sentence for faculty
 
 
 class RubricCompatibility(BaseModel):

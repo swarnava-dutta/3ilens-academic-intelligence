@@ -292,3 +292,19 @@ def duplicate_notice(db: Session, sub: StudentSubmission) -> None:
         sub, "Ingestion",
         f"Same file bytes as submission #{other} (SHA-256 {hashing.short_hash(sub.file_hash)}) - {reuse}.",
     )
+
+
+def paper_notice(sub: StudentSubmission, path: Path, mime_type: str, settings: Settings) -> None:
+    """One Ingestion log line when a PDF / DOCX looks like a printed MCQ paper or a question paper
+    with its answer key (paper_detect, text layer only). A hint only: processing never changes."""
+    if mime_type not in ("application/pdf", DOCX_MIME):
+        return
+    import paper_detect  # local import: paper_detect uses this module's sniffing helpers
+
+    try:
+        hint = paper_detect.ingestion_hint(path.read_bytes(), mime_type, settings)
+    except Exception as exc:  # noqa: BLE001 - a hint must never fail the upload
+        logger.debug("Paper detection skipped for %s: %s", path.name, exc)
+        return
+    if hint:
+        pipeline.append_log(sub, "Ingestion", hint)

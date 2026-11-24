@@ -225,7 +225,8 @@ def test_docx_extension_does_not_matter(upload, fake_ai):
          "docx_too_large"),
     ],
 )
-def test_bad_word_documents_are_rejected(upload, forbid_ai, tmp_path, content, status, code):
+def test_bad_word_documents_are_rejected(upload, forbid_ai, tmp_path, monkeypatch, content, status, code):
+    monkeypatch.setenv("MAX_PDF_PAGES", "10")  # the long document lays out to more than 10 A4 pages
     response = upload(filename="sheet.docx", content=content)
     assert response.status_code == status, response.text
     assert response.json()["code"] == code

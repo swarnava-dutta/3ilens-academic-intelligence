@@ -160,7 +160,12 @@ class Settings:
     anthropic_base_url: str = DEFAULT_ANTHROPIC_BASE_URL   # pass explicitly to anthropic.Anthropic(base_url=...)
     openai_base_url: str = DEFAULT_OPENAI_BASE_URL         # pass explicitly to openai.OpenAI(base_url=...)
     max_upload_bytes: int = 20 * 1024 * 1024
-    max_pdf_pages: int = 10
+    max_pdf_pages: int = 40                     # MAX_PDF_PAGES (clamped 1-100): full printed papers (NEET: ~20 pages)
+    ocr_pages_per_call: int = 10                # OCR_PAGES_PER_CALL (clamped 1-20): longer sheets are read in page chunks
+    mcq_ocr_pages_per_call: int = 2             # MCQ_OCR_PAGES_PER_CALL (clamped 1-20): pages per call of the marked-option
+                                                # reader (mcq_marks) for printed MCQ papers
+    rubric_pages_per_call: int = 2              # RUBRIC_PAGES_PER_CALL (clamped 1-10): question-paper PDFs drafted page by page
+    ai_chunk_concurrency: int = 3               # AI_CHUNK_CONCURRENCY (clamped 1-8): parallel page-chunk calls per sheet / paper
     allowed_mime_types: tuple[str, ...] = field(default=ALLOWED_MIME_TYPES)
     # --- OCR / pre-processing (FR-2.x) ---------------------------------------------------
     ocr_cache_enabled: bool = True              # OCR_CACHE: reuse OCR for identical file bytes (SHA-256)
@@ -226,6 +231,11 @@ def get_settings() -> Settings:
         artifact_dir=Path(env("ARTIFACT_DIR") or REPO_ROOT / "artifacts"),
         anthropic_base_url=(env("ANTHROPIC_BASE_URL") or DEFAULT_ANTHROPIC_BASE_URL).strip(),
         openai_base_url=(env("OPENAI_BASE_URL") or DEFAULT_OPENAI_BASE_URL).strip(),
+        max_pdf_pages=max(1, min(100, _int("MAX_PDF_PAGES", 40))),
+        ocr_pages_per_call=max(1, min(20, _int("OCR_PAGES_PER_CALL", 10))),
+        mcq_ocr_pages_per_call=max(1, min(20, _int("MCQ_OCR_PAGES_PER_CALL", 2))),
+        rubric_pages_per_call=max(1, min(10, _int("RUBRIC_PAGES_PER_CALL", 2))),
+        ai_chunk_concurrency=max(1, min(8, _int("AI_CHUNK_CONCURRENCY", 3))),
         ocr_cache_enabled=_bool("OCR_CACHE", True),
         pdf_master_dpi=max(72, min(600, _int("PDF_MASTER_DPI", 300))),
         vision_max_edge_px=max(800, min(2576, _int("VISION_MAX_EDGE_PX", 2000))),

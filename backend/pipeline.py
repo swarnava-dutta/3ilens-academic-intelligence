@@ -45,6 +45,7 @@ import hashing
 import insights
 import preprocessing
 import marking
+import mcq_marks
 import provenance
 import results_store
 import voice
@@ -710,18 +711,47 @@ def _voice_stage(job: _Job) -> OcrResult:
 # --------------------------------------------------------------------------- #
 # OCR + cache (FR-2.5)
 # --------------------------------------------------------------------------- #
-def ocr_cache_key(sub: StudentSubmission, rubric: Rubric, provider: str, model: str, hints: list[str]) -> str:
-    """Same file bytes + institution + rubric question list + OCR engine + prompt version + hints."""
+READER_OCR = "ocr"            # handwriting transcription (ai.run_ocr)
+READER_MARKS = mcq_marks.READER  # marked-option reader for printed MCQ papers (mcq_marks)
+MARKS_MIN_PAGES = 3             # an MCQ-heavy PDF this long is read as a printed paper
+
+
+def ocr_cache_key(
+    sub: StudentSubmission, rubric: Rubric, provider: str, model: str, hints: list[str], reader: str = READER_OCR
+) -> str:
+    """Same file bytes + institution + rubric question list + OCR engine + reader and its prompt
+    version + hints. The two readers never share a cache row."""
     batch = sub.batch
+    marks = reader == READER_MARKS
     return hashing.sha256_json({
         "file_hash": sub.file_hash,
         "institution_id": batch.institution_id if batch is not None else None,
         "rubric_questions_hash": hashing.rubric_questions_hash(rubric.content or {}),
         "provider": provider,
         "model": model,
-        "prompt_version": getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
+        "reader": READER_MARKS if marks else READER_OCR,
+        "prompt_version": mcq_marks.MARKS_PROMPT_VERSION if marks else getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
         "language_hints": sorted(hints),
     })
+
+
+def ocr_reader(sub: StudentSubmission, rubric_content: dict[str, Any] | None, page_count: int) -> str:
+    """READER_MARKS for a PDF read against an MCQ-heavy rubric (>= 10 questions, >= 80% MCQs) that
+    is at least MARKS_MIN_PAGES long or whose text layer looks like a printed question paper
+    (paper_detect); READER_OCR otherwise (handwriting, typed DOCX, photos, mixed rubrics).
+    Detection is a hint: if it fails, the page rule alone decides."""
+    if (sub.mime_type or "") != "application/pdf" or not mcq_marks.mcq_heavy(rubric_content):
+        return READER_OCR
+    if page_count >= MARKS_MIN_PAGES:
+        return READER_MARKS
+    try:
+        import paper_detect  # local import: paper_detect -> uploads -> pipeline
+
+        role = paper_detect.inspect_bytes(Path(sub.file_path).read_bytes(), get_settings()).role
+    except Exception as exc:  # noqa: BLE001 - detection must never fail the job
+        logger.debug("Printed-paper detection skipped for submission %s: %s", sub.id, exc)
+        return READER_OCR
+    return READER_MARKS if role in ("question_paper", "answer_key_paper") else READER_OCR
 
 
 def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
@@ -730,17 +760,44 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
     rubric = sub.rubric
     provider, model = vision_model(settings)
     hints = _language_hints(sub)
+    reader = ocr_reader(sub, rubric.content, len(pages))
     cache_key: str | None = None
     if settings.ocr_cache_enabled and sub.file_hash:
-        cache_key = ocr_cache_key(sub, rubric, provider, model, hints)
+        cache_key = ocr_cache_key(sub, rubric, provider, model, hints, reader)
         cached = _cache_hit(job, cache_key, provider, model)
         if cached is not None:
             _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(cached, rubric))
             return cached, None  # already cached - nothing to store
 
+    if reader == READER_MARKS:
+        per_call = max(1, settings.mcq_ocr_pages_per_call)
+        calls = mcq_marks.calls_for(len(pages), settings)
+        _record(
+            db, sub, "OCR & Parse",
+            f"Printed MCQ paper: reading the marked option of every printed question on {len(pages)} page(s) with "
+            f"the {provider} vision model ({model}), {per_call} page(s) per call, "
+            f"{min(settings.ai_chunk_concurrency, calls)} at a time ({calls} call{'s' if calls != 1 else ''}; "
+            f"options printed (1)-(4) are scored as A-D).",
+            current_step="OCR & answer structuring",
+        )
+        ocr = _ai_call(
+            job, "OCR & Parse", "AI call 1 (OCR)",
+            lambda on_usage: mcq_marks.read_marked_options(
+                pages, rubric.content, language_hints=hints, on_usage=on_usage
+            ),
+        )
+        _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, rubric))
+        return ocr, cache_key
+
+    per_call = ai.ocr_pages_per_call(settings, rubric.content)
+    split = (
+        f" in {-(-len(pages) // per_call)} calls of up to {per_call} pages, "
+        f"{settings.ai_chunk_concurrency} at a time"
+        if len(pages) > per_call else ""
+    )
     _record(
         db, sub, "OCR & Parse",
-        f"Sending {len(pages)} page(s) to the {provider} vision model ({model}) to transcribe "
+        f"Sending {len(pages)} page(s) to the {provider} vision model ({model}){split} to transcribe "
         f"handwriting and map answers to question numbers (AI call 1; language hints: {', '.join(hints)}).",
         current_step="OCR & answer structuring",
     )
