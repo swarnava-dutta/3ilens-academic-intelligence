@@ -51,6 +51,13 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   (stand-in for Whisper / Sarvam). Either one recording per question (no extra AI call) or a
   whole-paper recording that Claude maps onto the rubric questions. Transcription cost is
   shown as **unknown** because its price is not confirmed.
+- **Printed MCQ papers**: a full question paper (up to 40 pages, 200 questions) on which the
+  student ticked, circled or shaded options is read as an answer sheet; options printed
+  (1)-(4) map to A-D, and printed answer keys, logos and adverts are ignored. A dedicated
+  reader reports the marked option for every printed question, 2 pages per call, 3 calls at a
+  time; handwritten sheets longer than 10 pages are transcribed in page chunks. Intake reads each PDF / DOCX's
+  printed text first (`POST /api/intake/inspect`, no AI call) and flags a question paper that
+  carries its own answer key ("Ans. (2)") as a rubric source rather than a student sheet.
 - Pre-processing: 300 DPI PDF master, deskew, contrast and sharpen.
 - SHA-256 custody and an OCR cache: re-uploading identical bytes reuses the stored OCR
   ("OCR cache hit - no vision call (Rs 0.00)").
@@ -71,7 +78,9 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
 **Rubrics and grading**
 
 - Rubrics from JSON, pasted text, DOCX or PDF (AI-drafted, with warnings), versioned with
-  change notes and faculty approval. Bulk re-evaluation after an edit is confirmed with a cost
+  change notes and faculty approval. A question-paper PDF of 3+ pages is read from page images,
+  2 pages per call: the answer key comes from printed "Ans." lines, an answer-key table or the
+  ticked option, and large drafts open as a dense answer-key table for review. Bulk re-evaluation after an edit is confirmed with a cost
   estimate.
 - **Marking policies** (FR-3.8, FR-4.8): NEET MCQs score +4 / -1 / 0 from the option letter
   alone, with no grading call; descriptive questions can have per-question marking schemes,
@@ -199,7 +208,7 @@ cloud service for a local stand-in:
  |   1 Web portal / CloudFront          Next.js dev server (frontend/)                  |
  |   2 API Gateway                      FastAPI routes + CORS                           |
  |   3 Tenant & batch context           Seeded Instit-42 / NEET-A Mock-07 (seed.py)     |
- |   4 Upload validation                Content sniffing, 20 MB / 10-page limits,       |
+ |   4 Upload validation                Content sniffing, 20 MB / 40-page limits,       |
  |                                      rubric validated before the file is stored      |
  |   5 S3 raw-upload bucket             ./uploads/ (SHA-256 recorded for custody)       |
  |   6 SQS job queue                    FastAPI BackgroundTasks, retries with backoff   |
@@ -343,6 +352,7 @@ table of [API_CONTRACT.md](API_CONTRACT.md)):
 | OCR cache | `OCR_CACHE=1` |
 | Pre-processing | `PDF_MASTER_DPI=300`, `VISION_MAX_EDGE_PX=2000`, `PREPROCESS_ENHANCE=1`, `PREPROCESS_CONTRAST=1.4`, `MIN_SHORT_EDGE_PX=1200` |
 | Worker | `MAX_JOB_ATTEMPTS=3`, `RETRY_BACKOFF_BASE_SECONDS=2.0`, `WORKER_CONCURRENCY=4` |
+| Printed papers | `MAX_PDF_PAGES=40`, `OCR_PAGES_PER_CALL=10`, `MCQ_OCR_PAGES_PER_CALL=2`, `RUBRIC_PAGES_PER_CALL=2`, `AI_CHUNK_CONCURRENCY=3` |
 | Cost tracking | `USD_INR=85`, `COST_TARGET_INR=5`, `LATENCY_TARGET_SECONDS=300`, `BATCH_TARGET_SECONDS=1800`, `LLM_PRICING_JSON` |
 | Study plan | `DEFAULT_EXAM=NEET`, `NEET_EXAM_DATE=2027-05-02` (assumed, labelled so in the UI), `STUDY_HOURS_PER_WEEK=18` |
 | Delivery and PDFs | `WHATSAPP_MODE=blocked` (always simulated), `DOWNLOAD_LINK_SECRET`, `DOWNLOAD_LINK_TTL_HOURS=24`, `REPORT_LOGO_PATH` |
@@ -435,7 +445,7 @@ Full JSON shapes, status codes, error codes and validation rules are in
 
 | Area | Endpoints |
 | --- | --- |
-| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/upload`, `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` |
+| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/intake/inspect`, `POST /api/upload`, `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` |
 | Pipeline operations | `POST /api/submissions/{id}/retry`, `.../reevaluate`, `.../review`, `.../rescan`; `GET /api/submissions/{id}/ocr`, `.../pages`, `.../pages/{n}`, `.../invocations`; `GET /api/ops/costs`; `GET /api/intake-batches/{id}` |
 | Voice | `GET /api/submissions/{id}/audio`, `GET /api/submissions/{id}/transcript` |
 | Rubrics | `POST /api/rubrics/parse` (AI draft), `POST /api/rubrics`, `POST /api/rubrics/{id}/versions`, `GET /api/rubrics/{id}/reevaluation-estimate`, `POST /api/rubrics/{id}/bloom-levels` |
@@ -449,7 +459,7 @@ Full JSON shapes, status codes, error codes and validation rules are in
 
 Upload rules: PDF, JPEG, PNG, WEBP or DOCX answer sheets, or MP3, WAV, M4A or OGG recordings,
 detected from the file content rather than the extension (otherwise 415); at most 20 MB
-(413); PDFs at most 10 pages; corrupt files and invalid rubric JSON return 422. With
+(413); PDFs at most 40 pages (`MAX_PDF_PAGES`); corrupt files and invalid rubric JSON return 422. With
 `VOICE_ANSWERS=0`, audio returns 415 `voice_disabled`.
 
 LMS export example (released results only unless `include_provisional=true`; create a key on
@@ -563,6 +573,8 @@ backend/
   pipeline.py           worker: pre-processing/transcription -> OCR -> evaluation -> insights
   preprocessing.py      image/PDF normalisation for the vision model
   uploads.py            upload validation and content sniffing (documents and audio)
+  paper_detect.py       printed-paper detection from the text layer (answer-key paper, MCQ paper)
+  paper_pages.py        question-paper PDF pages rendered for page-by-page rubric drafting
   ai.py, llm_route.py   Claude/OpenAI calls, fallback chain, route provenance, error mapping
   voice.py              speech-to-text and voice result details
   marking.py, bloom.py  MCQ +4/-1, marking schemes and partial credit; Bloom K1-K5

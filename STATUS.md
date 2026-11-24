@@ -1,6 +1,6 @@
 # 3iLens PoC - Project status
 
-_Last updated: 2026-11-21._
+_Last updated: 2026-11-23._
 
 Repo: https://github.com/swarnava-dutta/3ilens-academic-intelligence
 Run: double-click `start.bat` (installs anything missing, starts API + web, opens the browser). Stop: `stop.bat`.
@@ -11,7 +11,7 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **795 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **919 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
@@ -82,6 +82,19 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - **FR-5.10 LMS export.** Read-only JSON and CSV (`/api/lms/v1/*`) behind `X-API-Key`; keys stored only as SHA-256 and shown once; released results only by default; CSVs with a UTF-8 BOM and formula-injection guard; key management and a preview on `/integrations`.
 - **Sample data:** `POST /api/demo/seed?set=insights` adds batch `NEET-C (sample)` with the NEET MCQ Mock 09 / Mock 10 (sample) papers, 25 submissions, 24 interventions (22 measured) and a voice sample row, all labelled as sample data and scored by the real engine. `set=all` is unchanged (27 rows). A synthetic MCQ answer sheet for Mock 09 is in `samples/`.
 
+### Printed exam papers at intake (2026-11-23)
+Built for two kinds of PDF the client will upload: a scanned NEET question paper on which a student ticked options (19 pages, 180 MCQs) and a typed question paper with its answer key printed under each question ("Ans. (2)", 9 pages, 45 MCQs).
+- **Limits:** PDFs up to 40 pages (`MAX_PDF_PAGES`), rubrics up to 200 questions.
+- **Detection without AI:** `POST /api/intake/inspect` (`paper_detect.py`) reads the text layer and classifies a file as an answer-key paper, a printed MCQ paper, an answer sheet or unknown. Intake shows a notice: an answer-key paper offers "Draft rubric from this paper"; a printed MCQ paper says its ticks are read as the student's answers and offers "Use the ticks as the answer key". Batch rows are tagged. Uploads log the same hint and are never blocked by it.
+- **Rubric from a full paper:** a question-paper PDF of 3+ pages is read from page images, 2 pages per call (plus the next page as context), 3 calls at a time. The key comes from printed "Ans." lines, an answer-key table or, with `key_source=marks` ("the ticks mark the key"), the ticked options. Drafts over 20 questions open as a dense answer-key table. Warnings are folded per kind (e.g. "No answer key for Q1, Q4-Q7 ...").
+- **Student's ticked paper:** a dedicated reader (`mcq_marks.py`, prompt `marks-v1`) reports the marked option of every printed question, 2 pages per call; options (1)-(4) score as A-D; printed keys are ignored; two chunks that disagree cap the confidence below the review gate. Long handwritten sheets are still transcribed by the OCR prompt (`ocr-v4`), 10 pages per call.
+- **Live checks on the two sample papers (throwaway database):**
+  - Typed paper with key -> rubric: 45/45 questions, 45/45 keys, all checked against the printed "Ans." lines; 5 calls, 50 s, about Rs 17.
+  - Scanned ticked paper -> rubric: 180/180 questions (subjects 45/43/92 vs the true 45/45/90). Default mode finds keys for 114 (it treats a student's mixed marks as no key); with "ticks are the key" 137, and the other 43 questions have no tick on the scan. 10 calls, about 105 s, Rs 55.
+  - Scanned ticked paper graded as a student's sheet against that rubric: 134 marked answers read, 516/720, 130 of 134 matching the independent rubric reading, 30/30 correct on questions checked by eye (7 of them unticked), 10 calls, 68 s, Rs 21.77. The handwriting OCR read the same paper far worse (405/720 at 10 pages per call, 373/720 at 2 pages per call, with invented and missed ticks), which is why the dedicated reader exists.
+  - Typed paper with key uploaded as a student's sheet: the printed key is ignored (0 answers read) and the sheet goes to faculty review.
+- **Cost note:** a 19-page printed paper costs about Rs 22 to read, above the Rs 5 per-student target (sized for handwritten sheets of a few pages).
+
 ### Fixes to earlier known issues
 - Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).
 - Report charts: ties are named in the takeaways, changes between percentages read as points, and the projected-gain chart ends at the stored projected score.
@@ -136,6 +149,10 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - [x] The days-to-exam figure is always visible in the header.
 - [ ] The student PDF's "Teacher action plan" follows the stored ROI order, while the web action plan uses the observed-gap order, so P1 can differ between the two (e.g. report #70).
 - [ ] When the ROI lab's strategy ranks by recoverable marks, its "How #1 was calculated" topic (the plan's #1) is not the topic with the highest ROI in "Relative ROI by topic"; the wording could make the ranking basis clearer.
+
+- [ ] Printed papers: the official answer key of the scanned 2016 paper was not available, so its grading was checked against an independent AI reading of the same ticks and by eye on 30 questions, not against the official key.
+- [ ] Printed papers: Q74, Q79 and Q100 of the 2016 paper were read differently by the rubric drafting and the student reader; not checked by eye.
+- [ ] Printed papers: report and cohort views with 180-question results not yet reviewed for density (charts list every question).
 
 ### 3. Not built (deliberately trimmed for the PoC)
 - Audio decoding for MP3 / M4A / OGG durations: they come from the transcription response; WAV is measured locally.
