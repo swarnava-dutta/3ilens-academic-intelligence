@@ -294,6 +294,9 @@ class RubricContentIn(BaseModel):
     subject: str | None = None
     questions: list[RubricQuestionIn] = Field(min_length=1, max_length=MAX_RUBRIC_QUESTIONS)
     marking_policy: MarkingPolicyIn | None = None  # None keeps the default marking rule
+    # Printed paper code / set / version ("Code A", "Set 2", "Code 45"); None when unknown. Used to
+    # check that a student's printed paper is the rubric's version (paper_match).
+    paper_code: str | None = Field(default=None, max_length=60)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1450,6 +1453,25 @@ class RubricDraft(BaseModel):
 PaperRoleLit = Literal["answer_key_paper", "question_paper", "answer_sheet", "unknown"]
 
 
+RubricMatchVerdictLit = Literal["match", "reordered", "mismatch", "unknown"]
+
+
+class RubricMatch(BaseModel):
+    """How a printed paper's questions line up with a rubric (paper_match.compare): the printed
+    question text by number against the rubric's question prompts. match = same paper; reordered =
+    the same questions under other numbers (another code / set of the paper); mismatch = a
+    different paper; unknown = too little text to tell."""
+
+    verdict: RubricMatchVerdictLit = "unknown"
+    compared: int = 0                   # questions with text on both sides
+    matched: int = 0                    # same number, similar text
+    moved: int = 0                      # text found under a different number in the rubric
+    sheet_code: str | None = None       # printed paper code / set on the sheet, when seen
+    rubric_code: str | None = None      # paper code / set named by the rubric, when known
+    examples: list[str] = Field(default_factory=list)  # up to 3 short lines, e.g. "Q12: sheet '...' vs rubric '...'"
+    message: str = ""                   # one plain sentence for faculty
+
+
 class PaperInspection(BaseModel):
     """POST /api/intake/inspect: what an intake file looks like, read locally from its text layer
     (no AI call, nothing stored). role: answer_key_paper = printed questions with their answer key
@@ -1469,6 +1491,27 @@ class PaperInspection(BaseModel):
     max_pdf_pages: int = 40
     within_page_limit: bool = True
     message: str = ""                   # one plain sentence for faculty
+    rubric_match: RubricMatch | None = None  # only when rubric_id was sent and the text layer has question text
+
+
+class AnswerKeyEntry(BaseModel):
+    question: int
+    option: str                         # one letter A-F; options printed (1)-(4) read as A-D
+
+
+AnswerKeyMethodLit = Literal["parsed", "ai"]
+
+
+class AnswerKeyExtraction(BaseModel):
+    """POST /api/rubrics/answer-key: the answer key read from a key-only file or pasted text (a
+    table such as "1-2, 2-4" or "Q1 (B)", a "Que. / Ans." grid, or a question paper with "Ans."
+    lines). method parsed = read from the text with no AI call; ai = read from page images."""
+
+    entries: list[AnswerKeyEntry] = Field(default_factory=list)  # sorted by question, unique
+    source: Literal["text", "pdf", "docx", "image"] = "text"
+    method: AnswerKeyMethodLit = "parsed"
+    paper_code: str | None = None       # printed paper code / set, when seen
+    warnings: list[str] = Field(default_factory=list)
 
 
 class RubricCompatibility(BaseModel):

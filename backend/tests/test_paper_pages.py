@@ -672,3 +672,64 @@ def test_an_answer_key_table_entry_that_does_not_fit_the_options_is_reported(mon
     assert (
         "Answer-key table entries for Q5 could not be matched to the options - set the key by hand."
     ) in result["warnings"]
+
+
+# --------------------------------------------------------------------------- #
+# Paper code on the paged draft; key_file on the paged path
+# --------------------------------------------------------------------------- #
+def test_the_printed_paper_code_lands_on_the_draft(monkeypatch):
+    def reply(pages, _attempt):
+        payload = {"name": "", "subject": "Physics", "questions": [mcq(pages[0], "2")], "answer_key": []}
+        if pages == [3, 4]:
+            payload["paper_code"] = "CODE - 45"
+        elif pages == [5]:
+            payload["paper_code"] = "Code 46"
+        return _reply(payload)  # the first chunk's reply has no paper_code at all
+
+    fake = _use(monkeypatch, PagesClaude(reply))
+    result = ai.parse_rubric_pages(_pages(5))
+    assert result["draft"]["paper_code"] == "Code 45"  # the first code in page order, normalised
+    from schemas import RubricContentIn
+
+    assert RubricContentIn.model_validate(result["draft"]).paper_code == "Code 45"
+    schema = fake.calls[0]["output_config"]["format"]["schema"]
+    assert "paper_code" in schema["properties"] and "paper_code" in schema["required"]
+    assert "- paper_code: the paper code, set or version printed on these pages" in ai.RUBRIC_PAGES_ADDENDUM
+    assert ai.RUBRIC_PAGES_PROMPT_VERSION == "rubric-pages-v2"
+
+
+def test_no_printed_code_leaves_the_draft_without_one(monkeypatch):
+    _use(monkeypatch, PagesClaude(lambda pages, _attempt: _reply(
+        {"name": "", "subject": "Physics", "paper_code": "", "questions": [mcq(pages[0], "1")], "answer_key": []}
+    )))
+    assert "paper_code" not in ai.parse_rubric_pages(_pages(2))["draft"]
+
+
+@pytest.mark.parametrize(
+    "raw, label",
+    [
+        ("CODE - 45", "Code 45"), ("45", "Code 45"), ("code a", "Code A"), ("Set 2", "Set 2"), ("set b", "Set B"),
+        ("A / P / W", "Code A/P/W"), ("Test Booklet Code: P", "Code P"), ("", None), ("none", None), (None, None),
+        ([], None), (True, None),
+    ],
+)
+def test_paper_code_label(raw, label):
+    assert ai.paper_code_label(raw) == label
+
+
+def test_key_file_is_applied_to_a_paged_draft(client, make_pdf, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", TEST_KEY)
+    unkeyed = ai.finalise_rubric_draft({"name": "Paper", "subject": "Physics", "questions": [mcq(1, None), mcq(2, None)]})
+    monkeypatch.setattr(ai, "parse_rubric_pages", lambda pages, **kwargs: {
+        "draft": unkeyed["draft"], "warnings": unkeyed["warnings"], "ai_drafted_questions": [],
+    })
+    response = client.post(
+        "/api/rubrics/parse",
+        files={"file": ("paper.pdf", make_pdf(3), "application/pdf"), "key_file": ("key.txt", b"1. (3)\n2. (4)", "text/plain")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    check_interface(body, "RubricDraft")
+    assert body["warnings"][0] == "Answer key file: set 2 keys."
+    assert [q["correct_option"] for q in body["draft"]["questions"]] == ["C", "D"]
+    assert [q["expected_answer"] for q in body["draft"]["questions"]] == ["Option C: c", "Option D: d"]

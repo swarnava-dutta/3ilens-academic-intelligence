@@ -150,6 +150,46 @@ def test_option_groups_need_a_third_option_before_the_fourth():
     assert paper_detect.count_option_groups("f(4) and g(4) and Ans. (4)") == 0
 
 
+def test_question_stems_are_the_first_words_after_each_number():
+    text = "\n".join(_mcq_block(1, 2) + _mcq_block(2, 3, split_answer=True))
+    assert paper_detect.question_stems([text]) == {
+        1: "A body moves with uniform acceleration from rest; find its displacement after",
+        2: "A body moves with uniform acceleration from rest; find its displacement after",
+    }
+    pages = ["1 3 .\nIn\na certain camera, four similar thin convex lenses are arranged axially in contact.",
+             "15\n. A siren emitting a sound of\nfrequency 800 Hz moves away"]
+    assert paper_detect.question_stems(pages) == {
+        13: "In a certain camera, four similar thin convex lenses are arranged axially",
+        15: "A siren emitting a sound of frequency 800 Hz moves away",
+    }
+
+
+def test_question_stems_of_a_two_column_scan():
+    text = (
+        "1. \n2. \nFiom a disc of radius Rand mass M, a circular hole\n(1)\n15 MR2/32\n"
+        "A square loop ABCD carrying a current i\n"
+        "3.\nThe magnetic susceptibility is negative for :\n"
+        "4. \n(2)\nparamagnetic material only\n"
+        "5. 8 1 2 s vl I® J A capacitor of 2 uF is charged as shown\n"
+        "6. Ans. (2)\n"
+        "3. Which one of the following is a repeated number\n"
+    )
+    assert paper_detect.question_stems([text]) == {
+        1: "Fiom a disc of radius Rand mass M, a circular hole (1)",  # the stack's text goes to its first number
+        3: "The magnetic susceptibility is negative for :",
+        5: "A capacitor of 2 uF is charged as shown",  # leading noise skipped
+    }  # 2: stacked; 4: options only; 6: an answer line; the second "3." never replaces the first
+
+
+def test_paper_code_from_the_text_layer():
+    assert paper_detect.paper_code("ALLEN\nCODE \n- 45\nCAREER INSTITUTE\n1. A ball") == "Code 45"
+    assert paper_detect.paper_code("Test Booklet Code: P\nThis booklet contains 24 pages.") == "Code P"
+    assert paper_detect.paper_code("NEET 2016\nPaper Code A/P/W\n") == "Code A/P/W"
+    assert paper_detect.paper_code("Mock Test\nSet 2\n1. Question") == "Set 2"
+    assert paper_detect.paper_code("Match the columns\nCode:\nA B C D\n(1) iii iv ii i") is None
+    assert paper_detect.paper_code("") is None
+
+
 def test_section_headings_only_when_standalone():
     text = "PHYSICS\nA question about physics and chemistry?\nSECTION-B : CHEMISTRY\nBotany\nzoology is fun to read"
     assert paper_detect.section_subjects(text) == ["Physics", "Chemistry", "Botany"]
@@ -304,6 +344,95 @@ def test_inspect_route_size_limit_and_missing_file(client, png_bytes):
 
 
 # --------------------------------------------------------------------------- #
+# POST /api/intake/inspect with rubric_id: the same-paper check
+# --------------------------------------------------------------------------- #
+def _printed_paper(prompts: list[str], header: list[str] | None = None) -> bytes:
+    pages, current = [], list(header or [])
+    for number, prompt in enumerate(prompts, start=1):
+        current += [f"{number}. {prompt}", "(1) one", "(2) two", "(3) three", "(4) four"]
+        if number % 8 == 0:
+            pages.append(current)
+            current = []
+    if current:
+        pages.append(current)
+    return _pdf_from_pages(pages)
+
+
+def _saved_rubric(client, prompts: list[str], name: str = "NEET mock") -> int:
+    content = {
+        "name": name, "subject": "Physics",
+        "questions": [
+            {"question": n, "topic": f"Topic {n}", "subject": "Physics", "max_marks": 4, "effort_hours": 2,
+             "question_type": "mcq", "options": ["one", "two", "three", "four"], "correct_option": "A",
+             "prompt": prompt}
+            for n, prompt in enumerate(prompts, start=1)
+        ],
+    }
+    response = client.post("/api/rubrics", json={"content": content, "approved": False})
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def _post_with_rubric(client, content: bytes, rubric_id: object, filename: str = "paper.pdf"):
+    return client.post("/api/intake/inspect", data={"rubric_id": str(rubric_id)},
+                       files={"file": (filename, content, "application/octet-stream")})
+
+
+def test_inspect_route_checks_the_paper_against_a_rubric(client, forbid_ai, tmp_path):
+    from tests.test_paper_match import QUESTIONS
+
+    paper = _printed_paper(QUESTIONS, header=["NEET mock test", "Test Booklet Code: B"])
+    plain = _post(client, paper).json()
+    assert plain["rubric_match"] is None
+
+    response = _post_with_rubric(client, paper, _saved_rubric(client, QUESTIONS, name="NEET mock Code A"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    check_interface(body, "PaperInspection")
+    check_interface(body["rubric_match"], "RubricMatch")
+    assert {k: v for k, v in body.items() if k != "rubric_match"} == {k: v for k, v in plain.items() if k != "rubric_match"}
+    match = body["rubric_match"]
+    assert (match["verdict"], match["compared"], match["matched"]) == ("reordered", 16, 16)  # code B vs A: held
+    assert (match["sheet_code"], match["rubric_code"]) == ("B", "A")
+    assert match["message"] == (
+        "The sheet's printed questions match the rubric (16 of 16 compared), but its paper code (B) differs from "
+        "the rubric's (A) - it looks like another version of the paper (options may be in another order); grade it "
+        "with the rubric for code B."
+    )
+    assert forbid_ai == []
+    assert not (tmp_path / "uploads").exists() or not any((tmp_path / "uploads").iterdir())  # nothing stored
+
+
+def test_inspect_route_finds_another_version_and_another_paper(client, forbid_ai):
+    from tests.test_paper_match import OTHER_PAPER, QUESTIONS, shuffled
+
+    paper = _printed_paper(QUESTIONS)
+    reordered = _post_with_rubric(client, paper, _saved_rubric(client, shuffled(QUESTIONS))).json()["rubric_match"]
+    assert reordered["verdict"] == "reordered" and reordered["moved"] == 16
+    assert reordered["message"].startswith("The sheet has the rubric's questions in a different order (e.g. sheet Q1")
+    other = _post_with_rubric(client, paper, _saved_rubric(client, OTHER_PAPER)).json()["rubric_match"]
+    assert other["verdict"] == "mismatch" and other["matched"] == 0
+
+
+def test_inspect_route_without_question_text_has_no_rubric_match(client, png_bytes):
+    from tests.test_paper_match import QUESTIONS
+
+    rubric_id = _saved_rubric(client, QUESTIONS)
+    for content, name in ((png_bytes, "photo.png"), (_image_only_pdf(2), "scan.pdf")):
+        response = _post_with_rubric(client, content, rubric_id, name)
+        assert response.status_code == 200 and response.json()["rubric_match"] is None
+    blank = client.post("/api/intake/inspect", data={"rubric_id": " "},
+                        files={"file": ("paper.pdf", _printed_paper(QUESTIONS), "application/octet-stream")})
+    assert blank.status_code == 200 and blank.json()["rubric_match"] is None
+
+
+@pytest.mark.parametrize(("rubric_id", "code"), [("abc", "invalid_rubric"), ("987654", "unknown_rubric")])
+def test_inspect_route_rubric_id_errors(client, rubric_id, code):
+    response = _post_with_rubric(client, _paper(range(1, 12), key=False), rubric_id)
+    assert response.status_code == 422 and response.json()["code"] == code
+
+
+# --------------------------------------------------------------------------- #
 # POST /api/upload log hint
 # --------------------------------------------------------------------------- #
 def _log(client, submission_id: int) -> list[str]:
@@ -339,3 +468,21 @@ def test_a_failing_detector_never_breaks_the_upload(upload, fake_ai, client, mon
     monkeypatch.setattr(paper_detect, "inspect_bytes", boom)
     response = upload(filename="ticked_paper.pdf", content=_paper(range(1, 16), key=False))
     assert response.status_code == 202, response.text
+
+
+def test_inspect_skips_the_rubric_check_for_typed_answer_sheets(client, tmp_path):
+    import pymupdf
+
+    from tests.test_paper_match import QUESTIONS
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((60, 60), "\n".join(f"{n}. The answer is that the ratio is 3 to 1 because of dominance." for n in range(1, 13)))
+    data = doc.tobytes()
+    doc.close()
+    rubric_id = _saved_rubric(client, QUESTIONS, name="NEET mock Code A")
+    response = client.post("/api/intake/inspect", files={"file": ("sheet.pdf", data, "application/pdf")},
+                           data={"rubric_id": str(rubric_id)})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["role"] not in ("question_paper", "answer_key_paper") and body["rubric_match"] is None

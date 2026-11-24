@@ -294,3 +294,226 @@ def test_interrupted_jobs_are_failed_on_startup(client, db_session):
             assert body["status"] == "FAILED"
             assert body["submission"]["error_message"] == "Interrupted by server restart - use Retry to re-run."
             assert body["submission"]["last_error_code"] == "interrupted"
+
+
+# --------------------------------------------------------------------------- #
+# Same-paper check for printed MCQ papers (paper_match)
+# --------------------------------------------------------------------------- #
+class FakeMarksReader:
+    """Stands in for mcq_marks.read_marked_options: every MCQ marked "1" (= A, correct), with the
+    configured printed question stems and paper code."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.stems: dict[int, str] = {}
+        self.paper_code: str | None = None
+
+    def __call__(self, pages, rubric_content, **kwargs):
+        from ai_schemas import ModelUsage, OcrAnswer, OcrResult
+
+        self.calls += 1
+        kwargs["on_usage"](ModelUsage(purpose="ocr", provider="anthropic", model_requested="claude-sonnet-5-5",
+                                      model_served="claude-sonnet-5-5", input_tokens=3000, output_tokens=200,
+                                      image_count=len(pages)))
+        answers = [OcrAnswer(question=q["question"], answer="1", confidence=0.95, pages=[1])
+                   for q in rubric_content["questions"]]
+        return OcrResult(answers=answers, overall_confidence=0.95, provider="anthropic", model="claude-sonnet-5-5",
+                         raw_response='{"reader": "marks-v2", "chunks": []}',
+                         language_hints=list(kwargs.get("language_hints") or []),
+                         question_stems=dict(self.stems), paper_code=self.paper_code)
+
+
+@pytest.fixture
+def marks_reader(monkeypatch, fake_ai) -> FakeMarksReader:
+    import mcq_marks
+    import preprocessing
+    from ai_schemas import PreparedPage
+
+    def preprocess(file_path, mime_type, artifact_dir, log, **kwargs):
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        out = []
+        for n in (1, 2, 3):
+            path = artifact_dir / f"page_{n}.png"
+            path.write_bytes(b"png")
+            out.append(PreparedPage(page_number=n, media_type="image/png", data=b"png", path=path))
+        return out
+
+    reader = FakeMarksReader()
+    monkeypatch.setattr(preprocessing, "preprocess_document", preprocess)
+    monkeypatch.setattr(mcq_marks, "read_marked_options", reader)
+    return reader
+
+
+@pytest.fixture
+def ai_ready(monkeypatch):
+    import ai
+
+    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+
+
+def printed_rubric(**extra) -> dict:
+    from tests.test_paper_match import QUESTIONS
+
+    return {
+        "name": "Printed NEET mock", "subject": "Physics",
+        "questions": [
+            {"question": n, "topic": f"Topic {n}", "subject": "Physics", "max_marks": 4, "effort_hours": 2,
+             "question_type": "mcq", "options": ["one", "two", "three", "four"], "correct_option": "A",
+             "prompt": prompt}
+            for n, prompt in enumerate(QUESTIONS, start=1)
+        ],
+        "marking_policy": {"negative_marks": 1},
+        **extra,
+    }
+
+
+def upload_printed(upload, make_pdf, rubric: dict | None = None, filename: str = "neet_paper.pdf",
+                   content: bytes | None = None) -> dict:
+    data = content if content is not None else make_pdf(3)
+    response = upload(filename=filename, content=data, rubric_json=json.dumps(rubric or printed_rubric()))
+    assert response.status_code == 202, response.text
+    return response.json()
+
+
+def log_messages(client, submission_id: int) -> list[str]:
+    return [entry["message"] for entry in client.get(f"/api/results/{submission_id}").json()["processing_log"]]
+
+
+def paper_checks(client, submission_id: int) -> list[str]:
+    return [m for m in log_messages(client, submission_id) if m.startswith("Paper check: ")]
+
+
+def test_a_reordered_printed_paper_is_held_without_scoring(upload, make_pdf, marks_reader, fake_ai, client, tmp_path):
+    import pipeline
+    from tests.test_paper_match import QUESTIONS, shuffled, stems
+
+    marks_reader.stems = stems(shuffled(QUESTIONS))
+    sub = upload_printed(upload, make_pdf)
+    body = pending_body(client, sub["id"])
+
+    assert body["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert body["submission"]["current_step"] == "Human review"
+    message = body["submission"]["error_message"]
+    assert message.startswith("The sheet has the rubric's questions in a different order (e.g. sheet Q1 is rubric Q")
+    assert body["detail"] == message
+    log = [entry["message"] for entry in body["processing_log"]]
+    assert f"Paper check: {message}" in log and pipeline.PAPER_HOLD_MESSAGE in log
+    assert body["submission"]["total_score"] is None and fake_ai.calls["evaluation"] == 0
+    stored = json.loads((job_dir(tmp_path, sub["id"]) / "ocr.json").read_text(encoding="utf-8"))
+    assert stored["paper_check"]["verdict"] == "reordered" and stored["paper_check"]["moved"] == 16
+    assert stored["paper_check"]["message"] == message and stored["question_stems"]["1"]
+
+
+def test_approving_a_held_paper_scores_it_without_checking_again(upload, make_pdf, marks_reader, client, ai_ready):
+    from tests.test_paper_match import QUESTIONS, shuffled, stems
+
+    marks_reader.stems = stems(shuffled(QUESTIONS))
+    sub = upload_printed(upload, make_pdf)
+    assert pending_body(client, sub["id"])["status"] == "HUMAN_REVIEW_REQUIRED"
+
+    response = client.post(f"/api/submissions/{sub['id']}/review",
+                           json={"reviewer": "Dr. Rao", "action": "approve", "answers": []})
+    assert response.status_code == 202, response.text
+    result = client.get(f"/api/results/{sub['id']}")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["submission"]["status"] == "COMPLETED" and body["total_score"] == 64  # 16 x 4, every mark "1" = A
+    assert marks_reader.calls == 1  # evaluation only: no new read
+    assert len(paper_checks(client, sub["id"])) == 1  # and no second check
+
+
+def test_a_different_paper_is_held_as_a_mismatch(upload, make_pdf, marks_reader, client):
+    from tests.test_paper_match import OTHER_PAPER, stems
+
+    marks_reader.stems = stems(OTHER_PAPER)
+    sub = upload_printed(upload, make_pdf)
+    body = pending_body(client, sub["id"])
+    assert body["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert body["submission"]["error_message"] == (
+        "The sheet's printed questions do not match the rubric (0 of 16 compared) - it looks like a different paper."
+    )
+
+
+def test_a_different_printed_code_is_held(upload, make_pdf, marks_reader, client, tmp_path):
+    marks_reader.paper_code = "Test Booklet Code: B"
+    sub = upload_printed(upload, make_pdf, printed_rubric(paper_code="Code A"))
+    body = pending_body(client, sub["id"])
+    assert body["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert body["submission"]["error_message"].startswith(
+        "The sheet's printed paper code (B) differs from the rubric's (A)")
+    stored = json.loads((job_dir(tmp_path, sub["id"]) / "ocr.json").read_text(encoding="utf-8"))
+    assert (stored["paper_code"], stored["paper_check"]["sheet_code"]) == ("Test Booklet Code: B", "B")
+
+
+def test_the_same_paper_is_scored_and_never_checked_on_reevaluation(upload, make_pdf, marks_reader, client, ai_ready):
+    from tests.test_paper_match import QUESTIONS, stems
+
+    marks_reader.stems = stems(QUESTIONS)
+    marks_reader.paper_code = "Code A"
+    sub = upload_printed(upload, make_pdf, printed_rubric(paper_code="A"))
+    result = client.get(f"/api/results/{sub['id']}")
+    assert result.status_code == 200, result.text
+    assert result.json()["total_score"] == 64
+    assert paper_checks(client, sub["id"]) == [
+        "Paper check: The sheet's printed questions match the rubric (16 of 16 compared)."
+    ]
+
+    response = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={})
+    assert response.status_code == 202, response.text
+    assert client.get(f"/api/results/{sub['id']}").status_code == 200
+    assert marks_reader.calls == 1 and len(paper_checks(client, sub["id"])) == 1
+
+
+def test_a_failing_check_never_fails_the_job(upload, make_pdf, marks_reader, client, monkeypatch):
+    import paper_match
+    from tests.test_paper_match import OTHER_PAPER, stems
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("comparison broke")
+
+    monkeypatch.setattr(paper_match, "compare", broken)
+    marks_reader.stems = stems(OTHER_PAPER)
+    sub = upload_printed(upload, make_pdf)
+    result = client.get(f"/api/results/{sub['id']}")
+    assert result.status_code == 200, result.text
+    assert result.json()["submission"]["status"] == "COMPLETED"
+    assert paper_checks(client, sub["id"]) == [
+        "Paper check: skipped - the printed questions could not be compared with the rubric."
+    ]
+
+
+def test_a_rescan_of_a_held_sheet_is_not_checked_again(upload, make_pdf, marks_reader, client):
+    from tests.test_paper_match import QUESTIONS, shuffled, stems
+
+    marks_reader.stems = stems(shuffled(QUESTIONS))
+    sub = upload_printed(upload, make_pdf)
+    assert pending_body(client, sub["id"])["status"] == "HUMAN_REVIEW_REQUIRED"
+
+    response = client.post(f"/api/submissions/{sub['id']}/rescan",
+                           files={"file": ("rescan.pdf", make_pdf(4), "application/pdf")}, data={"reviewer": "Dr. Rao"})
+    assert response.status_code == 202, response.text
+    result = client.get(f"/api/results/{sub['id']}")
+    assert result.status_code == 200, result.text
+    assert marks_reader.calls == 2 and len(paper_checks(client, sub["id"])) == 1
+
+
+def test_handwritten_sheets_have_no_paper_check(upload, fake_ai, client):
+    sub = upload().json()
+    assert client.get(f"/api/results/{sub['id']}").status_code == 200
+    assert paper_checks(client, sub["id"]) == []
+
+
+def test_a_cached_reading_keeps_its_stems_and_is_checked(upload, make_pdf, marks_reader, client, monkeypatch):
+    from tests.test_paper_match import QUESTIONS, stems
+
+    monkeypatch.setenv("OCR_CACHE", "1")
+    marks_reader.stems = stems(QUESTIONS)
+    pdf = make_pdf(3)
+    first = upload_printed(upload, make_pdf, content=pdf)
+    assert client.get(f"/api/results/{first['id']}").status_code == 200
+    second = upload_printed(upload, make_pdf, filename="neet_paper_copy.pdf", content=pdf)
+    assert client.get(f"/api/results/{second['id']}").status_code == 200
+    assert marks_reader.calls == 1  # the second sheet is an OCR cache hit
+    assert paper_checks(client, second["id"]) == [
+        "Paper check: The sheet's printed questions match the rubric (16 of 16 compared)."
+    ]

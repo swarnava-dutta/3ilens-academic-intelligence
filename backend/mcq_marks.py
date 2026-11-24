@@ -11,6 +11,11 @@ rubric's question list (the numbers are printed on the paper).
 read_marked_options() returns the same OcrResult as ai.run_ocr, so the gate, coverage message,
 deterministic MCQ scoring (marking.score_mcq), review editor and re-evaluation work unchanged.
 Options printed (1)-(4) are reported as the number; marking.normalise_option maps it to A-D.
+
+Each reading also carries the first words of the printed question ("stem", also for blank
+questions), and each reply the printed paper code / set; they are returned as
+OcrResult.question_stems / paper_code, and the pipeline checks with them that the sheet is the
+rubric's paper and version (paper_match).
 """
 from __future__ import annotations
 
@@ -33,13 +38,16 @@ from config import Settings, get_settings
 
 logger = logging.getLogger("3ilens.mcq_marks")
 
-MARKS_PROMPT_VERSION = "marks-v1"
+MARKS_PROMPT_VERSION = "marks-v2"
 MARKS_EFFORT = "medium"
 READER = "marks"
 # A rubric is "MCQ-heavy" (read with this reader) when at least this share of at least this many
 # questions are MCQs.
 MCQ_HEAVY_SHARE = 0.8
 MCQ_HEAVY_MIN_QUESTIONS = 10
+MAX_STEM_WORDS = 20      # a longer stem is cut (the reader is asked for about 12 words)
+MAX_STEM_CHARS = 200
+MAX_CODE_CHARS = 60
 
 MARKS_SYSTEM_PROMPT = """\
 You read a student's answers on a multiple-choice exam for 3iLens, an exam-evaluation platform \
@@ -63,6 +71,13 @@ confidence.
 lines, printed solutions, watermarks, publisher logos, adverts, headers and footers. A printed \
 answer is never the student's answer. Never choose an option yourself.
 - question: the question number exactly as printed (or written). Never renumber.
+- stem: the first words (about 12) of the printed question text, exactly as printed, in plain \
+text - without the question number, the options or any formatting; also for questions the \
+student left blank. stem is "" when the question text is not printed on the pages (for example \
+on a sheet where the student wrote only question numbers and options).
+- paper_code: the paper code, set or version printed on the pages you are asked about, as \
+printed (for example "Code A", "Set 2", "CODE - 45", "Test Booklet Code P"); "" when none is \
+printed there. A roll number, a question number or anything the student wrote is never the code.
 - page: the page number (from the "Page n of N" labels) on which the question number appears.
 - confidence: your calibrated certainty, from 0.0 to 1.0, that marked is right - around 0.95 for \
 a clear single mark or a clearly blank question, lower when a mark is faint, ambiguous or sits \
@@ -80,7 +95,8 @@ MARKS_INSTRUCTION_TEMPLATE = """\
 These are {span} of a {total}-page paper "{name}"{context_note}. For every question whose \
 number is printed on {span}, report the option the student marked ("" when none). Question \
 numbers in this paper run from {low} to {high}; use the numbers as printed.
-Output JSON in the format: {{"questions": [{{"question": 12, "marked": "3", "confidence": 0.95, \
+Output JSON in the format: {{"paper_code": "", "questions": [{{"question": 12, "stem": "A body of \
+mass 2 kg moves on a rough horizontal surface with a speed of", "marked": "3", "confidence": 0.95, \
 "page": {first}}}], "page_assessments": [{{"page": {first}, "legibility_confidence": 0.9}}]}}\
 """
 
@@ -90,8 +106,8 @@ MARKS_CONTEXT_LABEL = (
 )
 
 MARKS_JSON_KEYS_NOTE = (
-    "Reply with ONE JSON object with exactly these keys: questions[{question, marked, confidence, page}], "
-    "page_assessments[{page, legibility_confidence}]."
+    "Reply with ONE JSON object with exactly these keys: paper_code, questions[{question, stem, marked, "
+    "confidence, page}], page_assessments[{page, legibility_confidence}]."
 )
 
 # Readings that mean "nothing marked" (marking.normalise_option returns None for these too).
@@ -105,6 +121,7 @@ class _MarkedQuestionWire(BaseModel):
     model_config = ConfigDict(title="MarkedQuestion")
 
     question: int = Field(description="The question number exactly as printed on the paper.")
+    stem: str = Field(description='The first words (about 12) of the printed question text, as printed; "" when not printed.')
     marked: str = Field(description='The option(s) the student marked, e.g. "3" or "2, 3"; "" when none.')
     confidence: float = Field(description="Certainty that marked is right, between 0 and 1.")
     page: int = Field(description="The page number on which the question number appears.")
@@ -122,12 +139,14 @@ class MarkedOptionsWire(BaseModel):
 
     model_config = ConfigDict(title="MarkedOptions")
 
+    paper_code: str = Field(description='The printed paper code / set / version, e.g. "Code A"; "" when none.')
     questions: list[_MarkedQuestionWire]
     page_assessments: list[_MarksPageWire]
 
 
 class _MarkParse(BaseModel):
     question: Any = None
+    stem: Any = ""
     marked: Any = ""
     confidence: Any = None
     page: Any = None
@@ -139,6 +158,7 @@ class _PageParse(BaseModel):
 
 
 class _MarkedOptionsParse(BaseModel):
+    paper_code: Any = ""
     questions: list[_MarkParse] = Field(default_factory=list)
     page_assessments: list[_PageParse] = Field(default_factory=list)
 
@@ -336,6 +356,25 @@ class _MarksChunk:
     provider: str
     model: str
     dropped: list[int] = field(default_factory=list)
+    stems: dict[int, str] = field(default_factory=dict)
+    paper_code: str = ""
+
+
+def _stem(value: Any) -> str:
+    """A printed question stem as plain text: whitespace collapsed, at most MAX_STEM_WORDS words
+    and MAX_STEM_CHARS characters; "" for anything that is not text."""
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split()[:MAX_STEM_WORDS])
+    return text[:MAX_STEM_CHARS].rstrip()
+
+
+def _paper_code(value: Any) -> str:
+    """The printed paper code as reported ("Code A"), or "" when none was reported."""
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())[:MAX_CODE_CHARS].rstrip()
+    return "" if text.strip(" .-").casefold() in _EMPTY else text
 
 
 def _clamp(value: Any, default: float = 0.0) -> float:
@@ -375,10 +414,14 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
     to_own = _page_mapper(parsed, own, image_pages)
     readings: list[_Reading] = []
     dropped: list[int] = []
+    stems: dict[int, str] = {}
     for item in parsed.questions:
         number = _number(item.question)
         if number is None:
             continue
+        stem = _stem(item.stem)
+        if len(stem) > len(stems.get(number, "")):
+            stems[number] = stem
         if number not in rubric_numbers:
             dropped.append(number)
             continue
@@ -398,7 +441,8 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
     return _MarksChunk(
         first=own[0], last=own[-1], readings=readings,
         page_assessments=[PageAssessment(page=p, legibility_confidence=v) for p, v in sorted(assessments.items())],
-        raw_text=raw_text, provider=provider, model=model, dropped=sorted(set(dropped)),
+        raw_text=raw_text, provider=provider, model=model, dropped=sorted(set(dropped)), stems=stems,
+        paper_code=_paper_code(parsed.paper_code),
     )
 
 
@@ -525,6 +569,14 @@ def read_marked_options(
     served_by = fallback_chunks[0] if fallback_chunks else done[0]
     overall = round(sum(a.confidence for a in answers) / len(answers), 4) if answers else 0.0
     dropped = sorted({n for chunk in done for n in chunk.dropped})
+    # A question that runs across two requests may be read twice: the longer stem wins. The paper
+    # code is printed in page headers; the first request that saw one gives it.
+    stems: dict[int, str] = {}
+    for chunk in done:
+        for number, stem in chunk.stems.items():
+            if len(stem) > len(stems.get(number, "")):
+                stems[number] = stem
+    paper_code = next((chunk.paper_code for chunk in done if chunk.paper_code), None)
     raw_response = json.dumps(
         {
             "reader": MARKS_PROMPT_VERSION,
@@ -538,10 +590,10 @@ def read_marked_options(
     )
     logger.info(
         "Marked-option reader: %d marked answer(s) from %d page(s) in %d call(s) via %s/%s%s; overall confidence "
-        "%.2f; dropped question number(s): %s",
+        "%.2f; dropped question number(s): %s; %d question stem(s); paper code %s",
         len(answers), total, len(done), served_by.provider, served_by.model,
         f" ({len(fallback_chunks)} chunk(s) served by the fallback)" if fallback_chunks else "",
-        overall, dropped or "none",
+        overall, dropped or "none", len(stems), "seen" if paper_code else "not seen",
     )
     return OcrResult(
         answers=answers,
@@ -554,4 +606,6 @@ def read_marked_options(
         page_assessments=page_assessments,
         dropped_questions=dropped,
         language_hints=hints,
+        question_stems=dict(sorted(stems.items())),
+        paper_code=paper_code,
     )

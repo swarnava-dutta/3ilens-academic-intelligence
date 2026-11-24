@@ -69,6 +69,10 @@ class OcrResult(BaseModel):
     page_assessments: list[PageAssessment] = Field(default_factory=list)
     dropped_questions: list[int] = Field(default_factory=list)  # numbers returned but not in the rubric
     language_hints: list[str] = Field(default_factory=list)
+    # Printed MCQ papers (mcq_marks): the first words of each printed question, by number, and the
+    # printed paper code / set when one was seen - used to check the sheet is the rubric's paper.
+    question_stems: dict[int, str] = Field(default_factory=dict)
+    paper_code: str | None = None
 
 
 # --------------------------------------------------------------------------- #

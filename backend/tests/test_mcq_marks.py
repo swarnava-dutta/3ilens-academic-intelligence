@@ -177,7 +177,7 @@ def test_marks_become_answers_scored_as_options(monkeypatch):
     assert result.language_hints == ["en"]
     assert [(p.page, p.legibility_confidence) for p in result.page_assessments] == [(1, 0.9), (2, 0.9), (3, 0.9)]
     raw = json.loads(result.raw_response)
-    assert raw["reader"] == "marks-v1" and [c["pages"] for c in raw["chunks"]] == [[1, 2], [3, 3]]
+    assert raw["reader"] == "marks-v2" and [c["pages"] for c in raw["chunks"]] == [[1, 2], [3, 3]]
 
     policy = marking.policy_for({"marking_policy": {"negative_marks": 1}})
     scored = {a.question: marking.score_mcq(_mcq(a.question), a.answer, policy) for a in result.answers}
@@ -210,6 +210,65 @@ def test_conflict_sends_the_sheet_below_the_threshold(monkeypatch):
     _use(monkeypatch, MarksClaude(reply))
     (answer,) = mcq_marks.read_marked_options(_pages(4), RUBRIC).answers
     assert answer.confidence == 0.79
+
+
+def _stemmed(items: list[tuple[int, str, str, int]], pages: list[int], code: Any = "") -> dict[str, Any]:
+    """A reply with stems: items are (question, stem, marked, page)."""
+    return {
+        "paper_code": code,
+        "questions": [{"question": q, "stem": s, "marked": m, "confidence": 0.95, "page": p} for q, s, m, p in items],
+        "page_assessments": [{"page": p, "legibility_confidence": 0.9} for p in pages],
+    }
+
+
+def test_stems_and_the_paper_code_are_returned(monkeypatch):
+    long_stem = " ".join(f"word{i}" for i in range(40))
+
+    def reply(kw):
+        first = own_pages(kw)[0]
+        if first == 1:  # Q4 starts at the foot of page 2 and is read again with page 3
+            return _reply(_stemmed([(1, "  A body of mass 2 kg\n moves on a rough  surface", "2", 1),
+                                    (2, "The magnetic susceptibility is negative for", "", 1),  # blank: stem kept
+                                    (4, "A siren emitting", "", 2), (99, "Not a rubric question", "1", 2)],
+                                   [1, 2], code=None))
+        if first == 3:
+            return _reply(_stemmed([(4, "A siren emitting sound of frequency 800 Hz", "3", 3), (5, 12, "1", 3),
+                                    (6, long_stem, "", 4)], [3, 4], code="  Test Booklet Code:   P "))
+        return _reply(_stemmed([(7, "", "2", 5)], [5], code="Code Q"))
+
+    _use(monkeypatch, MarksClaude(reply))
+    result = mcq_marks.read_marked_options(_pages(5), RUBRIC)
+
+    assert result.question_stems == {
+        1: "A body of mass 2 kg moves on a rough surface",
+        2: "The magnetic susceptibility is negative for",
+        4: "A siren emitting sound of frequency 800 Hz",  # the longer reading wins
+        6: " ".join(f"word{i}" for i in range(mcq_marks.MAX_STEM_WORDS)),
+        99: "Not a rubric question",
+    }
+    assert result.paper_code == "Test Booklet Code: P"  # the first request that saw one
+    assert result.dropped_questions == [99] and [a.question for a in result.answers] == [1, 4, 5, 7]
+    assert OcrResult.model_validate(result.model_dump(mode="json")).question_stems[4].startswith("A siren")
+
+
+def test_no_paper_code_reads_as_none(monkeypatch):
+    _use(monkeypatch, MarksClaude(lambda kw: _reply(_stemmed([(1, "", "2", 1)], own_pages(kw), code="none"))))
+    result = mcq_marks.read_marked_options(_pages(1), RUBRIC)
+    assert result.paper_code is None and result.question_stems == {}
+
+
+def test_the_request_asks_for_stems_and_the_paper_code(monkeypatch):
+    fake = _use(monkeypatch, MarksClaude(lambda kw: _reply(_marks([], own_pages(kw)))))
+    mcq_marks.read_marked_options(_pages(1), RUBRIC)
+    schema = fake.calls[0]["output_config"]["format"]["schema"]
+    assert set(schema["required"]) >= {"paper_code", "questions", "page_assessments"}
+    (item,) = [d for d in schema["$defs"].values() if d.get("title") == "MarkedQuestion"]
+    assert "stem" in item["properties"] and "stem" in item["required"]
+    assert '"stem": ' in instruction_of(fake.calls[0]) and '"paper_code": ' in instruction_of(fake.calls[0])
+    assert "- stem: the first words" in mcq_marks.MARKS_SYSTEM_PROMPT
+    assert "- paper_code: the paper code" in mcq_marks.MARKS_SYSTEM_PROMPT
+    assert mcq_marks.MARKS_PROMPT_VERSION == "marks-v2"
+    assert "paper_code, questions[{question, stem, marked" in mcq_marks.MARKS_JSON_KEYS_NOTE
 
 
 def test_descriptive_and_unknown_numbers_are_not_answers(monkeypatch):
@@ -394,6 +453,14 @@ def test_the_two_readers_never_share_a_cache_key():
     assert marks == pipeline.ocr_cache_key(sub, rubric, "anthropic", "claude-sonnet-5-5", ["en"], "marks")
 
 
+def test_the_marks_cache_key_follows_the_reader_prompt_version(monkeypatch):
+    sub = SimpleNamespace(file_hash="ab" * 32, batch=SimpleNamespace(institution_id=1))
+    rubric = SimpleNamespace(content=RUBRIC)
+    current = pipeline.ocr_cache_key(sub, rubric, "anthropic", "claude-sonnet-5-5", ["en"], "marks")
+    monkeypatch.setattr(mcq_marks, "MARKS_PROMPT_VERSION", "marks-v1")  # readings without stems
+    assert pipeline.ocr_cache_key(sub, rubric, "anthropic", "claude-sonnet-5-5", ["en"], "marks") != current
+
+
 # --------------------------------------------------------------------------- #
 # Pipeline end to end (pre-processing and the reader faked)
 # --------------------------------------------------------------------------- #
@@ -420,7 +487,7 @@ def test_a_printed_mcq_paper_is_read_by_the_marks_reader_and_scored(client, uplo
                    for n, mark in [(1, "2"), (2, "(2)"), (3, "1"), (4, "2, 3"), (5, "B"), (6, "2"), (7, "2"),
                                    (8, "2"), (9, "2"), (10, "2")]]
         return OcrResult(answers=answers, overall_confidence=0.95, provider="anthropic", model="claude-sonnet-5-5",
-                         raw_response='{"reader": "marks-v1", "chunks": []}',
+                         raw_response='{"reader": "marks-v2", "chunks": []}',
                          page_assessments=[], language_hints=list(kwargs.get("language_hints") or []))
 
     monkeypatch.setattr(preprocessing, "preprocess_document", preprocess)

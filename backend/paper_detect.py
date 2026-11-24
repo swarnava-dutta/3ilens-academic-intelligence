@@ -28,6 +28,10 @@ Heuristics (all counts come from the PDF / DOCX text layer; images and audio hav
   - answer_sheet: no usable text layer (fewer than 200 characters), or fewer than 10 numbered
     questions with fewer than 5 option groups (a handwritten scan or a typed answer sheet);
   - unknown: anything else (e.g. a descriptive question paper with many numbered questions).
+
+For the same-paper check (paper_match; POST /api/intake/inspect with rubric_id):
+- question_stems: the first 12 words after each question number at a line start, by number;
+- paper_code: the printed paper code / set ("Test Booklet Code P", "CODE - 45", "Set 2").
 """
 from __future__ import annotations
 
@@ -38,11 +42,12 @@ import pymupdf
 
 import docx_reader
 import insights
+import paper_match
 import preprocessing
 import uploads
 from config import DOCX_MIME, MIME_LABELS, Settings
 from errors import ApiError
-from schemas import PaperInspection
+from schemas import PaperInspection, RubricMatch
 
 logger = logging.getLogger("3ilens.paper_detect")
 
@@ -55,6 +60,7 @@ MIN_PAPER_QUESTIONS = 10
 MIN_PAPER_OPTION_GROUPS = 5
 MAX_TITLE_CHARS = 120
 MAX_HEADING_CHARS = 40
+STEM_WORDS = 12               # words of printed question text kept per question (question_stems)
 
 AUDIO_LABELS = {"audio/mpeg": "mp3", "audio/wav": "wav", "audio/mp4": "m4a", "audio/ogg": "ogg"}
 UNSUPPORTED_DETAIL = uploads.UNSUPPORTED_DETAIL
@@ -85,6 +91,12 @@ _OPTION = re.compile(r"(?<![\w)])" + _OPTION_TOKEN)
 # Options that start a line without parentheses: "c) ...", "C. ...", "d) ...". Letters only -
 # "3)" / "3." at a line start is a question number far more often than an option.
 _OPTION_LINE = re.compile(r"(?m)^[ \t]*([a-dA-D])[ \t]*[.)][ \t]+(?=\S)")
+# A text block that starts with an option or an answer line has no question text of its own.
+_STEM_SKIP = re.compile(r"^\s*(?:\(\s*(?:[1-6]|[a-fA-F])\s*\)|[a-dA-D]\s*[.)]\s|Ans(?:wer)?\b)")
+_STEM_WORD = re.compile(r"[^\W_]{3,}")
+# Short words that can open a question ("A body ...", "In a cell ..."); other short tokens before
+# the first real word are text-layer noise (stray digits, symbols, broken glyphs).
+_SHORT_WORDS = frozenset({"a", "an", "as", "at", "by", "if", "in", "is", "it", "of", "on", "to"})
 _SUBJECTS = {
     "physics": "Physics", "chemistry": "Chemistry", "biology": "Biology", "botany": "Botany",
     "zoology": "Zoology", "mathematics": "Mathematics", "maths": "Mathematics", "math": "Mathematics",
@@ -160,6 +172,51 @@ def question_numbers(text: str) -> set[int]:
         if 1 <= number <= MAX_QUESTION_NUMBER:
             numbers.add(number)
     return numbers
+
+
+def question_stems(page_texts: list[str]) -> dict[int, str]:
+    """The first STEM_WORDS words of each printed question, by number: the text after a question
+    number at a line start, up to the next one (split numbers such as "1 3 ." or "15" / ". In" are
+    rejoined first). A scanned two-column paper's text layer often stacks the numbers before the
+    text ("1." / "2." / "From a disc ..."): the text after a stack goes to its first number and the
+    rest get none. Leading noise (stray digits, symbols) is skipped; a block that starts with an
+    option or an "Ans." line gives no stem (its question text is elsewhere). The first stem of a
+    number wins."""
+    lines = _rejoin_numbers(_clean("\n".join(page_texts))).splitlines()
+    heads: list[tuple[int, int, str]] = []  # (line index, number, rest of the line)
+    for index, raw in enumerate(lines):
+        line = raw.strip()
+        match = _QUESTION_LINE.match(line)
+        if match is None:
+            continue
+        number = int(match.group(1) or match.group(2))
+        if 1 <= number <= MAX_QUESTION_NUMBER:
+            heads.append((index, number, line[match.end():]))
+    stems: dict[int, str] = {}
+    stacked: list[int] = []
+    for position, (index, number, rest) in enumerate(heads):
+        end = heads[position + 1][0] if position + 1 < len(heads) else len(lines)
+        block = " ".join([rest, *lines[index + 1:end]]).split()
+        if not block:
+            stacked.append(number)
+            continue
+        owner = stacked[0] if stacked else number
+        stacked = []
+        if _STEM_SKIP.match(" ".join(block[:3])):
+            continue
+        start = next(
+            (i for i, token in enumerate(block) if _STEM_WORD.search(token) or token.casefold() in _SHORT_WORDS), None
+        )
+        if start is not None and owner not in stems:
+            stems[owner] = " ".join(block[start:start + STEM_WORDS])
+    return stems
+
+
+def paper_code(text: str) -> str | None:
+    """The printed paper code / set ("Test Booklet Code: P", "CODE - 45", "Paper Code A/P/W",
+    "Set 2") as "Code P" / "Code 45" / "Code A/P/W" / "Set 2"; the most frequent one when page
+    headers repeat it; None when there is none."""
+    return paper_match.code_label(_clean(text))
 
 
 def count_option_groups(text: str) -> int:
@@ -350,6 +407,12 @@ def _docx_texts(data: bytes) -> tuple[list[str], int | None, bool]:
 def inspect_bytes(data: bytes, settings: Settings) -> PaperInspection:
     """Inspect an intake file's bytes. Raises ApiError for empty, unsupported, corrupt or
     password-protected files (the same codes as POST /api/upload)."""
+    return inspect_document(data, settings)[0]
+
+
+def inspect_document(data: bytes, settings: Settings) -> tuple[PaperInspection, list[str]]:
+    """inspect_bytes() plus the text read from the file (one string per PDF page, one for a Word
+    document; [] for audio and images)."""
     if not data:
         raise ApiError(422, "The uploaded file is empty.", "empty_file")
     head = data[:8192]
@@ -365,17 +428,17 @@ def inspect_bytes(data: bytes, settings: Settings) -> PaperInspection:
             role="answer_sheet",
             max_pdf_pages=settings.max_pdf_pages,
             message="Voice answer - transcribed and mapped to the rubric questions after upload.",
-        )
+        ), []
     mime_type = uploads.sniff_mime(head)
     if mime_type is None or mime_type not in settings.allowed_mime_types:
         raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature")
     label = MIME_LABELS.get(mime_type, mime_type)
     if mime_type == "application/pdf":
         texts, pages = _pdf_texts(data)
-        return classify(texts, file_type=label, pages=pages, settings=settings)
+        return classify(texts, file_type=label, pages=pages, settings=settings), texts
     if mime_type == DOCX_MIME:
         texts, pages, too_long = _docx_texts(data)
-        return classify(texts, file_type=label, pages=pages, settings=settings, too_long=too_long)
+        return classify(texts, file_type=label, pages=pages, settings=settings, too_long=too_long), texts
     return PaperInspection(
         file_type=label,
         pages=1,
@@ -385,7 +448,16 @@ def inspect_bytes(data: bytes, settings: Settings) -> PaperInspection:
             "Photo or scan - the vision model reads it after upload (handwriting, or ticked options on a "
             "printed paper)."
         ),
-    )
+    ), []
+
+
+def match_rubric(page_texts: list[str], rubric_content: dict) -> RubricMatch | None:
+    """Same-paper check of a document's text layer against a rubric (paper_match.compare with the
+    printed question stems and paper code); None when the text has no question stems."""
+    stems = question_stems(page_texts)
+    if not stems:
+        return None
+    return paper_match.compare(stems, rubric_content, sheet_code=paper_code("\n".join(page_texts)))
 
 
 def ingestion_hint(data: bytes, mime_type: str, settings: Settings) -> str | None:

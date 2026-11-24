@@ -6,7 +6,9 @@
 - PATCH /api/batches/{id}                   exam / exam date (null = the assumed NEET_EXAM_DATE)
 - POST  /api/results/{id}/consistency-check FR-3.5 re-grade (one live Claude call), tolerance +/-2
 - POST  /api/rubrics/parse                  FR-3.4 rubric draft from text / PDF / DOCX / JSON; a PDF of
-                                            3+ pages (a full printed paper) is read as page images
+                                            3+ pages (a full printed paper) is read as page images; an
+                                            optional key_file (answer key) is applied to the draft
+- POST  /api/rubrics/answer-key             the answer key in a key-only file or pasted text (answer_keys)
 - POST  /api/rubrics                        save a rubric (AUTHOR_DRAFT or FACULTY_APPROVED)
 """
 from __future__ import annotations
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import ai
 import analytics
+import answer_keys
 import docx_reader
 import insights
 import marking
@@ -46,6 +49,7 @@ from database import (
 )
 from errors import ApiError
 from schemas import (
+    AnswerKeyExtraction,
     BatchOut,
     BatchPatchInput,
     ConsistencyCheck,
@@ -443,6 +447,7 @@ def parse_rubric(
     subject: Annotated[str | None, Form(max_length=100)] = None,
     exam: Annotated[str | None, Form(max_length=50)] = None,
     key_source: Annotated[str | None, Form(max_length=20)] = None,
+    key_file: Annotated[UploadFile | None, File()] = None,
 ) -> RubricDraft:
     """Draft a rubric. JSON is validated locally (no AI). key_source=marks: faculty confirm that the
     ticks / circles on a PDF mark the answer key (read from page images, never from the text layer).
@@ -451,7 +456,26 @@ def parse_rubric(
     images a few pages per call. Any other PDF with a text layer (e.g. a typed descriptive marking
     scheme), a DOCX or plain text is sent to Claude as text, and a short scanned PDF as a document
     block. AI-drafted expected answers are listed in ai_drafted_questions and must be reviewed
-    before the rubric is approved."""
+    before the rubric is approved.
+
+    key_file: an answer key in a separate file (answer_keys.extract), applied to the draft on every
+    path (answer_keys.apply_to_draft); the first warning (after any "Fix before saving") sums it up.
+    A key file that cannot be read leaves the draft as drafted, with a warning saying why."""
+    draft = _draft_rubric(db, file=file, text=text, subject=subject, exam=exam, key_source=key_source)
+    if key_file is None:
+        return draft
+    return _apply_key_file(db, draft, key_file)
+
+
+def _draft_rubric(
+    db: Session,
+    *,
+    file: UploadFile | None,
+    text: str | None,
+    subject: str | None,
+    exam: str | None,
+    key_source: str | None,
+) -> RubricDraft:
     key_mode = (key_source or "auto").strip().lower() or "auto"
     if key_mode not in KEY_SOURCES:
         raise ApiError(422, "key_source must be 'auto' or 'marks'.", "invalid_request")
@@ -554,6 +578,67 @@ def _parse_paper_pages(
         draft=result["draft"], warnings=result["warnings"], source="pdf",
         ai_drafted_questions=result["ai_drafted_questions"],
     )
+
+
+def _apply_key_file(db: Session, draft: RubricDraft, key_file: UploadFile) -> RubricDraft:
+    """The parse route's key_file applied to the draft; any failure becomes a warning."""
+    usages: list[ModelUsage] = []
+    reason: str | None = None
+    extraction: AnswerKeyExtraction | None = None
+    try:
+        extraction = answer_keys.extract(_read_upload(key_file), None, on_usage=usages.append)
+        if not extraction.entries:
+            reason = answer_keys.NO_ANSWER_KEY
+    except ApiError as exc:
+        reason = str(exc.detail)
+    except ai.AIConfigurationError:
+        reason = "reading it from page images needs ANTHROPIC_API_KEY."
+    except ai.AIServiceError as exc:
+        reason = str(exc)
+    except Exception:  # noqa: BLE001 - the draft is still returned
+        logger.exception("Answer key file could not be read")
+        reason = "it could not be read."
+    finally:
+        _record_usages(db, usages, None)
+    if reason is not None or extraction is None:
+        return draft.model_copy(update={"warnings": answer_keys.not_applied(draft.warnings, reason or "")})
+    content, warnings, stats = answer_keys.apply_to_draft(draft.draft, draft.warnings, extraction)
+    keyed = set(stats["keyed"])
+    logger.info(
+        "Answer key file (%s, %s): %d entries; %d set, %d changed, %d unchanged",
+        extraction.source, extraction.method, len(extraction.entries), stats["set"], stats["changed"],
+        stats["unchanged"],
+    )
+    return RubricDraft(
+        draft=content, warnings=warnings, source=draft.source,
+        ai_drafted_questions=[n for n in draft.ai_drafted_questions if n not in keyed],
+    )
+
+
+@router.post("/api/rubrics/answer-key", response_model=AnswerKeyExtraction)
+def read_answer_key(
+    db: DbSession,
+    file: Annotated[UploadFile | None, File()] = None,
+    text: Annotated[str | None, Form()] = None,
+) -> AnswerKeyExtraction:
+    """The answer key in a key-only file (PDF / DOCX / JPEG / PNG / WEBP / text, sniffed by its
+    bytes) or pasted text: a table such as "1-2, 2-4" or "Q1 (B)", a "Que. / Ans." grid, or a
+    question paper with "Ans." lines. Text is parsed with no AI call; a scanned PDF (or one whose
+    text layer gives too few entries) and an image are read by Claude from page images. Nothing is
+    stored; the client applies the entries to a rubric draft by question number."""
+    data = _read_upload(file) if file is not None else None
+    usages: list[ModelUsage] = []
+    try:
+        result = answer_keys.extract(data, text, on_usage=usages.append)
+    except ai.AIConfigurationError as exc:
+        raise _ai_not_configured("Reading an answer key from page images") from exc
+    except ai.AIServiceError as exc:
+        raise _ai_failure(exc) from exc
+    finally:
+        _record_usages(db, usages, None)
+    if not result.entries:
+        raise ApiError(422, answer_keys.NO_ANSWER_KEY, "no_answer_key")
+    return result
 
 
 @router.post("/api/rubrics", response_model=RubricOut, status_code=201)

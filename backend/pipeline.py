@@ -9,6 +9,8 @@ What a run does (mode "full"):
   custody check (SHA-256 of the stored upload == the hash recorded at ingestion)
   -> pre-processing (real: 300 DPI master, deskew / contrast / unsharp; preprocessing.py)
   -> OCR (AI call 1) or an OCR-cache hit (FR-2.5: same bytes + rubric questions + model)
+  -> same-paper check for a printed MCQ paper (paper_match: its printed questions and code against
+     the rubric; another paper or version -> faculty review)
   -> per-page confidence gate (FR-2.4: any page or the sheet below the threshold -> faculty review)
   -> grading (AI call 2) -> deterministic insights -> persistence (results_store).
 A voice answer (FR-2.8, input_kind "voice") replaces pre-processing + OCR with speech-to-text
@@ -46,6 +48,7 @@ import insights
 import preprocessing
 import marking
 import mcq_marks
+import paper_match
 import provenance
 import results_store
 import voice
@@ -62,7 +65,7 @@ from database import (
     utc_iso,
     utcnow,
 )
-from schemas import ReportPayload
+from schemas import ReportPayload, RubricMatch
 
 logger = logging.getLogger("3ilens.pipeline")
 
@@ -77,6 +80,12 @@ TRANSCRIPT_CACHE_VERSION = "transcript-v1"  # OCR-cache rows holding a voice tra
 DEMO_REGRADE_MESSAGE = "Synthetic demo re-run - no AI call"
 DEMO_NEW_QUESTION_GAP = "Not graded - new in this rubric version (demo)"
 ALL_MCQ_MESSAGE = "All questions are MCQs - auto-scored deterministically (no grading call)"
+PAPER_CHECK_PREFIX = "Paper check: "
+PAPER_CHECK_FAILED = "skipped - the printed questions could not be compared with the rubric."
+PAPER_HOLD_MESSAGE = (
+    "Held for faculty review - not scored. Approve the sheet in the review editor to score it with this "
+    "rubric anyway, or upload it again with the right rubric."
+)
 MAX_ERROR_CHARS = 500
 
 # current_step while a re-evaluation is queued / running: GET /api/results/{id} answers 202
@@ -493,9 +502,9 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
 
                 # ---- Step 4: OCR (AI call 1) or OCR-cache hit --------------------- #
                 step = "OCR & Parse"
-                ocr, cache_key = _ocr_stage(job, pages)
-                if _gate(job, ocr, len(pages)):
-                    return  # held for faculty review (FR-2.4)
+                ocr, cache_key, paper_check = _ocr_stage(job, pages)
+                if _gate(job, ocr, len(pages), paper_check=paper_check):
+                    return  # held for faculty review (FR-2.4, or another paper / version)
                 _cache_store(job, cache_key, ocr)
                 answers = list(ocr.answers)
         else:
@@ -754,7 +763,33 @@ def ocr_reader(sub: StudentSubmission, rubric_content: dict[str, Any] | None, pa
     return READER_MARKS if role in ("question_paper", "answer_key_paper") else READER_OCR
 
 
-def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
+def _paper_check(job: _Job, ocr: OcrResult) -> RubricMatch | None:
+    """Same-paper check (paper_match) of a printed MCQ paper read by the marks reader: its printed
+    question stems and paper code against the rubric. Only on a full run of an upload or a retry -
+    never on a rescan (faculty already looked at the sheet); evaluation-only runs (review approval,
+    re-evaluation) never reach OCR. None when not run. Never raises: a failed check is logged and
+    the sheet carries on."""
+    if job.mode != MODE_FULL or job.reason == "rescan":
+        return None
+    if not ocr.question_stems and not ocr.paper_code:
+        return None
+    try:
+        match = paper_match.compare(ocr.question_stems, job.sub.rubric.content or {}, sheet_code=ocr.paper_code)
+    except Exception:  # noqa: BLE001 - the check must never fail the job
+        logger.exception("Paper check failed for submission %s - continuing without it", job.sub.id)
+        _record(job.db, job.sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{PAPER_CHECK_FAILED}")
+        return None
+    _record(job.db, job.sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{match.message}")
+    return match
+
+
+def _ocr_artifact(job: _Job, ocr: OcrResult, check: RubricMatch | None) -> None:
+    extra = {"paper_check": check.model_dump(mode="json")} if check is not None else {}
+    _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, job.sub.rubric, **extra))
+
+
+def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None, RubricMatch | None]:
+    """(OCR result, cache key to store it under or None, same-paper check or None)."""
     db, sub = job.db, job.sub
     settings = get_settings()
     rubric = sub.rubric
@@ -766,8 +801,9 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
         cache_key = ocr_cache_key(sub, rubric, provider, model, hints, reader)
         cached = _cache_hit(job, cache_key, provider, model)
         if cached is not None:
-            _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(cached, rubric))
-            return cached, None  # already cached - nothing to store
+            check = _paper_check(job, cached)
+            _ocr_artifact(job, cached, check)
+            return cached, None, check  # already cached - nothing to store
 
     if reader == READER_MARKS:
         per_call = max(1, settings.mcq_ocr_pages_per_call)
@@ -786,8 +822,9 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
                 pages, rubric.content, language_hints=hints, on_usage=on_usage
             ),
         )
-        _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, rubric))
-        return ocr, cache_key
+        check = _paper_check(job, ocr)
+        _ocr_artifact(job, ocr, check)
+        return ocr, cache_key, check
 
     per_call = ai.ocr_pages_per_call(settings, rubric.content)
     split = (
@@ -806,7 +843,7 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None]:
         lambda on_usage: ai.run_ocr(pages, rubric.content, language_hints=hints, on_usage=on_usage),
     )
     _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, rubric))
-    return ocr, cache_key
+    return ocr, cache_key, None  # handwriting has no printed question text to check
 
 
 def _transcript_cache_hit(job: _Job, cache_key: str, model: str) -> Transcript | None:
@@ -946,9 +983,11 @@ def coverage_message(ocr: OcrResult, rubric_content: dict[str, Any]) -> str:
     return "; ".join(parts) + "."
 
 
-def _gate(job: _Job, ocr: OcrResult, page_total: int) -> bool:
-    """Record confidences; True (and HUMAN_REVIEW_REQUIRED) when the sheet or any page is below
-    the threshold, or a document sheet has an answer for fewer than half of the rubric questions."""
+def _gate(job: _Job, ocr: OcrResult, page_total: int, *, paper_check: RubricMatch | None = None) -> bool:
+    """Record confidences; True (and HUMAN_REVIEW_REQUIRED) when the same-paper check found another
+    paper or version (reordered / mismatch - its message becomes the sheet's error message), the
+    sheet or any page is below the threshold, or a document sheet has an answer for fewer than half
+    of the rubric questions."""
     db, sub = job.db, job.sub
     threshold = get_settings().ocr_confidence_threshold
     confidence = round(float(ocr.overall_confidence), 3)
@@ -965,6 +1004,15 @@ def _gate(job: _Job, ocr: OcrResult, page_total: int) -> bool:
     numbers = set(_rubric_numbers(sub.rubric.content or {}))
     answered = len(numbers & {a.question for a in ocr.answers if (a.answer or "").strip()})
     mostly_blank = page_total > 0 and answered * 2 < len(numbers)  # voice rows (no pages) answer one question
+    if paper_check is not None and paper_check.verdict in paper_match.HOLD_VERDICTS:
+        # Scoring against another paper's key would be silently wrong: faculty decide. Approving the
+        # sheet in the review editor grades it in an evaluation-only run, which never re-checks.
+        _record(
+            db, sub, "Human review", PAPER_HOLD_MESSAGE,
+            status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step="Human review",
+            error_message=paper_check.message[:MAX_ERROR_CHARS],
+        )
+        return True
     if confidence >= threshold and not flagged and not mostly_blank:
         return False
 

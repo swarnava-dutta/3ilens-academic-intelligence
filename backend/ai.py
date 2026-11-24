@@ -95,7 +95,7 @@ OPENAI_MAX_COMPLETION_TOKENS = 8000
 OCR_PROMPT_VERSION = "ocr-v4"
 EVALUATION_PROMPT_VERSION = "eval-v3"
 RUBRIC_PARSE_PROMPT_VERSION = "rubric-v2"
-RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v1"
+RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v2"
 BLOOM_DETECT_PROMPT_VERSION = "bloom-v1"
 
 # Post-processing caps (structured outputs cannot enforce maxItems / minLength).
@@ -274,6 +274,10 @@ class RubricPagesWire(BaseModel):
 
     name: str = Field(description="The paper title when it is printed on these pages, else an empty string.")
     subject: str
+    paper_code: str = Field(
+        description="The paper code, set or version printed on these pages (for example \"Code A\", \"Set 2\", "
+        "\"CODE - 45\"), else an empty string."
+    )
     questions: list[_RubricQuestionWire]
     answer_key: list[_AnswerKeyEntryWire] = Field(
         description="Entries of an answer-key table printed on these pages; empty when there is none."
@@ -354,6 +358,7 @@ class _AnswerKeyEntryParse(BaseModel):
 class _RubricPagesParse(BaseModel):
     name: str = ""
     subject: str = ""
+    paper_code: Any = ""
     questions: list[_RubricQuestionParse] = Field(default_factory=list)
     answer_key: list[_AnswerKeyEntryParse] = Field(default_factory=list)
 
@@ -741,7 +746,9 @@ question when the paper shows them. effort_hours may be 0.
 - subject: from the section heading (Physics, Chemistry, Biology, Botany, Zoology, \
 Mathematics, ...) or, when no heading is visible on these pages, from the question content. \
 On NEET papers, Botany and Zoology questions are Biology.
-- name: the paper title when it is printed on these pages, else an empty string.\
+- name: the paper title when it is printed on these pages, else an empty string.
+- paper_code: the paper code, set or version printed on these pages (a test booklet code such \
+as "Code A", "Set 2" or "CODE - 45"), else an empty string. Never invent one.\
 """
 
 
@@ -1600,6 +1607,8 @@ def parse_rubric_pages(
 
     merged, notes = _merge_rubric_parts(parts)
     result = finalise_rubric_draft(merged, subject_hint=subject_hint)
+    if merged.get("paper_code"):  # RubricContentIn.paper_code (at most 60 characters, see paper_code_label)
+        result["draft"]["paper_code"] = merged["paper_code"]
     questions = _rubric_questions(result["draft"])
     numbers = sorted(n for n in (_question_number(q) for q in questions) if n is not None)
     mcqs = [q for q in questions if marking.question_type(q) == "mcq"]
@@ -1731,10 +1740,12 @@ def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any],
     seen_in: dict[int, list[tuple[int, str]]] = {}  # number -> [(part index, prompt)]
     key_table: dict[int, str] = {}
     name = subject = ""
+    paper_code: str | None = None
     unnumbered = 0
     for index, part in enumerate(parts):
         name = name or " ".join(part.name.split())
         subject = subject or " ".join(part.subject.split())
+        paper_code = paper_code or paper_code_label(part.paper_code)
         for entry in part.answer_key:
             number = insights._as_int(entry.question)
             option = " ".join(str(entry.option or "").split())
@@ -1811,7 +1822,32 @@ def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any],
         "subject": subject,
         "questions": [by_number[number] for number in sorted(by_number)],
     }
+    if paper_code:
+        merged["paper_code"] = paper_code
     return merged, notes
+
+
+_SET_WORD = re.compile(r"\bset\b", re.IGNORECASE)
+_CODE_WORD = re.compile(r"\bcode\b", re.IGNORECASE)
+MAX_PAPER_CODE_CHARS = 60  # schemas.RubricContentIn.paper_code
+_NO_PAPER_CODE = frozenset({"", "n/a", "na", "n.a", "n. a", "none", "nil", "null", "-", "--", "unknown",
+                            "not printed", "not available", "no code", "not visible"})
+
+
+def paper_code_label(raw: Any) -> str | None:
+    """A printed paper code as stored on a rubric: "CODE - 45" / "45" -> "Code 45", "set b" ->
+    "Set B", "A/P/W" -> "Code A/P/W"; None when raw names no code (the code itself is read by
+    paper_match.normalise_code, so the same-paper check reads it back unchanged)."""
+    import paper_match  # local import: the paper-code rules live with the same-paper check
+
+    text = " ".join(str(raw or "").split()) if isinstance(raw, (str, int)) and not isinstance(raw, bool) else ""
+    if text.casefold().strip(" .") in _NO_PAPER_CODE:
+        return None  # "N/A", "none", "-": the model saw no code
+    code = paper_match.normalise_code(text) if text else None
+    if not code:
+        return None
+    label = "Set" if _SET_WORD.search(text) and not _CODE_WORD.search(text) else "Code"
+    return f"{label} {code}"[:MAX_PAPER_CODE_CHARS]
 
 
 def _fill_mcq_criteria(question: dict[str, Any]) -> None:
