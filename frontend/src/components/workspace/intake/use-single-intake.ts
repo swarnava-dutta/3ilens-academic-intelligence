@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
-import type { LanguageHint, Submission } from "@/lib/types";
+import type { LanguageHint, PaperInspection, Submission } from "@/lib/types";
 import { isAudio, MAX_UPLOAD_BYTES, validateAnswerSheet } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import { checkSignature, deriveStudentName, isVoiceKind, readHead, rollNoProblem, sha256Hex, type SignatureCheck } from "./inspect";
+import { fetchInspection, isPaperCandidate, pageLimitProblem } from "./paper";
 import { voiceQuestionFor } from "./voice-fields";
 
 export type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
@@ -34,6 +35,11 @@ export function useSingleIntake(
   const [hash, setHash] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [fileMessage, setFileMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
+  /** What the server reads from the document's text layer (printed paper / answer key); advisory. */
+  const [inspection, setInspection] = useState<PaperInspection | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+  /** Faculty chose to upload an answer-key paper as a student sheet anyway. */
+  const [paperNoticeDismissed, setPaperNoticeDismissed] = useState(false);
 
   const [studentName, setStudentNameState] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
@@ -72,6 +78,9 @@ export function useSingleIntake(
     setFile(next);
     setSignature(null);
     setHash(null);
+    setInspection(null);
+    setInspecting(false);
+    setPaperNoticeDismissed(false);
     setChecking(true);
     setFileMessage(extraNote ? { tone: "info", text: extraNote } : null);
     setPreviewUrl(next.type.startsWith("image/") || isAudio(next) ? URL.createObjectURL(next) : null);
@@ -95,6 +104,7 @@ export function useSingleIntake(
       setPreviewUrl(null);
       return;
     }
+    if (isPaperCandidate(check.kind)) void inspectDocument(next, version);
     let digest: string | null = null;
     try {
       digest = await sha256Hex(next);
@@ -106,12 +116,24 @@ export function useSingleIntake(
     setChecking(false);
   }
 
+  /** One inspection in flight per pick; a result for an earlier file is dropped. */
+  async function inspectDocument(target: File, version: number) {
+    setInspecting(true);
+    const result = await fetchInspection(target);
+    if (version !== pickVersion.current) return;
+    setInspection(result);
+    setInspecting(false);
+  }
+
   function clearFile() {
     pickVersion.current += 1;
     setFile(null);
     setPreviewUrl(null);
     setSignature(null);
     setHash(null);
+    setInspection(null);
+    setInspecting(false);
+    setPaperNoticeDismissed(false);
     setChecking(false);
     setFileMessage(null);
     setVoiceQuestion(null);
@@ -119,6 +141,8 @@ export function useSingleIntake(
 
   /** The attached file is a voice answer (by its bytes once checked, else by its name/type). */
   const isVoice = file !== null && (signature?.kind ? isVoiceKind(signature.kind) : isAudio(file));
+  /** Over the server's page limit (from the inspection): blocks the upload like other client checks. */
+  const pageProblem = file ? pageLimitProblem(inspection) : null;
 
   async function submit(settings: SingleUploadSettings) {
     if (uploading) return;
@@ -135,6 +159,10 @@ export function useSingleIntake(
     const rollProblem = rollNoProblem(rollNo);
     if (rollProblem) {
       setNotice({ kind: "error", message: rollProblem });
+      invalid = true;
+    }
+    if (pageProblem) {
+      setFileMessage({ tone: "error", text: `"${file?.name ?? "This file"}" has ${pageProblem}.` });
       invalid = true;
     }
     if (invalid || !file || checking) return;
@@ -182,6 +210,11 @@ export function useSingleIntake(
     signature,
     hash,
     checking,
+    inspection,
+    inspecting,
+    pageProblem,
+    paperNoticeDismissed,
+    dismissPaperNotice: () => setPaperNoticeDismissed(true),
     fileMessage,
     studentName,
     setStudentName,

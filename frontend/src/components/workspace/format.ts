@@ -5,6 +5,8 @@ export const FALLBACK_INSTITUTION = "Instit-42";
 export const FALLBACK_BATCH = "NEET-A Mock-07";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Health.max_pdf_pages when the API has not answered yet (backend MAX_PDF_PAGES default). */
+export const DEFAULT_MAX_PDF_PAGES = 40;
 /** Files above this are fine in the PoC (one streamed POST); production would use S3 presigned multipart. */
 export const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";

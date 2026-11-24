@@ -23,6 +23,10 @@ export interface RubricChoice {
 
 type Notice = { kind: "success" | "error"; message: string } | null;
 
+export function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
 /** Friendly text for POST /api/rubrics/parse failures. */
 export function parseErrorMessage(err: unknown): string {
   const code = errorCode(err);
@@ -60,9 +64,22 @@ export interface RubricSourceState {
   sourceFile: File | null;
   setSourceFile: (file: File | null) => void;
   parsing: boolean;
+  /** The running draft reads a PDF (page by page on the server; a full paper takes minutes). */
+  parsingPdf: boolean;
+  /** Seconds since the running draft started (0 when idle). */
+  parseElapsed: number;
   parseError: string | null;
   runParse: () => Promise<void>;
+  /** Switch to PDF/DOCX mode with this file and start drafting (from an answer-key paper at intake). */
+  /** keyFromMarks: the ticks on the paper mark the answer key (printed MCQ paper without a key). */
+  draftFromFile: (file: File, options?: { keyFromMarks?: boolean }) => Promise<void>;
+  /** Upload mode: the ticks / circles on the uploaded paper mark the correct options (reset when
+   *  the source file changes, after saving and on discard - it belongs to one paper). */
+  keyFromMarks: boolean;
+  setKeyFromMarks: (value: boolean) => void;
   draft: RubricDraft | null;
+  /** Bumped for every new draft, so the review editor starts fresh (view, open question, paging). */
+  draftSerial: number;
   content: RubricContent | null;
   setContent: (content: RubricContent) => void;
   discardDraft: () => void;
@@ -86,13 +103,22 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
   const [customError, setCustomError] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState("");
   const [subjectHint, setSubjectHint] = useState("");
+  const [keyFromMarks, setKeyFromMarks] = useState(false);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [parsingPdf, setParsingPdf] = useState(false);
+  const [parseStartedAt, setParseStartedAt] = useState<number | null>(null);
+  const [parseElapsed, setParseElapsed] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
   const [draft, setDraft] = useState<RubricDraft | null>(null);
+  const [draftSerial, setDraftSerial] = useState(0);
   const [content, setContentState] = useState<RubricContent | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  // The tab that was open when an intake notice started a draft (draftFromFile switches to
+  // PDF/DOCX). While that draft is open, uploads keep using that tab's rubric (e.g. a custom JSON),
+  // and discarding the draft goes back to it. Cleared by an explicit tab change or a save.
+  const [heldMode, setHeldMode] = useState<RubricMode | null>(null);
 
   // Load rubrics on mount and again whenever the API comes back online.
   useEffect(() => {
@@ -111,12 +137,22 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     };
   }, [apiOnline]);
 
+  // Elapsed-time counter while a draft runs (a full question paper takes a few minutes).
+  useEffect(() => {
+    if (parseStartedAt === null) return;
+    const timer = window.setInterval(
+      () => setParseElapsed(Math.max(0, Math.round((Date.now() - parseStartedAt) / 1000))),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [parseStartedAt]);
+
   const selectedId =
     rubricId !== null && rubrics?.some((r) => r.id === rubricId) ? rubricId : (rubrics?.[0]?.id ?? null);
   const selectedRubric = rubrics?.find((r) => r.id === selectedId) ?? null;
 
   let choice: RubricChoice | null = null;
-  if (mode === "json" && custom) {
+  if ((mode === "json" || heldMode === "json") && custom) {
     choice = { rubricJson: custom.text, label: `${custom.name} (custom JSON, ${custom.totalMarks} marks)` };
   } else if (selectedRubric) {
     choice = { rubricId: selectedRubric.id, label: rubricLabel(selectedRubric) };
@@ -124,6 +160,7 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
 
   function setMode(next: RubricMode) {
     setModeState(next);
+    setHeldMode(null);
     setParseError(null);
     setNotice(null);
   }
@@ -156,6 +193,33 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     setCustomError(null);
   }
 
+  /** Draft from pasted text or a file; `file` wins over the state (draftFromFile passes it directly). */
+  async function draftRubric(source: { text?: string; file?: File; keyFromMarks?: boolean }) {
+    setParsing(true);
+    setParsingPdf(!!source.file && isPdfFile(source.file));
+    setParseElapsed(0);
+    setParseStartedAt(Date.now());
+    try {
+      const result = await parseRubric({
+        text: source.text,
+        file: source.file,
+        subject: subjectHint.trim() || undefined,
+        exam: "NEET",
+        keySource: source.file && source.keyFromMarks ? "marks" : undefined,
+      });
+      setDraft(result);
+      setDraftSerial((n) => n + 1);
+      setContentState(cloneContent(result.draft));
+    } catch (err) {
+      setParseError(parseErrorMessage(err));
+    } finally {
+      setParsing(false);
+      setParsingPdf(false);
+      setParseStartedAt(null);
+      setParseElapsed(0);
+    }
+  }
+
   async function runParse() {
     if (parsing) return;
     setParseError(null);
@@ -169,27 +233,43 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
       setParseError("Choose the question paper / marking scheme (PDF or DOCX).");
       return;
     }
-    setParsing(true);
-    try {
-      const result = await parseRubric({
-        text: mode === "paste" ? text : undefined,
-        file: mode === "upload" ? (sourceFile ?? undefined) : undefined,
-        subject: subjectHint.trim() || undefined,
-        exam: "NEET",
-      });
-      setDraft(result);
-      setContentState(cloneContent(result.draft));
-    } catch (err) {
-      setParseError(parseErrorMessage(err));
-    } finally {
-      setParsing(false);
+    await draftRubric(
+      mode === "paste"
+        ? { text }
+        : { file: sourceFile ?? undefined, keyFromMarks: keyFromMarks && !!sourceFile && isPdfFile(sourceFile) },
+    );
+  }
+
+  /** A new source file starts unticked: "ticks mark the key" belongs to one paper. */
+  function chooseSourceFile(file: File | null) {
+    setSourceFile(file);
+    setKeyFromMarks(false);
+  }
+
+  async function draftFromFile(file: File, options?: { keyFromMarks?: boolean }) {
+    if (mode !== "upload" && heldMode === null) setHeldMode(mode);
+    setModeState("upload");
+    if (parsing) {
+      setParseError(`A draft is already running - draft "${file.name}" again when it finishes.`);
+      return;
     }
+    const fromMarks = !!options?.keyFromMarks;
+    setSourceFile(file);
+    setKeyFromMarks(fromMarks);
+    setParseError(null);
+    setNotice(null);
+    await draftRubric({ file, keyFromMarks: fromMarks });
   }
 
   function discardDraft() {
     setDraft(null);
     setContentState(null);
     setParseError(null);
+    setKeyFromMarks(false);
+    if (heldMode !== null) {
+      setModeState(heldMode);
+      setHeldMode(null);
+    }
   }
 
   async function approveAndSave() {
@@ -211,6 +291,8 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
       setRubrics((prev) => [...(prev ?? []).filter((r) => r.id !== saved.id), saved]);
       setRubricId(saved.id);
       setModeState("saved");
+      setHeldMode(null);
+      setKeyFromMarks(false);
       setDraft(null);
       setContentState(null);
       setPasteText("");
@@ -248,12 +330,18 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     setPasteText,
     subjectHint,
     setSubjectHint,
+    keyFromMarks,
+    setKeyFromMarks,
     sourceFile,
-    setSourceFile,
+    setSourceFile: chooseSourceFile,
     parsing,
+    parsingPdf,
+    parseElapsed,
     parseError,
     runParse,
+    draftFromFile,
     draft,
+    draftSerial,
     content,
     setContent: setContentState,
     discardDraft,

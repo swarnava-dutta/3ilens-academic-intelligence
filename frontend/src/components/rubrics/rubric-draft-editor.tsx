@@ -4,10 +4,26 @@ import { useId, useState } from "react";
 import { AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react";
 import type { MarkingPolicy, RubricContent, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { AnswerKeyTable } from "./answer-key-table";
 import { BloomField } from "./bloom-field";
 import { MarkingPolicyFields } from "./marking-policy-fields";
 import { QuestionMarkingFields, QuestionTypeField } from "./question-marking-fields";
-import { blankQuestion, compareContents, isMcq, totalMarks, validateContent } from "./rubric-utils";
+import {
+  ANSWER_KEY_VIEW_THRESHOLD,
+  MAX_RUBRIC_QUESTIONS,
+  blankQuestion,
+  compareContents,
+  isMcq,
+  totalMarks,
+  validateContent,
+} from "./rubric-utils";
+
+/** Warnings shown before "Show all N". */
+const WARNINGS_SHOWN = 6;
+/** Rows per "Show more" step of the full list on long papers. */
+const FULL_LIST_STEP = 20;
+
+type EditorView = "key" | "full";
 
 const fieldClass =
   "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
@@ -21,6 +37,11 @@ function numberValue(value: number): number | "" {
 function parseNumber(text: string): number {
   return text.trim() === "" ? Number.NaN : Number(text);
 }
+
+const VIEW_OPTIONS: { value: EditorView; label: string }[] = [
+  { value: "key", label: "Answer key" },
+  { value: "full", label: "All questions" },
+];
 
 interface RubricDraftEditorProps {
   value: RubricContent;
@@ -42,6 +63,15 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
   const issues = validateContent(value);
   const diff = baseline ? compareContents(baseline, value) : null;
   const drafted = new Set(aiDrafted);
+  // Long papers (a full NEET paper has 180 MCQs) open on the dense answer-key table.
+  const large = value.questions.length > ANSWER_KEY_VIEW_THRESHOLD;
+  const [view, setView] = useState<EditorView>(large ? "key" : "full");
+  const [editing, setEditing] = useState<number | null>(null);
+  const [fullLimit, setFullLimit] = useState(FULL_LIST_STEP);
+  const [allWarnings, setAllWarnings] = useState(false);
+  const showKey = large && view === "key";
+  const shownQuestions = large ? value.questions.slice(0, fullLimit) : value.questions;
+  const shownWarnings = allWarnings ? warnings : warnings.slice(0, WARNINGS_SHOWN);
 
   function update(index: number, patch: Partial<RubricQuestion>) {
     onChange({
@@ -51,11 +81,33 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
   }
 
   function remove(index: number) {
+    setEditing(null);
     onChange({ ...value, questions: value.questions.filter((_, i) => i !== index) });
   }
 
   function add() {
     onChange({ ...value, questions: [...value.questions, blankQuestion(value.questions, value.subject)] });
+    // On the answer-key table, open the new question's editor; on a long full list, show it.
+    if (showKey) setEditing(value.questions.length);
+    else if (large) setFullLimit(value.questions.length + 1);
+  }
+
+  function questionRow(index: number) {
+    const q = value.questions[index];
+    return (
+      <QuestionRow
+        key={index}
+        idPrefix={`${ids}-q${index}`}
+        question={q}
+        policy={value.marking_policy}
+        problems={issues.byIndex[index] ?? []}
+        aiDrafted={drafted.has(q.question)}
+        changeTag={diff?.added.includes(q.question) ? "new" : diff?.changed.includes(q.question) ? "changed" : null}
+        disabled={disabled}
+        onChange={(patch) => update(index, patch)}
+        onRemove={value.questions.length > 1 ? () => remove(index) : undefined}
+      />
+    );
   }
 
   return (
@@ -103,14 +155,26 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
       />
 
       {warnings.length > 0 ? (
-        <ul className="space-y-1 border-l-2 border-amber-500 pl-3 text-sm text-amber-900">
-          {warnings.map((w, i) => (
-            <li key={i} className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-              {w}
-            </li>
-          ))}
-        </ul>
+        <div className="border-l-2 border-amber-500 pl-3">
+          <ul className="space-y-1 text-sm text-amber-900">
+            {shownWarnings.map((w, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                <span className="min-w-0 break-words">{w}</span>
+              </li>
+            ))}
+          </ul>
+          {warnings.length > WARNINGS_SHOWN ? (
+            <button
+              type="button"
+              onClick={() => setAllWarnings((v) => !v)}
+              aria-expanded={allWarnings}
+              className="mt-1 inline-flex items-center gap-1 rounded text-xs font-medium text-amber-900 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+            >
+              {allWarnings ? "Show fewer" : `Show all ${warnings.length}`}
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -130,38 +194,74 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
         ) : null}
       </div>
 
-      {/* Column header (desktop) */}
-      <div
-        className="hidden grid-cols-[4.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_4.5rem_4.5rem_2.25rem] gap-2 px-3 text-xs font-medium text-slate-500 lg:grid"
-        aria-hidden
-      >
-        <span>Q #</span>
-        <span>Topic</span>
-        <span>Subject</span>
-        <span>Chapter</span>
-        <span>Marks</span>
-        <span>Effort h</span>
-        <span />
-      </div>
+      {large ? (
+        <div role="radiogroup" aria-label="Draft view" className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+          {VIEW_OPTIONS.map((option) => {
+            const active = view === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => {
+                  setView(option.value);
+                  setEditing(null);
+                }}
+                className={cn(
+                  "inline-flex h-8 items-center rounded-sm px-3 text-xs font-medium transition-colors duration-150",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan",
+                  active ? "bg-brand-navy text-white" : "text-slate-600 hover:bg-slate-50 hover:text-brand-navy",
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
-      <ol className="space-y-3">
-        {value.questions.map((q, index) => (
-          <QuestionRow
-            key={index}
-            idPrefix={`${ids}-q${index}`}
-            question={q}
-            policy={value.marking_policy}
-            problems={issues.byIndex[index] ?? []}
-            aiDrafted={drafted.has(q.question)}
-            changeTag={
-              diff?.added.includes(q.question) ? "new" : diff?.changed.includes(q.question) ? "changed" : null
-            }
-            disabled={disabled}
-            onChange={(patch) => update(index, patch)}
-            onRemove={value.questions.length > 1 ? () => remove(index) : undefined}
-          />
-        ))}
-      </ol>
+      {showKey ? (
+        <AnswerKeyTable
+          questions={value.questions}
+          problems={issues.byIndex}
+          drafted={drafted}
+          disabled={disabled}
+          onChange={update}
+          editing={editing !== null && editing < value.questions.length ? editing : null}
+          onEdit={setEditing}
+          renderEditor={(index) => <ol>{questionRow(index)}</ol>}
+        />
+      ) : (
+        <>
+          {/* Column header (desktop) */}
+          <div
+            className="hidden grid-cols-[4.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_4.5rem_4.5rem_2.25rem] gap-2 px-3 text-xs font-medium text-slate-500 lg:grid"
+            aria-hidden
+          >
+            <span>Q #</span>
+            <span>Topic</span>
+            <span>Subject</span>
+            <span>Chapter</span>
+            <span>Marks</span>
+            <span>Effort h</span>
+            <span />
+          </div>
+
+          <ol className="space-y-3">{shownQuestions.map((_, index) => questionRow(index))}</ol>
+
+          {large && fullLimit < value.questions.length ? (
+            <button
+              type="button"
+              onClick={() => setFullLimit((n) => n + FULL_LIST_STEP)}
+              className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-brand-navy hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+            >
+              Show {Math.min(FULL_LIST_STEP, value.questions.length - fullLimit)} more (
+              {value.questions.length - fullLimit} not shown)
+            </button>
+          ) : null}
+        </>
+      )}
 
       {diff && diff.removed.length > 0 ? (
         <p className="text-xs text-rose-700">Removed from the previous version: {diff.removed.map((n) => `Q${n}`).join(", ")}</p>
@@ -171,7 +271,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
         <button
           type="button"
           onClick={add}
-          disabled={disabled || value.questions.length >= 60}
+          disabled={disabled || value.questions.length >= MAX_RUBRIC_QUESTIONS}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden />
@@ -310,7 +410,8 @@ function QuestionRow({
             onChange={(e) => onChange({ effort_hours: parseNumber(e.target.value) })}
           />
         </div>
-        <div className="flex items-end justify-end">
+        {/* Own full-width row below lg, button at the right edge (not floating mid-form on phones). */}
+        <div className="col-span-2 flex items-end justify-end sm:col-span-3 lg:col-span-1">
           {onRemove ? (
             <button
               type="button"

@@ -297,6 +297,7 @@ export function RubricVersionsPanel({
             />
 
             <RubricDraftEditor
+              key={selected.id}
               value={editing}
               onChange={(next) => setContent(next)}
               baseline={baseline}

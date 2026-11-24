@@ -33,6 +33,7 @@ import type {
   OpsCosts,
   OwnerDashboard,
   PageRef,
+  PaperInspection,
   ReevaluateInput,
   ReevaluationEstimate,
   ReleaseInfo,
@@ -68,6 +69,10 @@ export const api = axios.create({
 /** Calls that wait on a live Claude request (grading can take minutes at effort "high"). */
 const AI_TIMEOUT_MS = 400_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
+/** Rubric drafting: a long question-paper PDF is read page by page (a full paper takes minutes). */
+const RUBRIC_PARSE_TIMEOUT_MS = 600_000;
+/** POST /api/intake/inspect reads the text layer locally (no AI). */
+const INSPECT_TIMEOUT_MS = 30_000;
 
 /** Human-readable message from an axios/FastAPI error (uses FastAPI's `detail`). */
 export function errorMessage(err: unknown): string {
@@ -190,6 +195,16 @@ export async function uploadSubmission(input: {
     },
   });
   return res.data;
+}
+
+/**
+ * What an intake file looks like (answer sheet, printed MCQ paper or a paper with its answer key),
+ * read locally from its text layer - no AI call, nothing stored. Older API builds answer 404.
+ */
+export async function inspectPaper(file: File): Promise<PaperInspection> {
+  const form = new FormData();
+  form.append("file", file);
+  return (await api.post<PaperInspection>("/api/intake/inspect", form, { timeout: INSPECT_TIMEOUT_MS })).data;
 }
 
 export type ResultResponse =
@@ -336,13 +351,16 @@ export async function parseRubric(input: {
   text?: string;
   subject?: string;
   exam?: string;
+  /** "marks": faculty confirm that the ticks on the paper mark the answer key. */
+  keySource?: "auto" | "marks";
 }): Promise<RubricDraft> {
   const form = new FormData();
   if (input.file) form.append("file", input.file);
   if (input.text) form.append("text", input.text);
   if (input.subject) form.append("subject", input.subject);
   if (input.exam) form.append("exam", input.exam);
-  return (await api.post<RubricDraft>("/api/rubrics/parse", form, { timeout: AI_TIMEOUT_MS })).data;
+  if (input.keySource) form.append("key_source", input.keySource);
+  return (await api.post<RubricDraft>("/api/rubrics/parse", form, { timeout: RUBRIC_PARSE_TIMEOUT_MS })).data;
 }
 
 export async function createRubric(input: RubricCreateInput): Promise<Rubric> {

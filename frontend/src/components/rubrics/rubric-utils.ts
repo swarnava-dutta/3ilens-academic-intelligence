@@ -6,6 +6,10 @@ export const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
 /** Allowed mark steps (backend marking.MARK_STEPS). */
 export const MARK_STEPS = [0.25, 0.5, 1, 2] as const;
 export const MAX_SCHEME_STEPS = 20;
+/** Backend schemas.MAX_RUBRIC_QUESTIONS: a full printed paper fits in one rubric (NEET 180, JEE 90). */
+export const MAX_RUBRIC_QUESTIONS = 200;
+/** Above this many questions the draft editor opens on the dense answer-key table. */
+export const ANSWER_KEY_VIEW_THRESHOLD = 20;
 
 export interface CustomRubricFile {
   fileName: string;
@@ -102,12 +106,22 @@ export function cloneContent(content: RubricContent): RubricContent {
         grading_criteria: [...(q.grading_criteria ?? [])],
       };
       if (q.options) copy.options = [...q.options];
+      // An MCQ read from a printed paper may come without option texts (formulas printed as
+      // images): give it blank options so the correct option can be picked; blank options are
+      // dropped again by normalizeContent.
+      if (isMcq(q) && (copy.options?.length ?? 0) < 2) copy.options = blankOptions(q.correct_option);
       if (q.marking_scheme) copy.marking_scheme = q.marking_scheme.map((step) => ({ ...step }));
       return copy;
     }),
   };
   if (content.marking_policy) out.marking_policy = { ...content.marking_policy };
   return out;
+}
+
+/** Four blank options (more when the correct option is E or F). */
+export function blankOptions(correct?: string | null): string[] {
+  const index = (OPTION_LETTERS as readonly string[]).indexOf(correct ?? "");
+  return Array.from({ length: Math.max(4, index + 1) }, () => "");
 }
 
 export function isMcq(q: Pick<RubricQuestion, "question_type">): boolean {
@@ -211,7 +225,9 @@ export function validateContent(content: RubricContent): ContentIssues {
   const byIndex: Record<number, string[]> = {};
   if (!squash(content.name)) general.push("Give the rubric a name.");
   if (content.questions.length === 0) general.push("Add at least one question.");
-  if (content.questions.length > 60) general.push("A rubric can have at most 60 questions.");
+  if (content.questions.length > MAX_RUBRIC_QUESTIONS) {
+    general.push(`A rubric can have at most ${MAX_RUBRIC_QUESTIONS} questions.`);
+  }
   const seen = new Map<number, number>();
   content.questions.forEach((q, i) => {
     const problems: string[] = [];

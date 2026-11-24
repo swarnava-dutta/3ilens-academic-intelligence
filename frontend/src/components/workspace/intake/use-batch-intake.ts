@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
-import type { LanguageHint, Submission } from "@/lib/types";
+import type { LanguageHint, PaperInspection, Submission } from "@/lib/types";
 import { hasAcceptedType, MAX_UPLOAD_BYTES } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import type { PickedFile } from "./collect";
@@ -17,6 +17,7 @@ import {
   skipReason,
   type SignatureCheck,
 } from "./inspect";
+import { createLimiter, fetchInspection, isPaperCandidate, pageLimitProblem } from "./paper";
 import { voiceQuestionFor } from "./voice-fields";
 
 /** Concurrent uploadSubmission calls in a batch run. */
@@ -25,6 +26,8 @@ export const UPLOAD_CONCURRENCY = 3;
 export const QUEUE_API_NOTE_THRESHOLD = 100;
 /** Most rows one staging session holds (the browser hashes every file). */
 export const MAX_STAGED = 300;
+/** Concurrent POST /api/intake/inspect calls while staging PDFs / DOCX. */
+export const INSPECT_CONCURRENCY = 3;
 
 export type RowPhase = "checking" | "ready" | "uploading" | "queued" | "rejected";
 
@@ -48,6 +51,9 @@ export interface StagedRow {
   includeDuplicate: boolean;
   /** Voice answers: the rubric question a per-question recording answers (null = whole recording). */
   voiceQuestion: number | null;
+  /** PDF / DOCX: what the server reads from its text layer (answer key paper, printed MCQ paper); advisory. */
+  paper: PaperInspection | null;
+  paperChecking: boolean;
 }
 
 /** The staged file is a voice answer (its bytes are MP3 / WAV / M4A / OGG). */
@@ -92,6 +98,8 @@ function clientBlock(row: StagedRow, maxBytes: number): { code: string; message:
     return { code: "too_large", message: `Larger than the ${Math.round(maxBytes / (1024 * 1024))} MB limit.` };
   }
   if (row.signature?.error) return { code: row.signature.code ?? "unsupported_signature", message: row.signature.error };
+  const pages = pageLimitProblem(row.paper);
+  if (pages) return { code: "too_many_pages", message: `${pages[0].toUpperCase()}${pages.slice(1)}.` };
   return null;
 }
 
@@ -173,6 +181,8 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
   const [message, setMessage] = useState<string | null>(null);
   /** Rubric the server created from an inline JSON rubric in this session (reused by later uploads). */
   const [jsonRubric, setJsonRubric] = useState<{ text: string; id: number } | null>(null);
+  /** At most INSPECT_CONCURRENCY paper inspections in flight across the staging session. */
+  const inspectLimit = useRef(createLimiter(INSPECT_CONCURRENCY));
 
   function patchRow(key: string, patch: Partial<StagedRow>, version?: number) {
     setRows((prev) =>
@@ -195,7 +205,14 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
         hash = null;
       }
     }
-    patchRow(key, { signature, hash, phase: "ready" }, version);
+    const paperCandidate = !signature.error && isPaperCandidate(signature.kind) && file.size > 0 && file.size <= maxBytes;
+    patchRow(key, { signature, hash, phase: "ready", paper: null, paperChecking: paperCandidate }, version);
+    if (paperCandidate) {
+      void inspectLimit.current(async () => {
+        const paper = await fetchInspection(file);
+        patchRow(key, { paper, paperChecking: false }, version);
+      });
+    }
   }
 
   /** Stage picked files; non-answer-sheets are listed as skipped with a reason. */
@@ -231,6 +248,8 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
         errorDetail: null,
         includeDuplicate: false,
         voiceQuestion: null,
+        paper: null,
+        paperChecking: false,
       });
     }
     setRows((prev) => [...prev, ...newRows]);
@@ -275,6 +294,8 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
       submission: null,
       errorCode: null,
       errorDetail: null,
+      paper: null,
+      paperChecking: false,
     });
     await inspect(key, version, file);
   }

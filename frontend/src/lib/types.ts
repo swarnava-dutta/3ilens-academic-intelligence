@@ -46,6 +46,8 @@ export type InvocationPurpose =
 export type LanguageHint = "en" | "hi" | "ta" | "kn" | "te";
 export type ReviewAction = "approve" | "correct" | "rescan";
 export type RubricSource = "text" | "pdf" | "docx" | "json";
+/** What an intake file looks like (POST /api/intake/inspect, read from its text layer, no AI). */
+export type PaperRole = "answer_key_paper" | "question_paper" | "answer_sheet" | "unknown";
 /** "insights" = the insights sample set (MCQ papers, NEET-C (sample), interventions); not part of "all". */
 export type DemoSet = "genetics" | "mixed" | "all" | "insights";
 // --- contract v3 ---
@@ -107,6 +109,8 @@ export interface Health {
   /** "blocked" | "simulate" - WhatsApp delivery is always simulated. */
   whatsapp_mode: string;
   max_upload_mb: number;
+  /** MAX_PDF_PAGES: most pages one PDF / DOCX answer sheet may have (default 40, a full printed paper). */
+  max_pdf_pages: number;
   /** e.g. ["pdf", "jpeg", "png", "webp", "docx"] */
   accepted_upload_types: string[];
   /** VOICE_ANSWERS switch (OpenAI transcription - not residency-approved, PoC only). */
@@ -967,6 +971,34 @@ export interface RubricDraft {
   warnings: string[];
   source: RubricSource;
   ai_drafted_questions: number[];
+}
+
+/**
+ * POST /api/intake/inspect: a local read of an intake file's text layer (no AI call, nothing stored).
+ * answer_key_paper = printed questions with their answer key (draft the rubric from it);
+ * question_paper = printed MCQ paper without a printed key (ticks are read as the student's answers);
+ * answer_sheet = handwritten / scanned sheet; unknown = could not tell.
+ */
+export interface PaperInspection {
+  /** pdf | jpeg | png | webp | docx | mp3 | wav | m4a | ogg */
+  file_type: string;
+  /** Null for audio or a Word file too long to lay out. */
+  pages: number | null;
+  text_layer: boolean;
+  role: PaperRole;
+  /** Distinct question numbers found in the text. */
+  numbered_questions: number;
+  /** "Ans. (2)" / answer-key table entries found. */
+  answer_markers: number;
+  /** Option lists "(1)..(4)" / "(a)..(d)" found. */
+  option_groups: number;
+  /** Section headings: Physics, Chemistry, Biology, ... */
+  subjects: string[];
+  title: string | null;
+  max_pdf_pages: number;
+  within_page_limit: boolean;
+  /** One plain sentence for faculty. */
+  message: string;
 }
 
 export interface RubricCompatibility {

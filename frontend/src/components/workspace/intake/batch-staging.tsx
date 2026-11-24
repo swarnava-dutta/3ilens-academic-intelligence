@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  FileText,
   Info,
   Loader2,
   RefreshCw,
@@ -17,6 +18,7 @@ import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ACCEPT_ATTR, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { codeLabel } from "./codes";
+import { paperTag } from "./paper";
 import {
   isVoiceRow,
   QUEUE_API_NOTE_THRESHOLD,
@@ -94,9 +96,19 @@ interface BatchStagingProps {
   voice: VoiceSettings;
   /** Questions of the chosen rubric (for per-question voice recordings). */
   questions: VoiceQuestionOption[];
+  /** Draft the rubric from a staged answer-key paper (the row is removed from the batch). */
+  onDraftRubric?: (file: File) => void;
 }
 
-export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled, voice, questions }: BatchStagingProps) {
+export function BatchStaging({
+  intake,
+  context,
+  knownHashes,
+  ocrCacheEnabled,
+  voice,
+  questions,
+  onDraftRubric,
+}: BatchStagingProps) {
   const ids = useId();
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceKeyRef = useRef<string | null>(null);
@@ -232,6 +244,14 @@ export function BatchStaging({ intake, context, knownHashes, ocrCacheEnabled, vo
                 questions={questions}
                 voiceReady={voice.ready}
                 onReplace={() => pickReplacement(view.row.key)}
+                onDraftRubric={
+                  onDraftRubric
+                    ? () => {
+                        onDraftRubric(view.row.file);
+                        intake.removeRow(view.row.key);
+                      }
+                    : undefined
+                }
               />
             ))}
           </ol>
@@ -313,6 +333,7 @@ function StagedRowItem({
   questions,
   voiceReady,
   onReplace,
+  onDraftRubric,
 }: {
   view: RowView;
   views: RowView[];
@@ -323,9 +344,12 @@ function StagedRowItem({
   questions: VoiceQuestionOption[];
   voiceReady: boolean;
   onReplace: () => void;
+  onDraftRubric?: () => void;
 }) {
   const ids = useId();
   const { row, index, duplicateOf, blocked } = view;
+  const tag = paperTag(row.paper);
+  const answerKeyRow = row.paper?.role === "answer_key_paper";
   const locked = row.phase === "uploading" || row.phase === "queued" || intake.running;
   const canRetry = row.phase === "rejected" && !blocked;
   const canReplace = row.phase !== "uploading" && row.phase !== "queued";
@@ -337,7 +361,11 @@ function StagedRowItem({
       className={cn(
         "border-l-2 p-3",
         GRID,
-        row.phase === "rejected" || blocked ? "border-l-rose-600" : view.skippedAsDuplicate ? "border-l-amber-500" : "border-l-transparent",
+        row.phase === "rejected" || blocked
+          ? "border-l-rose-600"
+          : view.skippedAsDuplicate || (answerKeyRow && row.phase === "ready")
+            ? "border-l-amber-500"
+            : "border-l-transparent",
       )}
     >
       <span className="hidden pt-1.5 text-xs tabular-nums text-slate-500 lg:block">{index + 1}</span>
@@ -385,6 +413,22 @@ function StagedRowItem({
           <span className="truncate">{row.file.name}</span>
         </p>
         {isVoice ? <VoiceChip className="mt-1" /> : null}
+        {tag ? (
+          <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
+                tag.tone === "amber" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700",
+              )}
+              title={row.paper?.message || undefined}
+            >
+              {tag.label}
+            </span>
+            {tag.tone === "amber" ? <span className="min-w-0 text-amber-800">{tag.hint}</span> : null}
+          </p>
+        ) : row.paperChecking ? (
+          <p className="mt-1 text-[11px] text-slate-500">Reading printed text…</p>
+        ) : null}
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
           <span>{formatBytes(row.file.size)}</span>
           {row.signature?.kind ? <span>· {row.signature.kind.toUpperCase()}</span> : null}
@@ -490,6 +534,18 @@ function StagedRowItem({
           >
             Open
           </Link>
+        ) : null}
+        {answerKeyRow && onDraftRubric && row.phase === "ready" ? (
+          <button
+            type="button"
+            onClick={onDraftRubric}
+            disabled={intake.running}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+            title="Draft the rubric from this paper and remove it from the batch"
+          >
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Draft rubric
+          </button>
         ) : null}
         {canRetry ? (
           <button

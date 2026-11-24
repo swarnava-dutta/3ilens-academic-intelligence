@@ -5,7 +5,7 @@ import { CheckCircle2, Download, Loader2, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RubricDraftEditor } from "./rubric-draft-editor";
 import { downloadJson, normalizeContent, rubricLabel, rubricStatusLabel, validateContent } from "./rubric-utils";
-import type { RubricMode, RubricSourceState } from "./use-rubric-source";
+import { isPdfFile, type RubricMode, type RubricSourceState } from "./use-rubric-source";
 
 const MODES: { value: RubricMode; label: string }[] = [
   { value: "saved", label: "Saved" },
@@ -173,6 +173,7 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
               className={fileInputClass}
             />
           )}
+          {state.sourceFile ? <MarkedKeyOption state={state} disabled={disabled} file={state.sourceFile} /> : null}
           <ParseControls state={state} disabled={disabled} ids={ids} />
         </div>
       ) : null}
@@ -260,6 +261,26 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
   );
 }
 
+/** "Ticks mark the key" - only for a PDF: the server reads ticks from page images, not from Word text. */
+function MarkedKeyOption({ state, disabled, file }: { state: RubricSourceState; disabled?: boolean; file: File }) {
+  const pdf = isPdfFile(file);
+  return (
+    <label className={cn("flex items-start gap-2 text-xs", pdf ? "text-slate-600" : "text-slate-400")}>
+      <input
+        type="checkbox"
+        checked={pdf && state.keyFromMarks}
+        onChange={(e) => state.setKeyFromMarks(e.target.checked)}
+        disabled={disabled || state.parsing || !pdf}
+        className="mt-0.5 h-3.5 w-3.5 rounded-sm border-slate-300 text-brand-navy focus-visible:ring-2 focus-visible:ring-brand-cyan"
+      />
+      <span>
+        The ticks or circles on this paper mark the correct options (no printed answer key)
+        {pdf ? null : " - PDF only: ticks are read from the page images"}
+      </span>
+    </label>
+  );
+}
+
 function ParseControls({ state, disabled, ids }: { state: RubricSourceState; disabled?: boolean; ids: string }) {
   return (
     <>
@@ -286,10 +307,23 @@ function ParseControls({ state, disabled, ids }: { state: RubricSourceState; dis
           {state.parsing ? "Drafting…" : state.content ? "Draft again" : "Draft rubric"}
         </button>
       </div>
-      <p className="text-xs text-slate-500">
-        One Claude call turns it into an editable draft. Answer keys the AI had to write are marked{" "}
-        <span className="font-medium text-slate-600">Draft - teacher review pending</span>.
-      </p>
+      {state.parsing ? (
+        <p className="flex items-center gap-1.5 text-xs text-slate-600" role="status" aria-live="polite">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin text-brand-cyan" aria-hidden />
+          <span>
+            {state.parsingPdf
+              ? "Reading the paper page by page - a full paper takes a few minutes."
+              : "Drafting the rubric…"}{" "}
+            <span className="tabular-nums text-slate-500">{formatElapsed(state.parseElapsed)} elapsed</span>
+          </span>
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500">
+          Claude turns it into an editable draft; a long PDF is read page by page (printed answer keys and ticked
+          options become the MCQ key). Answer keys the AI had to write are marked{" "}
+          <span className="font-medium text-slate-600">Draft - teacher review pending</span>.
+        </p>
+      )}
       {state.parseError ? (
         <p className="flex items-start gap-1.5 text-xs text-rose-700" role="alert">
           <XCircle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -298,6 +332,12 @@ function ParseControls({ state, disabled, ids }: { state: RubricSourceState; dis
       ) : null}
     </>
   );
+}
+
+/** 75 -> "1:15". */
+function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /** Full-width review table for an AI-drafted rubric, with "Approve & save as new rubric". */
@@ -317,8 +357,8 @@ export function RubricDraftWorkbench({ state, disabled }: { state: RubricSourceS
             Review the drafted rubric
           </h3>
           <p className="text-sm text-slate-600">
-            Source: {draft?.source ?? "text"}. Check every row - marks, criteria and expected answers are what the
-            grader will apply to each student.
+            Source: {draft?.source ?? "text"}. Check every row - marks, criteria, expected answers and MCQ keys are
+            what the grader will apply to each student.
           </p>
         </div>
         <button
@@ -332,6 +372,7 @@ export function RubricDraftWorkbench({ state, disabled }: { state: RubricSourceS
       </div>
 
       <RubricDraftEditor
+        key={state.draftSerial}
         value={content}
         onChange={state.setContent}
         aiDrafted={draft?.ai_drafted_questions ?? []}

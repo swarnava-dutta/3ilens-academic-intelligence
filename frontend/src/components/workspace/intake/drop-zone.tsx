@@ -13,6 +13,8 @@ interface DropZoneProps {
   hasFile?: boolean;
   error?: boolean;
   maxMb: number;
+  /** Health.max_pdf_pages (a full printed paper fits). */
+  maxPages?: number;
   /** Health.voice_enabled: list the audio types as accepted (voice answers). */
   voiceEnabled?: boolean;
   hintId?: string;
@@ -23,7 +25,17 @@ interface DropZoneProps {
  * Drag-and-drop zone + file pickers. Single mode: one file. Batch mode: several files, a
  * "Choose folder" picker (webkitdirectory) and dropped folders (walked recursively).
  */
-export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled = true, hintId, onFiles }: DropZoneProps) {
+export function DropZone({
+  mode,
+  disabled,
+  hasFile,
+  error,
+  maxMb,
+  maxPages,
+  voiceEnabled = true,
+  hintId,
+  onFiles,
+}: DropZoneProps) {
   const [dragActive, setDragActive] = useState(false);
   const [reading, setReading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -121,7 +133,8 @@ export function DropZone({ mode, disabled, hasFile, error, maxMb, voiceEnabled =
           className="text-xs text-slate-500"
           title={voiceEnabled ? "Voice answers: transcribed by OpenAI (not residency-approved, PoC only)" : undefined}
         >
-          PDF, JPG, PNG, WEBP, DOCX{voiceEnabled ? ", MP3, WAV, M4A, OGG" : ""} · up to {maxMb} MB each
+          PDF{maxPages ? ` (up to ${maxPages} pages)` : ""}, JPG, PNG, WEBP, DOCX{voiceEnabled ? ", MP3, WAV, M4A, OGG" : ""}{" "}
+          · up to {maxMb} MB each
         </span>
       </label>
 

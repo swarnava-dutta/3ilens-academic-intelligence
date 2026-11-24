@@ -7,6 +7,7 @@ import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { DropZone } from "./drop-zone";
+import { PaperNotice } from "./paper-notice";
 import type { SingleIntake, SingleUploadSettings } from "./use-single-intake";
 import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
@@ -17,18 +18,24 @@ const inputClass =
 export function SingleSheetPanel({
   intake,
   maxMb,
+  maxPages,
   knownHashes,
   ocrCacheEnabled,
   voice,
   questions,
+  onDraftRubric,
 }: {
   intake: SingleIntake;
   maxMb: number;
+  /** Health.max_pdf_pages. */
+  maxPages?: number;
   knownHashes: Map<string, Submission>;
   ocrCacheEnabled: boolean;
   voice: VoiceSettings;
   /** Questions of the chosen rubric (for a per-question voice recording). */
   questions: VoiceQuestionOption[];
+  /** Draft the rubric from this file instead (an answer-key or ticked question paper); clears the sheet. */
+  onDraftRubric?: (file: File, options?: { keyFromMarks?: boolean }) => void;
 }) {
   const ids = useId();
   const { file } = intake;
@@ -45,6 +52,7 @@ export function SingleSheetPanel({
         hasFile={file !== null}
         error={intake.fileMessage?.tone === "error"}
         maxMb={maxMb}
+        maxPages={maxPages}
         voiceEnabled={voice.enabled}
         hintId={`${ids}-hint`}
         onFiles={(files, meta) => {
@@ -119,6 +127,29 @@ export function SingleSheetPanel({
           </p>
           <VoiceNotes voice={voice} />
         </div>
+      ) : null}
+
+      {file && !intake.isVoice ? (
+        <PaperNotice
+          inspection={intake.inspection}
+          inspecting={intake.inspecting}
+          dismissed={intake.paperNoticeDismissed}
+          disabled={intake.uploading}
+          onDraftRubric={
+            onDraftRubric
+              ? (options?: { keyFromMarks?: boolean }) => {
+                  onDraftRubric(file, options);
+                  intake.clearFile();
+                }
+              : null
+          }
+          onDismiss={intake.dismissPaperNotice}
+        />
+      ) : null}
+      {intake.pageProblem && intake.fileMessage?.tone !== "error" ? (
+        <p className="flex items-start gap-2 text-sm text-rose-700" role="alert">
+          {intake.pageProblem}. Split the PDF or raise MAX_PDF_PAGES on the server.
+        </p>
       ) : null}
 
       {file && file.size > MULTIPART_THRESHOLD_BYTES ? (
@@ -227,7 +258,7 @@ export function SingleSubmit({
       <button
         type="button"
         onClick={() => void intake.submit(settings)}
-        disabled={uploading || intake.checking}
+        disabled={uploading || intake.checking || !!intake.pageProblem}
         className={cn(
           "relative flex h-10 w-full items-center justify-center gap-2 overflow-hidden rounded-md px-4 text-sm font-medium text-white transition-colors duration-150",
           "bg-brand-navy hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",

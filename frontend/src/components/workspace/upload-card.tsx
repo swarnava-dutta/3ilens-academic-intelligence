@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { RubricDraftWorkbench, RubricSourceControl } from "@/components/rubrics/rubric-source";
 import { useRubricSource } from "@/components/rubrics/use-rubric-source";
 import type { Health, LanguageHint, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { DEFAULT_VOICE, MAX_UPLOAD_BYTES, type VoiceSettings } from "./format";
+import { DEFAULT_MAX_PDF_PAGES, DEFAULT_VOICE, MAX_UPLOAD_BYTES, type VoiceSettings } from "./format";
 import { BatchStaging } from "./intake/batch-staging";
 import { DropZone } from "./intake/drop-zone";
 import { BatchSelect, LanguageChips } from "./intake/intake-options";
@@ -46,6 +46,8 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
 
   const maxMb = health?.max_upload_mb && health.max_upload_mb > 0 ? health.max_upload_mb : MAX_UPLOAD_BYTES / (1024 * 1024);
   const maxBytes = Math.round(maxMb * 1024 * 1024);
+  const maxPages = health?.max_pdf_pages && health.max_pdf_pages > 0 ? health.max_pdf_pages : DEFAULT_MAX_PDF_PAGES;
+  const rubricRef = useRef<HTMLDivElement>(null);
   const ocrCacheEnabled = health?.ocr_cache_enabled ?? false;
   // Voice answers (FR-2.8): unknown health = assume on (the server enforces voice_disabled).
   const voice: VoiceSettings = health
@@ -84,6 +86,12 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
     batchId,
     questionNumbers,
   };
+  /** An answer-key (or ticked) question paper goes to the rubric source instead of the queue. */
+  function draftRubricFrom(file: File, options?: { keyFromMarks?: boolean }) {
+    void rubric.draftFromFile(file, options);
+    rubricRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
   const batchContext: UploadContext | null = rubric.choice
     ? { ...settings, onUploaded, onIntakeStarted }
     : null;
@@ -101,8 +109,9 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
               Answer sheet intake
             </h2>
             <p className="text-xs text-slate-500">
-              PDF (up to 10 pages), photo/scan or Word{voice.enabled ? ", or a voice answer (MP3/WAV/M4A/OGG)" : ""} ·
-              max {Math.round(maxMb)} MB per file · checked by magic bytes and SHA-256
+              PDF (up to {maxPages} pages) - handwritten sheets or printed MCQ papers with ticked options, photo/scan
+              or Word{voice.enabled ? ", or a voice answer (MP3/WAV/M4A/OGG)" : ""} · max {Math.round(maxMb)} MB per
+              file · checked by magic bytes and SHA-256
             </p>
           </div>
         </div>
@@ -143,10 +152,12 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
               <SingleSheetPanel
                 intake={single}
                 maxMb={Math.round(maxMb)}
+                maxPages={maxPages}
                 knownHashes={knownHashes}
                 ocrCacheEnabled={ocrCacheEnabled}
                 voice={voice}
                 questions={questions}
+                onDraftRubric={rubric.parsing ? undefined : draftRubricFrom}
               />
             ) : (
               <>
@@ -154,6 +165,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                   mode="batch"
                   disabled={batch.running}
                   maxMb={Math.round(maxMb)}
+                  maxPages={maxPages}
                   voiceEnabled={voice.enabled}
                   hintId={`${ids}-batch-hint`}
                   onFiles={(files) => void batch.addFiles(files)}
@@ -169,6 +181,10 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                     rest. Target: 50 sheets processed in 30 min.
                   </li>
                   <li>
+                    Printed MCQ papers are graded from the ticked, circled or shaded options. A question paper that
+                    carries its own answer key is tagged - draft the rubric from it instead of grading it.
+                  </li>
+                  <li>
                     Above {QUEUE_API_NOTE_THRESHOLD} files production uses the queue API; this PoC uploads from the
                     browser.
                   </li>
@@ -179,7 +195,9 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
 
           {/* ---------------- Settings shared by both modes ---------------- */}
           <div className="flex min-w-0 flex-col gap-5 lg:col-span-2">
-            <RubricSourceControl state={rubric} disabled={busy} />
+            <div ref={rubricRef} className="scroll-mt-24">
+              <RubricSourceControl state={rubric} disabled={busy} />
+            </div>
             <LanguageChips value={languages} onChange={setLanguages} disabled={busy} voice={voiceStaged} />
             <BatchSelect value={batchId} onChange={setBatchId} fallback={health?.batch ?? null} disabled={busy} />
             {mode === "single" ? (
@@ -204,6 +222,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
             ocrCacheEnabled={ocrCacheEnabled}
             voice={voice}
             questions={questions}
+            onDraftRubric={rubric.parsing ? undefined : draftRubricFrom}
           />
         ) : null}
       </div>
