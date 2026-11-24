@@ -1,9 +1,20 @@
 "use client";
 
-import { FileText, Loader2 } from "lucide-react";
-import type { PaperInspection } from "@/lib/types";
+import { CheckCircle2, FileText, Loader2 } from "lucide-react";
+import type { PaperInspection, RubricMatch } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { answerKeyLine, printedPaperLine } from "./paper";
+import {
+  answerKeyLine,
+  codesDiffer,
+  codesLine,
+  MATCH_CHECK_NOTE,
+  MATCH_HOLD_NOTE,
+  matchExamples,
+  matchLine,
+  matchMessage,
+  printedPaperLine,
+  shownMatch,
+} from "./paper";
 
 const primaryBtn =
   "inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-brand-navy px-3 text-xs font-medium text-white transition-colors duration-150 hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60";
@@ -96,6 +107,92 @@ export function PaperNotice({ inspection, inspecting, dismissed, disabled, onDra
   }
 
   return null;
+}
+
+/**
+ * Under the staged file: how its printed questions compare with the chosen saved rubric. The same
+ * paper gets one quiet line; another code / set (same questions, other numbers) an amber warning;
+ * a different paper a rose one. Never blocks the upload; the server holds such sheets for faculty
+ * review only on the printed-MCQ reader path (`held`), so the hold is promised only then. Unknown
+ * (too little printed text) shows nothing.
+ */
+export function RubricMatchNotice({
+  match,
+  checking,
+  held = false,
+}: {
+  match: RubricMatch | null;
+  checking?: boolean;
+  /** The server will hold a non-matching sheet for review (paper.mismatchHeld). */
+  held?: boolean;
+}) {
+  const shown = shownMatch(match);
+  if (checking && !shown) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-slate-500" aria-live="polite">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
+        Comparing the printed questions with the selected rubric…
+      </p>
+    );
+  }
+  if (!shown) return null;
+
+  if (shown.verdict === "match") {
+    return (
+      <div className="space-y-0.5 text-xs" role="status" aria-live="polite">
+        <p className="flex items-start gap-1.5 text-slate-600">
+          <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-brand-lime-600" aria-hidden />
+          <span className="min-w-0">{matchLine(shown)}</span>
+        </p>
+        {codesDiffer(shown) ? (
+          <p className="pl-5 text-amber-800">
+            The printed code ({shown.sheet_code}) differs from the rubric&apos;s ({shown.rubric_code}) - check the
+            version.
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  const mismatch = shown.verdict === "mismatch";
+  const codes = codesLine(shown);
+  const examples = matchExamples(shown);
+  return (
+    <div
+      className={cn("rounded-md border bg-white p-3", mismatch ? "border-rose-300" : "border-amber-300")}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        <span
+          className={cn(
+            "mt-px inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 text-xs font-medium",
+            mismatch ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800",
+          )}
+        >
+          {mismatch ? "Different paper" : "Other code / set"}
+        </span>
+        {codes ? <p className="min-w-0 break-words pt-0.5 text-xs text-slate-500">{codes}</p> : null}
+      </div>
+      {mismatch ? <p className="mt-2 text-sm font-medium text-rose-800">Doesn&apos;t match the selected rubric</p> : null}
+      <p className={cn("break-words text-sm text-slate-800", mismatch ? "mt-0.5" : "mt-2")}>{matchMessage(shown)}</p>
+      {examples.length ? (
+        <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
+          {examples.map((example, i) => (
+            <li key={i} className="break-words">
+              {example}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-2 text-xs text-slate-600">
+        {mismatch
+          ? "Pick this paper's rubric to grade it. "
+          : "Pick the rubric for this code / set to grade it. "}
+        {held ? MATCH_HOLD_NOTE : MATCH_CHECK_NOTE}
+      </p>
+    </div>
+  );
 }
 
 /** Title and section headings when the text layer has them ("NEET (UG) 2025 · Physics"). */

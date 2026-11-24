@@ -7,7 +7,8 @@ import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { DropZone } from "./drop-zone";
-import { PaperNotice } from "./paper-notice";
+import { mismatchHeld } from "./paper";
+import { PaperNotice, RubricMatchNotice } from "./paper-notice";
 import type { SingleIntake, SingleUploadSettings } from "./use-single-intake";
 import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
@@ -24,8 +25,11 @@ export function SingleSheetPanel({
   voice,
   questions,
   onDraftRubric,
+  mcqRubric = false,
 }: {
   intake: SingleIntake;
+  /** The chosen rubric is MCQ-heavy (paper.mcqHeavyRubric): a non-matching printed PDF is held for review. */
+  mcqRubric?: boolean;
   maxMb: number;
   /** Health.max_pdf_pages. */
   maxPages?: number;
@@ -144,6 +148,13 @@ export function SingleSheetPanel({
               : null
           }
           onDismiss={intake.dismissPaperNotice}
+        />
+      ) : null}
+      {file && !intake.isVoice && (intake.inspection?.role !== "answer_key_paper" || intake.paperNoticeDismissed) ? (
+        <RubricMatchNotice
+          match={intake.rubricMatch}
+          checking={intake.matchChecking}
+          held={mismatchHeld(intake.inspection, mcqRubric)}
         />
       ) : null}
       {intake.pageProblem && intake.fileMessage?.tone !== "error" ? (

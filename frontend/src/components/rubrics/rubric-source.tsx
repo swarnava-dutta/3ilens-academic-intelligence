@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import { CheckCircle2, Download, Loader2, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isKeyFileName, KEY_FILE_ACCEPT } from "./answer-key-import";
 import { RubricDraftEditor } from "./rubric-draft-editor";
 import { downloadJson, normalizeContent, rubricLabel, rubricStatusLabel, validateContent } from "./rubric-utils";
 import { isPdfFile, type RubricMode, type RubricSourceState } from "./use-rubric-source";
@@ -173,7 +174,10 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
               className={fileInputClass}
             />
           )}
-          {state.sourceFile ? <MarkedKeyOption state={state} disabled={disabled} file={state.sourceFile} /> : null}
+          {state.sourceFile ? <SeparateKeyField state={state} disabled={disabled} ids={ids} /> : null}
+          {state.sourceFile && !state.keyFile ? (
+            <MarkedKeyOption state={state} disabled={disabled} file={state.sourceFile} />
+          ) : null}
           <ParseControls state={state} disabled={disabled} ids={ids} />
         </div>
       ) : null}
@@ -261,6 +265,63 @@ export function RubricSourceControl({ state, disabled }: { state: RubricSourceSt
   );
 }
 
+/**
+ * Optional second file for upload mode: the paper's answer key on its own (a table, a "Que. / Ans."
+ * grid, a scan), sent with the paper as key_file. Removing the paper removes it too.
+ */
+function SeparateKeyField({ state, disabled, ids }: { state: RubricSourceState; disabled?: boolean; ids: string }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const keyFile = state.keyFile;
+  return (
+    <div className="space-y-1">
+      <label htmlFor={`${ids}-key-file`} className="block text-xs font-medium text-slate-600">
+        Separate answer key (optional) - PDF, image, Word or text
+      </label>
+      {keyFile ? (
+        <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2">
+          <p className="min-w-0 flex-1 truncate text-sm text-slate-800" title={keyFile.name}>
+            {keyFile.name}
+          </p>
+          <button
+            type="button"
+            onClick={() => state.setKeyFile(null)}
+            disabled={disabled || state.parsing}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+            aria-label="Remove the separate answer key"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      ) : (
+        <input
+          id={`${ids}-key-file`}
+          type="file"
+          accept={KEY_FILE_ACCEPT}
+          disabled={disabled || state.parsing}
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            if (file && !isKeyFileName(file.name)) {
+              setProblem(`"${file.name}" is not a PDF, image, Word or text file.`);
+              return;
+            }
+            setProblem(null);
+            state.setKeyFile(file);
+          }}
+          className={fileInputClass}
+        />
+      )}
+      {problem ? (
+        <p className="text-xs text-rose-700" role="alert">
+          {problem}
+        </p>
+      ) : keyFile ? (
+        <p className="text-xs text-slate-500">MCQ keys come from this file, matched by question number.</p>
+      ) : null}
+    </div>
+  );
+}
+
 /** "Ticks mark the key" - only for a PDF: the server reads ticks from page images, not from Word text. */
 function MarkedKeyOption({ state, disabled, file }: { state: RubricSourceState; disabled?: boolean; file: File }) {
   const pdf = isPdfFile(file);
@@ -313,7 +374,8 @@ function ParseControls({ state, disabled, ids }: { state: RubricSourceState; dis
           <span>
             {state.parsingPdf
               ? "Reading the paper page by page - a full paper takes a few minutes."
-              : "Drafting the rubric…"}{" "}
+              : "Drafting the rubric…"}
+            {state.mode === "upload" && state.keyFile ? " The separate answer key is read with it." : ""}{" "}
             <span className="tabular-nums text-slate-500">{formatElapsed(state.parseElapsed)} elapsed</span>
           </span>
         </p>

@@ -9,6 +9,7 @@ import { DEFAULT_MAX_PDF_PAGES, DEFAULT_VOICE, MAX_UPLOAD_BYTES, type VoiceSetti
 import { BatchStaging } from "./intake/batch-staging";
 import { DropZone } from "./intake/drop-zone";
 import { BatchSelect, LanguageChips } from "./intake/intake-options";
+import { mcqHeavyRubric } from "./intake/paper";
 import { SingleSheetPanel, SingleSubmit } from "./intake/single-sheet";
 import { QUEUE_API_NOTE_THRESHOLD, UPLOAD_CONCURRENCY, useBatchIntake, type UploadContext } from "./intake/use-batch-intake";
 import { isVoiceRow } from "./intake/use-batch-intake";
@@ -59,8 +60,14 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
     : DEFAULT_VOICE;
 
   const rubric = useRubricSource(apiOnline);
-  const single = useSingleIntake(onUploaded, maxBytes, voice.enabled);
-  const batch = useBatchIntake(maxBytes, voice.enabled);
+  // Printed papers are compared with the chosen saved rubric (an inline JSON rubric has no id).
+  const inspectRubricId = rubric.choice?.rubricId ?? null;
+  const single = useSingleIntake(onUploaded, maxBytes, voice.enabled, inspectRubricId);
+  const batch = useBatchIntake(maxBytes, voice.enabled, inspectRubricId);
+  // The server holds a non-matching printed PDF only when the rubric is MCQ-heavy (printed-MCQ reader).
+  const mcqRubric = mcqHeavyRubric(
+    inspectRubricId !== null && rubric.selectedRubric?.id === inspectRubricId ? rubric.selectedRubric.content : null,
+  );
   const busy = single.uploading || batch.running;
   const questions = rubricQuestionOptions(rubric);
   const questionNumbers = questions.map((q) => q.question);
@@ -158,6 +165,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                 voice={voice}
                 questions={questions}
                 onDraftRubric={rubric.parsing ? undefined : draftRubricFrom}
+                mcqRubric={mcqRubric}
               />
             ) : (
               <>
@@ -182,7 +190,9 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
                   </li>
                   <li>
                     Printed MCQ papers are graded from the ticked, circled or shaded options. A question paper that
-                    carries its own answer key is tagged - draft the rubric from it instead of grading it.
+                    carries its own answer key is tagged - draft the rubric from it instead of grading it. A printed
+                    paper that is not the chosen rubric&apos;s paper (or is another code / set of it) is tagged and
+                    held for faculty review on upload.
                   </li>
                   <li>
                     Above {QUEUE_API_NOTE_THRESHOLD} files production uses the queue API; this PoC uploads from the
@@ -223,6 +233,7 @@ export function UploadCard({ apiOnline, health, knownHashes, onUploaded, onIntak
             voice={voice}
             questions={questions}
             onDraftRubric={rubric.parsing ? undefined : draftRubricFrom}
+            mcqRubric={mcqRubric}
           />
         ) : null}
       </div>

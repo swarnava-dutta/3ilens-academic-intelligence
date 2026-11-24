@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import type {
+  AnswerKeyExtraction,
   ApiKey,
   ApiKeyCreated,
   ApiKeyInput,
@@ -73,6 +74,8 @@ const UPLOAD_TIMEOUT_MS = 120_000;
 const RUBRIC_PARSE_TIMEOUT_MS = 600_000;
 /** POST /api/intake/inspect reads the text layer locally (no AI). */
 const INSPECT_TIMEOUT_MS = 30_000;
+/** Answer-key import: a scanned key is read from page images (minutes for a long one). */
+const ANSWER_KEY_TIMEOUT_MS = 600_000;
 
 /** Human-readable message from an axios/FastAPI error (uses FastAPI's `detail`). */
 export function errorMessage(err: unknown): string {
@@ -200,10 +203,12 @@ export async function uploadSubmission(input: {
 /**
  * What an intake file looks like (answer sheet, printed MCQ paper or a paper with its answer key),
  * read locally from its text layer - no AI call, nothing stored. Older API builds answer 404.
+ * With rubricId the printed questions are also compared with that rubric (rubric_match).
  */
-export async function inspectPaper(file: File): Promise<PaperInspection> {
+export async function inspectPaper(file: File, rubricId?: number | null): Promise<PaperInspection> {
   const form = new FormData();
   form.append("file", file);
+  if (rubricId !== undefined && rubricId !== null) form.append("rubric_id", String(rubricId));
   return (await api.post<PaperInspection>("/api/intake/inspect", form, { timeout: INSPECT_TIMEOUT_MS })).data;
 }
 
@@ -353,6 +358,8 @@ export async function parseRubric(input: {
   exam?: string;
   /** "marks": faculty confirm that the ticks on the paper mark the answer key. */
   keySource?: "auto" | "marks";
+  /** A separate answer key for the paper (PDF, image, Word or text), sent as key_file. */
+  keyFile?: File;
 }): Promise<RubricDraft> {
   const form = new FormData();
   if (input.file) form.append("file", input.file);
@@ -360,7 +367,21 @@ export async function parseRubric(input: {
   if (input.subject) form.append("subject", input.subject);
   if (input.exam) form.append("exam", input.exam);
   if (input.keySource) form.append("key_source", input.keySource);
+  if (input.keyFile) form.append("key_file", input.keyFile);
   return (await api.post<RubricDraft>("/api/rubrics/parse", form, { timeout: RUBRIC_PARSE_TIMEOUT_MS })).data;
+}
+
+/**
+ * Read an answer key from a key-only file (PDF, Word, image, text) or pasted text: a table such as
+ * "1-2, 2-4", a "Que. / Ans." grid, or a question paper with "Ans." lines. Nothing is stored; the
+ * caller applies the entries to the rubric it is editing. A scan is read from page images (AI).
+ */
+export async function extractAnswerKey(input: { file?: File; text?: string }): Promise<AnswerKeyExtraction> {
+  const form = new FormData();
+  if (input.file) form.append("file", input.file);
+  if (input.text) form.append("text", input.text);
+  return (await api.post<AnswerKeyExtraction>("/api/rubrics/answer-key", form, { timeout: ANSWER_KEY_TIMEOUT_MS }))
+    .data;
 }
 
 export async function createRubric(input: RubricCreateInput): Promise<Rubric> {

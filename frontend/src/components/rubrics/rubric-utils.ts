@@ -10,6 +10,8 @@ export const MAX_SCHEME_STEPS = 20;
 export const MAX_RUBRIC_QUESTIONS = 200;
 /** Above this many questions the draft editor opens on the dense answer-key table. */
 export const ANSWER_KEY_VIEW_THRESHOLD = 20;
+/** Backend RubricContentIn.paper_code max length. */
+export const MAX_PAPER_CODE = 60;
 
 export interface CustomRubricFile {
   fileName: string;
@@ -115,6 +117,7 @@ export function cloneContent(content: RubricContent): RubricContent {
     }),
   };
   if (content.marking_policy) out.marking_policy = { ...content.marking_policy };
+  if (content.paper_code) out.paper_code = content.paper_code;
   return out;
 }
 
@@ -139,6 +142,7 @@ function squash(text: string | null | undefined): string {
 
 /** Trimmed copy ready for the API: blank criteria lines dropped, empty prompt/chapter removed. */
 export function normalizeContent(content: RubricContent): RubricContent {
+  const paperCode = squash(content.paper_code);
   return {
     name: squash(content.name),
     subject: squash(content.subject),
@@ -189,7 +193,13 @@ export function normalizeContent(content: RubricContent): RubricContent {
       })
       .sort((a, b) => a.question - b.question),
     ...(content.marking_policy ? { marking_policy: normalizePolicy(content.marking_policy) } : {}),
+    ...(paperCode ? { paper_code: paperCode } : {}),
   };
+}
+
+/** Trimmed paper code / set ("" when none). */
+export function paperCodeOf(content: RubricContent | null | undefined): string {
+  return squash(content?.paper_code);
 }
 
 function normalizePolicy(policy: MarkingPolicy): MarkingPolicy {
@@ -224,6 +234,9 @@ export function validateContent(content: RubricContent): ContentIssues {
   const general: string[] = [];
   const byIndex: Record<number, string[]> = {};
   if (!squash(content.name)) general.push("Give the rubric a name.");
+  if (squash(content.paper_code).length > MAX_PAPER_CODE) {
+    general.push(`Paper code / set: at most ${MAX_PAPER_CODE} characters.`);
+  }
   if (content.questions.length === 0) general.push("Add at least one question.");
   if (content.questions.length > MAX_RUBRIC_QUESTIONS) {
     general.push(`A rubric can have at most ${MAX_RUBRIC_QUESTIONS} questions.`);

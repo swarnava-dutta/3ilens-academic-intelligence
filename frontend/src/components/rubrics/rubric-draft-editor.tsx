@@ -4,12 +4,14 @@ import { useId, useState } from "react";
 import { AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react";
 import type { MarkingPolicy, RubricContent, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { AnswerKeyImport } from "./answer-key-import";
 import { AnswerKeyTable } from "./answer-key-table";
 import { BloomField } from "./bloom-field";
 import { MarkingPolicyFields } from "./marking-policy-fields";
 import { QuestionMarkingFields, QuestionTypeField } from "./question-marking-fields";
 import {
   ANSWER_KEY_VIEW_THRESHOLD,
+  MAX_PAPER_CODE,
   MAX_RUBRIC_QUESTIONS,
   blankQuestion,
   compareContents,
@@ -20,6 +22,12 @@ import {
 
 /** Warnings shown before "Show all N". */
 const WARNINGS_SHOWN = 6;
+/**
+ * Draft warnings an answer-key import settles (backend answer_keys._STALE / _RECHECKED): the old
+ * "Fix before saving", missing-key and missing-criteria lines.
+ */
+const STALE_AFTER_KEY =
+  /^(?:Fix before saving: |No answer key for |Q\d+ is an MCQ without an answer key|No grading criteria for |Q\d+ has no grading criteria)/;
 /** Rows per "Show more" step of the full list on long papers. */
 const FULL_LIST_STEP = 20;
 
@@ -56,13 +64,16 @@ interface RubricDraftEditorProps {
 
 /**
  * Editable review table for a rubric draft or a new rubric version: question text, topic,
- * subject, chapter, marks, criteria (one per line), effort hours and expected answer.
+ * subject, chapter, marks, criteria (one per line), effort hours and expected answer. Rubrics with
+ * MCQs can take their key from a separate answer-key file (AnswerKeyImport).
  */
 export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = [], disabled, baseline }: RubricDraftEditorProps) {
   const ids = useId();
   const issues = validateContent(value);
   const diff = baseline ? compareContents(baseline, value) : null;
-  const drafted = new Set(aiDrafted);
+  // Keys set from a separate answer-key file are no longer the AI's draft.
+  const [keyedFromFile, setKeyedFromFile] = useState<number[]>([]);
+  const drafted = new Set(aiDrafted.filter((n) => !keyedFromFile.includes(n)));
   // Long papers (a full NEET paper has 180 MCQs) open on the dense answer-key table.
   const large = value.questions.length > ANSWER_KEY_VIEW_THRESHOLD;
   const [view, setView] = useState<EditorView>(large ? "key" : "full");
@@ -71,7 +82,11 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
   const [allWarnings, setAllWarnings] = useState(false);
   const showKey = large && view === "key";
   const shownQuestions = large ? value.questions.slice(0, fullLimit) : value.questions;
-  const shownWarnings = allWarnings ? warnings : warnings.slice(0, WARNINGS_SHOWN);
+  // After a key import the draft's missing-key / validation warnings are stale (the live checks
+  // above the table show what is still missing), as the server drops them for a key_file.
+  const currentWarnings = keyedFromFile.length ? warnings.filter((w) => !STALE_AFTER_KEY.test(w)) : warnings;
+  const shownWarnings = allWarnings ? currentWarnings : currentWarnings.slice(0, WARNINGS_SHOWN);
+  const hasMcqs = value.questions.some(isMcq);
 
   function update(index: number, patch: Partial<RubricQuestion>) {
     onChange({
@@ -112,7 +127,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2">
           <label htmlFor={`${ids}-name`} className={labelClass}>
             Rubric name
@@ -141,6 +156,28 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
             placeholder="Biology / Mixed"
           />
         </div>
+        <div>
+          <label htmlFor={`${ids}-paper-code`} className={labelClass}>
+            Paper code / set <span className="normal-case text-slate-400">(optional)</span>
+          </label>
+          <input
+            id={`${ids}-paper-code`}
+            className={fieldClass}
+            value={value.paper_code ?? ""}
+            maxLength={MAX_PAPER_CODE}
+            disabled={disabled}
+            aria-describedby={`${ids}-paper-code-hint`}
+            onChange={(e) => {
+              const next: RubricContent = { ...value, paper_code: e.target.value };
+              if (!e.target.value) delete next.paper_code;
+              onChange(next);
+            }}
+            placeholder="e.g. Code A, Set 2"
+          />
+          <p id={`${ids}-paper-code-hint`} className="sr-only">
+            Printed papers of another code or set are flagged at intake.
+          </p>
+        </div>
       </div>
 
       <MarkingPolicyFields
@@ -154,7 +191,17 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
         }}
       />
 
-      {warnings.length > 0 ? (
+      {hasMcqs ? (
+        <AnswerKeyImport
+          value={value}
+          onChange={onChange}
+          keyed={keyedFromFile}
+          onKeyed={setKeyedFromFile}
+          disabled={disabled}
+        />
+      ) : null}
+
+      {currentWarnings.length > 0 ? (
         <div className="border-l-2 border-amber-500 pl-3">
           <ul className="space-y-1 text-sm text-amber-900">
             {shownWarnings.map((w, i) => (
@@ -164,14 +211,14 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
               </li>
             ))}
           </ul>
-          {warnings.length > WARNINGS_SHOWN ? (
+          {currentWarnings.length > WARNINGS_SHOWN ? (
             <button
               type="button"
               onClick={() => setAllWarnings((v) => !v)}
               aria-expanded={allWarnings}
               className="mt-1 inline-flex items-center gap-1 rounded text-xs font-medium text-amber-900 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
             >
-              {allWarnings ? "Show fewer" : `Show all ${warnings.length}`}
+              {allWarnings ? "Show fewer" : `Show all ${currentWarnings.length}`}
             </button>
           ) : null}
         </div>

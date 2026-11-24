@@ -6,7 +6,7 @@ import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { errorCode, errorMessage, retrySubmission } from "@/lib/api";
 import type { ProcessingLogEntry, ResultPending } from "@/lib/types";
-import { formatConfidence, formatDateTime } from "@/lib/utils";
+import { formatConfidence, formatDateTime, reviewHold } from "@/lib/utils";
 import { AuditTrailCard } from "./audit-trail";
 import { humanizeStep } from "./format";
 import { PIPELINE_STAGES, PipelineStepper, VOICE_PIPELINE_STAGES, stageStates, type StageState } from "./pipeline-stepper";
@@ -43,10 +43,15 @@ function HumanReviewPanel({
 }) {
   const s = pending.submission;
   const confidence = s.ocr_confidence;
-  const threshold = Math.round(useOcrThreshold() * 100);
+  const thresholdRatio = useOcrThreshold();
+  const threshold = Math.round(thresholdRatio * 100);
   const flagged = s.flagged_pages ?? [];
   const voice = s.input_kind === "voice";
   const confidenceLabel = voice ? "Transcript confidence" : "OCR confidence";
+  // Held for another reason than low confidence (the same-paper check, a mostly blank sheet): the
+  // reason leads and the confidence is only a fact tile.
+  const hold = reviewHold(s, thresholdRatio);
+  const reason = (s.error_message || pending.detail || "").trim();
   return (
     <section
       aria-labelledby="review-title"
@@ -54,27 +59,33 @@ function HumanReviewPanel({
     >
       <div>
         <div className="min-w-0">
-          <p className="text-[13px] text-amber-800">BRD safety constraint</p>
+          <p className="text-[13px] text-amber-800">{hold === "paper" ? "Paper check" : "BRD safety constraint"}</p>
           <h2 id="review-title" className="mt-0.5 text-lg font-semibold text-brand-navy">
             Human review required
           </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
-            {voice ? "Transcript confidence for this voice answer" : "OCR confidence for this answer sheet"} is{" "}
-            <strong>{formatConfidence(confidence)}</strong>
-            {!voice && flagged.length ? (
-              <>
-                {" "}
-                with page{flagged.length === 1 ? "" : "s"} <strong>{flagged.join(", ")}</strong> below
-              </>
-            ) : (
-              ", below"
-            )}{" "}
-            the <strong>{threshold}%</strong> threshold required for automated grading
-            {voice ? "" : " (any page below it routes the sheet here)"}. To protect grading accuracy, AI rubric evaluation
-            was skipped and no AI marks were published. Review the transcript below, then approve or correct it to grade,
-            or request a {voice ? "new recording" : "rescan"}.
-          </p>
-          {pending.detail ? <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p> : null}
+          {hold !== "confidence" ? (
+            <HoldReason hold={hold} reason={reason} voice={voice} />
+          ) : (
+            <>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
+                {voice ? "Transcript confidence for this voice answer" : "OCR confidence for this answer sheet"} is{" "}
+                <strong>{formatConfidence(confidence)}</strong>
+                {!voice && flagged.length ? (
+                  <>
+                    {" "}
+                    with page{flagged.length === 1 ? "" : "s"} <strong>{flagged.join(", ")}</strong> below
+                  </>
+                ) : (
+                  ", below"
+                )}{" "}
+                the <strong>{threshold}%</strong> threshold required for automated grading
+                {voice ? "" : " (any page below it routes the sheet here)"}. To protect grading accuracy, AI rubric
+                evaluation was skipped and no AI marks were published. Review the transcript below, then approve or
+                correct it to grade, or request a {voice ? "new recording" : "rescan"}.
+              </p>
+              {pending.detail ? <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p> : null}
+            </>
+          )}
         </div>
       </div>
 
@@ -117,6 +128,30 @@ function HumanReviewPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Lead of the review panel when the sheet was held for another reason than low confidence: the
+ * same-paper check (another paper, or another code / set of it) or a mostly blank sheet.
+ */
+function HoldReason({ hold, reason, voice }: { hold: "paper" | "other"; reason: string; voice: boolean }) {
+  return (
+    <div className="mt-2 max-w-3xl space-y-2 text-sm leading-relaxed text-slate-700">
+      <p>
+        {hold === "paper"
+          ? "This sheet does not look like the rubric's paper, so it was not scored and no marks were published."
+          : "This sheet was held before grading, so no AI marks were published."}
+      </p>
+      {reason ? (
+        <p className="break-words border-l-2 border-amber-500 pl-3 text-slate-800">{reason}</p>
+      ) : null}
+      <p>
+        {hold === "paper"
+          ? "If the student wrote another paper or another code / set, upload the sheet again with that paper's rubric. If it is the right paper, review the transcript below and approve it to score it with this rubric."
+          : `Review the transcript below, then approve or correct it to grade, or request a ${voice ? "new recording" : "rescan"}.`}
+      </p>
+    </div>
   );
 }
 

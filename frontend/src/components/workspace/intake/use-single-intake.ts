@@ -6,7 +6,7 @@ import type { LanguageHint, PaperInspection, Submission } from "@/lib/types";
 import { isAudio, MAX_UPLOAD_BYTES, validateAnswerSheet } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import { checkSignature, deriveStudentName, isVoiceKind, readHead, rollNoProblem, sha256Hex, type SignatureCheck } from "./inspect";
-import { fetchInspection, isPaperCandidate, pageLimitProblem } from "./paper";
+import { fetchInspection, isPaperCandidate, pageLimitProblem, RECHECK_DELAY_MS, rubricComparable } from "./paper";
 import { voiceQuestionFor } from "./voice-fields";
 
 export type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
@@ -23,11 +23,14 @@ export interface SingleUploadSettings {
 /**
  * One answer sheet, one student: pick or drop a file, check its signature and SHA-256 in the
  * browser, then POST /api/upload with progress. The server repeats every check on the bytes.
+ * rubricId: the saved rubric chosen for the upload - a printed paper is compared with it, again
+ * whenever the choice changes.
  */
 export function useSingleIntake(
   onUploaded: (submission: Submission) => void,
   maxBytes: number = MAX_UPLOAD_BYTES,
   voiceEnabled = true,
+  rubricId: number | null = null,
 ) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -38,6 +41,8 @@ export function useSingleIntake(
   /** What the server reads from the document's text layer (printed paper / answer key); advisory. */
   const [inspection, setInspection] = useState<PaperInspection | null>(null);
   const [inspecting, setInspecting] = useState(false);
+  /** Saved rubric the inspection compared the paper with (null = none). */
+  const [inspectedRubric, setInspectedRubric] = useState<number | null>(null);
   /** Faculty chose to upload an answer-key paper as a student sheet anyway. */
   const [paperNoticeDismissed, setPaperNoticeDismissed] = useState(false);
 
@@ -53,6 +58,29 @@ export function useSingleIntake(
   const [notice, setNotice] = useState<SingleNotice | null>(null);
   /** Bumped per pick so a slow inspection of an earlier file is ignored. */
   const pickVersion = useRef(0);
+
+  // A different saved rubric chosen while a printed paper is attached: compare it again. A reply
+  // for an earlier file or an earlier choice is dropped.
+  useEffect(() => {
+    if (!file || !inspection || rubricId === null || inspectedRubric === rubricId) return;
+    // Only printed papers with a text layer can be compared: nothing to ask the server for others
+    // (matchChecking stays false for them).
+    if (!rubricComparable(inspection)) return;
+    const version = pickVersion.current;
+    let cancelled = false;
+    // Short delay so flicking through rubrics sends one request for the final choice.
+    const timer = setTimeout(() => {
+      void fetchInspection(file, rubricId).then((result) => {
+        if (cancelled || version !== pickVersion.current) return;
+        setInspection(result ?? { ...inspection, rubric_match: null });
+        setInspectedRubric(rubricId);
+      });
+    }, RECHECK_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [file, inspection, inspectedRubric, rubricId]);
 
   // Revoke image preview URLs when replaced or on unmount.
   useEffect(() => {
@@ -104,7 +132,7 @@ export function useSingleIntake(
       setPreviewUrl(null);
       return;
     }
-    if (isPaperCandidate(check.kind)) void inspectDocument(next, version);
+    if (isPaperCandidate(check.kind)) void inspectDocument(next, version, rubricId);
     let digest: string | null = null;
     try {
       digest = await sha256Hex(next);
@@ -117,11 +145,12 @@ export function useSingleIntake(
   }
 
   /** One inspection in flight per pick; a result for an earlier file is dropped. */
-  async function inspectDocument(target: File, version: number) {
+  async function inspectDocument(target: File, version: number, against: number | null) {
     setInspecting(true);
-    const result = await fetchInspection(target);
+    const result = await fetchInspection(target, against);
     if (version !== pickVersion.current) return;
     setInspection(result);
+    setInspectedRubric(against);
     setInspecting(false);
   }
 
@@ -143,6 +172,11 @@ export function useSingleIntake(
   const isVoice = file !== null && (signature?.kind ? isVoiceKind(signature.kind) : isAudio(file));
   /** Over the server's page limit (from the inspection): blocks the upload like other client checks. */
   const pageProblem = file ? pageLimitProblem(inspection) : null;
+  /** The comparison with the chosen rubric (null while it is re-checked or no saved rubric is chosen). */
+  const current = !!inspection && rubricId !== null && inspectedRubric === rubricId;
+  const rubricMatch = current ? (inspection?.rubric_match ?? null) : null;
+  const matchChecking =
+    !!file && rubricComparable(inspection) && rubricId !== null && inspectedRubric !== rubricId;
 
   async function submit(settings: SingleUploadSettings) {
     if (uploading) return;
@@ -212,6 +246,8 @@ export function useSingleIntake(
     checking,
     inspection,
     inspecting,
+    rubricMatch,
+    matchChecking,
     pageProblem,
     paperNoticeDismissed,
     dismissPaperNotice: () => setPaperNoticeDismissed(true),

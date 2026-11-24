@@ -8,7 +8,7 @@ import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { reportPdfUrl } from "@/lib/api";
 import type { Submission } from "@/lib/types";
-import { cn, formatConfidence, formatDateTime, formatScore } from "@/lib/utils";
+import { cn, formatConfidence, formatDateTime, formatScore, reviewHold } from "@/lib/utils";
 import { codeLabel } from "./intake/codes";
 import { formatClock, formatInr, formatRelative, PIPELINE_STEP_COUNT, pipelineStepIndex, shortHash, toUtcIso } from "./format";
 
@@ -89,6 +89,7 @@ export function QueueRow({
   // After an operator Retry the counter keeps going past max_attempts: show "attempt N" then.
   const attemptsLabel = attempts > maxAttempts ? `attempt ${attempts}` : `attempts ${attempts}/${maxAttempts}`;
   const flaggedPages = s.flagged_pages ?? [];
+  const hold = review ? reviewHold(s, threshold) : null;
   const languages = (s.language_hints ?? []).filter((l) => l !== "en");
   const isVoice = s.input_kind === "voice";
   const duration = isVoice ? formatClock(s.audio_seconds) : null;
@@ -347,7 +348,21 @@ export function QueueRow({
       {flagged ? (
         <tr className={rowBg}>
           <td colSpan={QUEUE_COLUMNS.length} className={cn("border-l-4 pb-2.5 pl-3 pr-4 pt-0 sm:pl-4 sm:pr-5", edge)}>
-            {review ? (
+            {review && hold !== "confidence" ? (
+              <p className="text-sm text-amber-900">
+                <span>
+                  <span className="font-medium">
+                    {hold === "paper" ? "Paper check: " : ""}
+                    {s.error_message}
+                  </span>{" "}
+                  <span className="text-slate-600">
+                    {hold === "paper"
+                      ? "Held for faculty review - not scored. Open the sheet to score it with this rubric anyway, or upload it again with the rubric for its paper / code."
+                      : "Open the sheet to check the transcript or upload a rescan."}
+                  </span>
+                </span>
+              </p>
+            ) : review ? (
               <p className="text-sm text-amber-900">
                 <span>
                   <span className="font-medium">

@@ -48,6 +48,16 @@ export type ReviewAction = "approve" | "correct" | "rescan";
 export type RubricSource = "text" | "pdf" | "docx" | "json";
 /** What an intake file looks like (POST /api/intake/inspect, read from its text layer, no AI). */
 export type PaperRole = "answer_key_paper" | "question_paper" | "answer_sheet" | "unknown";
+/**
+ * How a printed paper's questions line up with a rubric: match = same paper; reordered = the same
+ * questions under other numbers (another code / set); mismatch = a different paper; unknown = too
+ * little text to tell.
+ */
+export type RubricMatchVerdict = "match" | "reordered" | "mismatch" | "unknown";
+/** What an answer-key import read (POST /api/rubrics/answer-key). */
+export type AnswerKeySource = "text" | "pdf" | "docx" | "image";
+/** parsed = read from the text with no AI call; ai = read from page images. */
+export type AnswerKeyMethod = "parsed" | "ai";
 /** "insights" = the insights sample set (MCQ papers, NEET-C (sample), interventions); not part of "all". */
 export type DemoSet = "genetics" | "mixed" | "all" | "insights";
 // --- contract v3 ---
@@ -182,6 +192,8 @@ export interface RubricContent {
   questions: RubricQuestion[];
   /** Absent = the default rule (0.5-mark steps, no negative marking). */
   marking_policy?: MarkingPolicy;
+  /** Printed paper code / set / version ("Code A", "Set 2", "Code 45"); absent or null when unknown. */
+  paper_code?: string | null;
 }
 
 export interface Rubric {
@@ -999,6 +1011,50 @@ export interface PaperInspection {
   within_page_limit: boolean;
   /** One plain sentence for faculty. */
   message: string;
+  /** Only when rubric_id was sent and the text layer has question text. */
+  rubric_match: RubricMatch | null;
+}
+
+/**
+ * The printed question text by number compared with the rubric's question prompts
+ * (PaperInspection.rubric_match).
+ */
+export interface RubricMatch {
+  verdict: RubricMatchVerdict;
+  /** Questions with text on both sides. */
+  compared: number;
+  /** Same number, similar text. */
+  matched: number;
+  /** Text found under a different number in the rubric. */
+  moved: number;
+  /** Printed paper code / set on the sheet, when seen. */
+  sheet_code: string | null;
+  /** Paper code / set named by the rubric, when known. */
+  rubric_code: string | null;
+  /** Up to 3 short lines, e.g. "Q12: sheet '...' vs rubric '...'". */
+  examples: string[];
+  /** One plain sentence for faculty. */
+  message: string;
+}
+
+export interface AnswerKeyEntry {
+  question: number;
+  /** One letter A-F; options printed (1)-(4) read as A-D. */
+  option: string;
+}
+
+/**
+ * POST /api/rubrics/answer-key: the answer key read from a key-only file or pasted text (a table
+ * such as "1-2, 2-4", a "Que. / Ans." grid, or a question paper with "Ans." lines).
+ */
+export interface AnswerKeyExtraction {
+  /** Sorted by question, unique. */
+  entries: AnswerKeyEntry[];
+  source: AnswerKeySource;
+  method: AnswerKeyMethod;
+  /** Printed paper code / set, when seen. */
+  paper_code: string | null;
+  warnings: string[];
 }
 
 export interface RubricCompatibility {

@@ -18,7 +18,7 @@ import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ACCEPT_ATTR, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { codeLabel } from "./codes";
-import { paperTag } from "./paper";
+import { matchTag, mismatchHeld, paperTag } from "./paper";
 import {
   isVoiceRow,
   QUEUE_API_NOTE_THRESHOLD,
@@ -98,6 +98,8 @@ interface BatchStagingProps {
   questions: VoiceQuestionOption[];
   /** Draft the rubric from a staged answer-key paper (the row is removed from the batch). */
   onDraftRubric?: (file: File) => void;
+  /** The chosen rubric is MCQ-heavy (paper.mcqHeavyRubric): a non-matching printed PDF is held for review. */
+  mcqRubric?: boolean;
 }
 
 export function BatchStaging({
@@ -108,6 +110,7 @@ export function BatchStaging({
   voice,
   questions,
   onDraftRubric,
+  mcqRubric = false,
 }: BatchStagingProps) {
   const ids = useId();
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +129,12 @@ export function BatchStaging({
   const checking = views.some((v) => v.row.phase === "checking");
   const shortId = intake.intakeBatchId ? intake.intakeBatchId.slice(0, 4) : null;
   const voiceRows = views.filter((v) => isVoiceRow(v.row)).length;
+  const otherPapers = views.filter(
+    (v) => v.row.phase === "ready" && (v.rubricMatch?.verdict === "mismatch" || v.rubricMatch?.verdict === "reordered"),
+  );
+  const differentPapers = otherPapers.filter((v) => v.rubricMatch?.verdict === "mismatch").length;
+  const otherCodes = otherPapers.length - differentPapers;
+  const otherRows = otherPapers.map((v) => v.index + 1);
 
   function pickReplacement(key: string) {
     replaceKeyRef.current = key;
@@ -195,6 +204,24 @@ export function BatchStaging({
         </div>
       ) : null}
 
+      {otherPapers.length > 0 ? (
+        <p className="border-l-2 border-amber-500 pl-3 text-xs text-amber-900" role="status">
+          <span className="font-medium">
+            {otherPapers.length} {otherPapers.length === 1 ? "sheet does" : "sheets do"} not match the selected rubric
+          </span>{" "}
+          (
+          {[
+            differentPapers ? `${differentPapers} different ${differentPapers === 1 ? "paper" : "papers"}` : null,
+            otherCodes ? `${otherCodes} other code / set` : null,
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          ; {otherRows.length === 1 ? "row" : "rows"} {otherRows.slice(0, 12).join(", ")}
+          {otherRows.length > 12 ? ` +${otherRows.length - 12} more` : ""}). They upload, but are held for faculty
+          review instead of being graded - pick the matching rubric or remove them first.
+        </p>
+      ) : null}
+
       {attempted.length > 0 ? (
         <div className="space-y-1.5" aria-live="polite">
           <div className="flex items-center justify-between gap-2 text-xs">
@@ -243,6 +270,7 @@ export function BatchStaging({
                 ocrCacheEnabled={ocrCacheEnabled}
                 questions={questions}
                 voiceReady={voice.ready}
+                mcqRubric={mcqRubric}
                 onReplace={() => pickReplacement(view.row.key)}
                 onDraftRubric={
                   onDraftRubric
@@ -334,6 +362,7 @@ function StagedRowItem({
   voiceReady,
   onReplace,
   onDraftRubric,
+  mcqRubric,
 }: {
   view: RowView;
   views: RowView[];
@@ -345,10 +374,12 @@ function StagedRowItem({
   voiceReady: boolean;
   onReplace: () => void;
   onDraftRubric?: () => void;
+  mcqRubric: boolean;
 }) {
   const ids = useId();
   const { row, index, duplicateOf, blocked } = view;
   const tag = paperTag(row.paper);
+  const match = matchTag(view.rubricMatch, mismatchHeld(row.paper, mcqRubric));
   const answerKeyRow = row.paper?.role === "answer_key_paper";
   const locked = row.phase === "uploading" || row.phase === "queued" || intake.running;
   const canRetry = row.phase === "rejected" && !blocked;
@@ -363,7 +394,7 @@ function StagedRowItem({
         GRID,
         row.phase === "rejected" || blocked
           ? "border-l-rose-600"
-          : view.skippedAsDuplicate || (answerKeyRow && row.phase === "ready")
+          : view.skippedAsDuplicate || ((answerKeyRow || match) && row.phase === "ready")
             ? "border-l-amber-500"
             : "border-l-transparent",
       )}
@@ -428,6 +459,24 @@ function StagedRowItem({
           </p>
         ) : row.paperChecking ? (
           <p className="mt-1 text-[11px] text-slate-500">Reading printed text…</p>
+        ) : null}
+        {match ? (
+          <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
+                match.tone === "rose" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800",
+              )}
+              title={match.detail}
+            >
+              {match.label}
+            </span>
+            <span className={cn("min-w-0 break-words", match.tone === "rose" ? "text-rose-700" : "text-amber-800")}>
+              {match.hint}
+            </span>
+          </p>
+        ) : view.matchChecking ? (
+          <p className="mt-1 text-[11px] text-slate-500">Comparing with the selected rubric…</p>
         ) : null}
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
           <span>{formatBytes(row.file.size)}</span>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
-import type { LanguageHint, PaperInspection, Submission } from "@/lib/types";
+import type { LanguageHint, PaperInspection, RubricMatch, Submission } from "@/lib/types";
 import { hasAcceptedType, MAX_UPLOAD_BYTES } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import type { PickedFile } from "./collect";
@@ -17,7 +17,15 @@ import {
   skipReason,
   type SignatureCheck,
 } from "./inspect";
-import { createLimiter, fetchInspection, isPaperCandidate, pageLimitProblem } from "./paper";
+import {
+  createLimiter,
+  fetchInspection,
+  isPaperCandidate,
+  pageLimitProblem,
+  RECHECK_DELAY_MS,
+  rubricComparable,
+  shownMatch,
+} from "./paper";
 import { voiceQuestionFor } from "./voice-fields";
 
 /** Concurrent uploadSubmission calls in a batch run. */
@@ -54,6 +62,8 @@ export interface StagedRow {
   /** PDF / DOCX: what the server reads from its text layer (answer key paper, printed MCQ paper); advisory. */
   paper: PaperInspection | null;
   paperChecking: boolean;
+  /** Saved rubric `paper.rubric_match` was compared with (null = none). */
+  paperRubric: number | null;
 }
 
 /** The staged file is a voice answer (its bytes are MP3 / WAV / M4A / OGG). */
@@ -90,6 +100,10 @@ export interface RowView {
   /** Ready and not skipped: part of the next upload run. */
   uploadable: boolean;
   skippedAsDuplicate: boolean;
+  /** How the printed paper compares with the chosen saved rubric (null: unknown, none or re-checking). */
+  rubricMatch: RubricMatch | null;
+  /** The paper is being compared with a newly chosen rubric. */
+  matchChecking: boolean;
 }
 
 function clientBlock(row: StagedRow, maxBytes: number): { code: string; message: string } | null {
@@ -110,7 +124,12 @@ function nameProblem(name: string): string | null {
   return null;
 }
 
-export function describeRows(rows: StagedRow[], maxBytes: number): RowView[] {
+/** Patch one row (only while it still holds the same file version, when given). */
+function patchRows(rows: StagedRow[], key: string, patch: Partial<StagedRow>, version?: number): StagedRow[] {
+  return rows.map((r) => (r.key === key && (version === undefined || r.version === version) ? { ...r, ...patch } : r));
+}
+
+export function describeRows(rows: StagedRow[], maxBytes: number, rubricId: number | null = null): RowView[] {
   const firstByHash = new Map<string, number>();
   return rows.map((row, index) => {
     let duplicateOf: number | null = null;
@@ -121,6 +140,7 @@ export function describeRows(rows: StagedRow[], maxBytes: number): RowView[] {
     }
     const blocked = row.phase === "checking" ? null : clientBlock(row, maxBytes);
     const skippedAsDuplicate = duplicateOf !== null && !row.includeDuplicate;
+    const compared = !!row.paper && rubricId !== null && row.paperRubric === rubricId;
     return {
       row,
       index,
@@ -130,6 +150,9 @@ export function describeRows(rows: StagedRow[], maxBytes: number): RowView[] {
       rollProblem: rollNoProblem(row.rollNo),
       uploadable: row.phase === "ready" && !blocked && !skippedAsDuplicate,
       skippedAsDuplicate: row.phase === "ready" && skippedAsDuplicate,
+      rubricMatch: compared ? shownMatch(row.paper?.rubric_match) : null,
+      matchChecking:
+        rubricComparable(row.paper) && !row.paperChecking && rubricId !== null && row.paperRubric !== rubricId,
     };
   });
 }
@@ -171,9 +194,10 @@ async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<vo
 /**
  * Batch / folder intake: stage files (one row per answer sheet), inspect each in the browser
  * (magic bytes + SHA-256), then upload with a pool of 3 concurrent requests that share one
- * intake_batch_id. A rejected file never blocks the others.
+ * intake_batch_id. A rejected file never blocks the others. rubricId: the saved rubric chosen for
+ * the batch - printed papers are compared with it, again whenever the choice changes.
  */
-export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled = true) {
+export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled = true, rubricId: number | null = null) {
   const [rows, setRows] = useState<StagedRow[]>([]);
   const [skipped, setSkipped] = useState<SkippedFile[]>([]);
   const [intakeBatchId, setIntakeBatchId] = useState<string | null>(null);
@@ -183,12 +207,51 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
   const [jsonRubric, setJsonRubric] = useState<{ text: string; id: number } | null>(null);
   /** At most INSPECT_CONCURRENCY paper inspections in flight across the staging session. */
   const inspectLimit = useRef(createLimiter(INSPECT_CONCURRENCY));
+  /** Re-comparisons in flight ("row key:file version:rubric id"), so each is asked for once. */
+  const rechecks = useRef(new Set<string>());
+  /** The rubric chosen now: a re-comparison for an earlier choice is dropped. */
+  const chosenRubric = useRef<number | null>(rubricId);
+  /** The staged rows as of the last render (queued re-checks skip rows that were removed or replaced). */
+  const rowsRef = useRef<StagedRow[]>([]);
 
   function patchRow(key: string, patch: Partial<StagedRow>, version?: number) {
-    setRows((prev) =>
-      prev.map((r) => (r.key === key && (version === undefined || r.version === version) ? { ...r, ...patch } : r)),
-    );
+    setRows((prev) => patchRows(prev, key, patch, version));
   }
+
+  // Another saved rubric chosen: compare every inspected printed paper with it again (through the
+  // same 3-at-a-time limiter). Rows still on their first inspection are left to it.
+  useEffect(() => {
+    chosenRubric.current = rubricId;
+    rowsRef.current = rows;
+    if (rubricId === null) return;
+    // Rows that cannot be compared (no text layer, not a printed paper) are never re-sent: the
+    // server would return no comparison for them (describeRows shows no check for them either).
+    const timer = setTimeout(() => {
+      if (chosenRubric.current !== rubricId) return;
+      for (const row of rowsRef.current) {
+        if (!row.paper || row.paperChecking || row.paperRubric === rubricId || !rubricComparable(row.paper)) continue;
+        const id = `${row.key}:${row.version}:${rubricId}`;
+        if (rechecks.current.has(id)) continue;
+        rechecks.current.add(id);
+        const { key, version, file, paper } = row;
+        void inspectLimit.current(async () => {
+          // Queued behind other inspections: skip it when the choice changed or the row went away.
+          const live = rowsRef.current.some((r) => r.key === key && r.version === version);
+          if (chosenRubric.current !== rubricId || !live) {
+            rechecks.current.delete(id);
+            return;
+          }
+          const next = await fetchInspection(file, rubricId);
+          rechecks.current.delete(id);
+          if (chosenRubric.current !== rubricId) return;
+          setRows((prev) =>
+            patchRows(prev, key, { paper: next ?? { ...paper, rubric_match: null }, paperRubric: rubricId }, version),
+          );
+        });
+      }
+    }, RECHECK_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [rows, rubricId]);
 
   async function inspect(key: string, version: number, file: File) {
     let signature: SignatureCheck | null = null;
@@ -208,9 +271,10 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
     const paperCandidate = !signature.error && isPaperCandidate(signature.kind) && file.size > 0 && file.size <= maxBytes;
     patchRow(key, { signature, hash, phase: "ready", paper: null, paperChecking: paperCandidate }, version);
     if (paperCandidate) {
+      const against = rubricId;
       void inspectLimit.current(async () => {
-        const paper = await fetchInspection(file);
-        patchRow(key, { paper, paperChecking: false }, version);
+        const paper = await fetchInspection(file, against);
+        patchRow(key, { paper, paperChecking: false, paperRubric: against }, version);
       });
     }
   }
@@ -250,6 +314,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
         voiceQuestion: null,
         paper: null,
         paperChecking: false,
+        paperRubric: null,
       });
     }
     setRows((prev) => [...prev, ...newRows]);
@@ -296,6 +361,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
       errorDetail: null,
       paper: null,
       paperChecking: false,
+      paperRubric: null,
     });
     await inspect(key, version, file);
   }
@@ -417,7 +483,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
     setJsonRubric(null);
   }
 
-  const views = describeRows(rows, maxBytes);
+  const views = describeRows(rows, maxBytes, rubricId);
   return {
     rows,
     views,

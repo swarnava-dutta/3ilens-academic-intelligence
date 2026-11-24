@@ -40,6 +40,9 @@ export function parseErrorMessage(err: unknown): string {
   if (code === "empty_rubric_source") {
     return "No question text was found. Paste the questions and marking scheme, or upload a text-based PDF/DOCX.";
   }
+  if (code === "no_answer_key") {
+    return 'No answer key was found in the separate key file. Use a table such as "1-2, 2-4", a "Que. / Ans." grid or a paper with "Ans." lines - or remove it and set the keys in the review table.';
+  }
   if (!code && (status === 404 || status === 405)) {
     return "Rubric drafting is not available on this API build yet. Use a saved rubric or the JSON option.";
   }
@@ -63,6 +66,9 @@ export interface RubricSourceState {
   setSubjectHint: (text: string) => void;
   sourceFile: File | null;
   setSourceFile: (file: File | null) => void;
+  /** Upload mode: a separate answer key for the paper (sent as key_file; cleared with the source file). */
+  keyFile: File | null;
+  setKeyFile: (file: File | null) => void;
   parsing: boolean;
   /** The running draft reads a PDF (page by page on the server; a full paper takes minutes). */
   parsingPdf: boolean;
@@ -105,6 +111,7 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
   const [subjectHint, setSubjectHint] = useState("");
   const [keyFromMarks, setKeyFromMarks] = useState(false);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [keyFile, setKeyFileState] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsingPdf, setParsingPdf] = useState(false);
   const [parseStartedAt, setParseStartedAt] = useState<number | null>(null);
@@ -194,7 +201,7 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
   }
 
   /** Draft from pasted text or a file; `file` wins over the state (draftFromFile passes it directly). */
-  async function draftRubric(source: { text?: string; file?: File; keyFromMarks?: boolean }) {
+  async function draftRubric(source: { text?: string; file?: File; keyFromMarks?: boolean; keyFile?: File }) {
     setParsing(true);
     setParsingPdf(!!source.file && isPdfFile(source.file));
     setParseElapsed(0);
@@ -205,7 +212,8 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
         file: source.file,
         subject: subjectHint.trim() || undefined,
         exam: "NEET",
-        keySource: source.file && source.keyFromMarks ? "marks" : undefined,
+        keySource: source.file && source.keyFromMarks && !source.keyFile ? "marks" : undefined,
+        keyFile: source.file ? source.keyFile : undefined,
       });
       setDraft(result);
       setDraftSerial((n) => n + 1);
@@ -236,14 +244,25 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     await draftRubric(
       mode === "paste"
         ? { text }
-        : { file: sourceFile ?? undefined, keyFromMarks: keyFromMarks && !!sourceFile && isPdfFile(sourceFile) },
+        : {
+            file: sourceFile ?? undefined,
+            keyFromMarks: keyFromMarks && !keyFile && !!sourceFile && isPdfFile(sourceFile),
+            keyFile: keyFile ?? undefined,
+          },
     );
   }
 
-  /** A new source file starts unticked: "ticks mark the key" belongs to one paper. */
+  /** A new source file starts unticked and without a separate key: both belong to one paper. */
   function chooseSourceFile(file: File | null) {
     setSourceFile(file);
     setKeyFromMarks(false);
+    setKeyFileState(null);
+  }
+
+  /** A separate answer key replaces "the ticks mark the key". */
+  function chooseKeyFile(file: File | null) {
+    setKeyFileState(file);
+    if (file) setKeyFromMarks(false);
   }
 
   async function draftFromFile(file: File, options?: { keyFromMarks?: boolean }) {
@@ -255,6 +274,7 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     }
     const fromMarks = !!options?.keyFromMarks;
     setSourceFile(file);
+    setKeyFileState(null);
     setKeyFromMarks(fromMarks);
     setParseError(null);
     setNotice(null);
@@ -297,6 +317,7 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
       setContentState(null);
       setPasteText("");
       setSourceFile(null);
+      setKeyFileState(null);
       setNotice({
         kind: "success",
         message: `Saved "${saved.name}" (${saved.version}, faculty approved) and selected it for this upload.`,
@@ -334,6 +355,8 @@ export function useRubricSource(apiOnline: boolean): RubricSourceState {
     setKeyFromMarks,
     sourceFile,
     setSourceFile: chooseSourceFile,
+    keyFile,
+    setKeyFile: chooseKeyFile,
     parsing,
     parsingPdf,
     parseElapsed,

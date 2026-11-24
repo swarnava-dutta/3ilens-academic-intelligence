@@ -19,6 +19,7 @@ import {
   cloneContent,
   compareContents,
   normalizeContent,
+  paperCodeOf,
   policyKey,
   questionList,
   rubricLabel,
@@ -146,8 +147,9 @@ export function RubricVersionsPanel({
   const nameChanged = !!(baseline && normalized && normalizeContent(baseline).name !== normalized.name);
   // A rubric-wide marking-policy change re-scores every question even when no question changed.
   const policyChanged = !!(baseline && normalized && policyKey(normalizeContent(baseline)) !== policyKey(normalized));
+  const paperCodeChanged = !!(baseline && normalized && paperCodeOf(baseline) !== paperCodeOf(normalized));
   const issues = editing ? validateContent(editing) : null;
-  const anyChange = changed || nameChanged || policyChanged;
+  const anyChange = changed || nameChanged || policyChanged || paperCodeChanged;
   const canSave = !!selected && !!normalized && anyChange && (issues?.count ?? 1) === 0 && !saving;
   const students = est?.students ?? null;
 
@@ -344,6 +346,7 @@ export function RubricVersionsPanel({
                       Questions added: {questionList(diff.added)} · removed: {questionList(diff.removed)} · changed:{" "}
                       {questionList(diff.changed)}
                       {policyChanged ? " · marking policy changed (every question re-scored)" : ""}
+                      {paperCodeChanged ? ` · paper code / set: ${paperCodeOf(baseline) || "none"} → ${paperCodeOf(normalized) || "none"}` : ""}
                     </p>
                   ) : null}
                   {diff && !diff.reusable ? (
