@@ -55,7 +55,12 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   student ticked, circled or shaded options is read as an answer sheet; options printed
   (1)-(4) map to A-D, and printed answer keys, logos and adverts are ignored. A dedicated
   reader reports the marked option for every printed question, 2 pages per call, 3 calls at a
-  time; handwritten sheets longer than 10 pages are transcribed in page chunks. Intake reads each PDF / DOCX's
+  time; handwritten sheets longer than 10 pages are transcribed in page chunks.
+- **Same-paper check:** the printed questions on a student's paper are compared with the
+  rubric's. A paper from another code / set (same questions, different order) or a different
+  paper is held for faculty review instead of being scored; intake warns before upload.
+- **Separate answer keys:** a key-only file (list, `Que./Ans.` grid, image) is read and applied
+  to a rubric, either while drafting from the question paper or later in the rubric editor. Intake reads each PDF / DOCX's
   printed text first (`POST /api/intake/inspect`, no AI call) and flags a question paper that
   carries its own answer key ("Ans. (2)") as a rubric source rather than a student sheet.
 - Pre-processing: 300 DPI PDF master, deskew, contrast and sharpen.
@@ -445,10 +450,10 @@ Full JSON shapes, status codes, error codes and validation rules are in
 
 | Area | Endpoints |
 | --- | --- |
-| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/intake/inspect`, `POST /api/upload`, `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` |
+| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/intake/inspect` (optional `rubric_id`), `POST /api/upload`, `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` |
 | Pipeline operations | `POST /api/submissions/{id}/retry`, `.../reevaluate`, `.../review`, `.../rescan`; `GET /api/submissions/{id}/ocr`, `.../pages`, `.../pages/{n}`, `.../invocations`; `GET /api/ops/costs`; `GET /api/intake-batches/{id}` |
 | Voice | `GET /api/submissions/{id}/audio`, `GET /api/submissions/{id}/transcript` |
-| Rubrics | `POST /api/rubrics/parse` (AI draft), `POST /api/rubrics`, `POST /api/rubrics/{id}/versions`, `GET /api/rubrics/{id}/reevaluation-estimate`, `POST /api/rubrics/{id}/bloom-levels` |
+| Rubrics | `POST /api/rubrics/parse` (AI draft, optional `key_file`), `POST /api/rubrics/answer-key`, `POST /api/rubrics`, `POST /api/rubrics/{id}/versions`, `GET /api/rubrics/{id}/reevaluation-estimate`, `POST /api/rubrics/{id}/bloom-levels` |
 | Analytics | `GET /api/results/{id}/plan`, `POST /api/results/{id}/consistency-check`, `GET /api/weightage`, `GET /api/exams`, `PATCH /api/batches/{id}` (exam, exam date, faculty lead) |
 | Outputs | `GET /api/reports/{id}/pdf`, `GET /api/cohort/pdf`, `GET /api/reports/bundle.zip`, `POST /api/results/{id}/release` and `/revoke`, `POST /api/deliveries` (simulated), `GET /api/download/{token}`, `GET /api/students`, `GET /api/students/{ref}/history`, `GET /api/filters` |
 | Interventions and what-if | `POST /api/interventions`, `GET /api/interventions`, `DELETE /api/interventions/{id}`, `GET /api/interventions/effectiveness`, `POST /api/whatif`, `GET /api/whatif/options` |
@@ -575,6 +580,9 @@ backend/
   uploads.py            upload validation and content sniffing (documents and audio)
   paper_detect.py       printed-paper detection from the text layer (answer-key paper, MCQ paper)
   paper_pages.py        question-paper PDF pages rendered for page-by-page rubric drafting
+  mcq_marks.py          reads the marked option of every question on a printed MCQ paper
+  paper_match.py        checks a printed paper's questions against the rubric (same paper / code)
+  answer_keys.py        reads key-only answer files and applies them to rubrics
   ai.py, llm_route.py   Claude/OpenAI calls, fallback chain, route provenance, error mapping
   voice.py              speech-to-text and voice result details
   marking.py, bloom.py  MCQ +4/-1, marking schemes and partial credit; Bloom K1-K5

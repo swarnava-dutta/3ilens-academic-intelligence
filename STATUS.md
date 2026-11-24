@@ -11,7 +11,7 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **919 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1071 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
@@ -93,7 +93,12 @@ Built for two kinds of PDF the client will upload: a scanned NEET question paper
   - Scanned ticked paper -> rubric: 180/180 questions (subjects 45/43/92 vs the true 45/45/90). Default mode finds keys for 114 (it treats a student's mixed marks as no key); with "ticks are the key" 137, and the other 43 questions have no tick on the scan. 10 calls, about 105 s, Rs 55.
   - Scanned ticked paper graded as a student's sheet against that rubric: 134 marked answers read, 516/720, 130 of 134 matching the independent rubric reading, 30/30 correct on questions checked by eye (7 of them unticked), 10 calls, 68 s, Rs 21.77. The handwriting OCR read the same paper far worse (405/720 at 10 pages per call, 373/720 at 2 pages per call, with invented and missed ticks), which is why the dedicated reader exists.
   - Typed paper with key uploaded as a student's sheet: the printed key is ignored (0 answers read) and the sheet goes to faculty review.
-- **Cost note:** a 19-page printed paper costs about Rs 22 to read, above the Rs 5 per-student target (sized for handwritten sheets of a few pages).
+- **Same-paper check and separate answer keys (2026-11-24):** the printed-MCQ reader also returns each question's first words and the printed paper code; `paper_match` compares them with the rubric and holds another code / set or a different paper for review, and intake shows the same check before upload (`rubric_id` on inspect, text layer only). Key-only answer files are read (`POST /api/rubrics/answer-key`, text parse or AI from images) and applied while drafting (`key_file`) or in the rubric editor ("Apply answer key from file", with undo). Live checks:
+  - key-only list PDF: 45/45 keys read from the text (no AI call); the same key as a grid image: 45/45 via one AI call (5 s);
+  - intake check: 2016 paper vs its rubric -> match (90/101); vs the same rubric with numbers shuffled (stand-in for another code) -> reordered; the 2025 Physics paper vs the 2016 rubric -> mismatch; vs its own rubric -> match (38/43);
+  - pipeline: 2016 paper vs its rubric -> "match (148 of 153 compared)", graded 521/720 (Rs 27.26); vs the shuffled rubric -> reordered and paper code A vs P, held for review unscored (Rs 27.18).
+- **Review hardening:** the paper check never holds a sheet against a rubric whose questions are short typed summaries (questions need 5+ distinctive words and at least half the rubric needs question text), checks each subject block on its own (a version that reorders only one section is held), holds two different printed codes even when the text lines up (versions that shuffle only the options), and is skipped at intake for typed answer sheets. The answer-key parser skips and warns rather than guessing on gaps, blank grid cells, unlabelled number columns and multi-answer entries.
+- **Cost note:** a 19-page printed paper costs about Rs 22-27 to read, above the Rs 5 per-student target (sized for handwritten sheets of a few pages).
 
 ### Fixes to earlier known issues
 - Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).
