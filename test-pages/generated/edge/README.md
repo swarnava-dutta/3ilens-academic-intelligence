@@ -4,13 +4,8 @@ Seven synthetic handwritten answer sheets for the **Biology - Genetics** paper
 (`backend/rubrics/biology_genetics_v1.json`, Q1-Q5, 4 marks each, 20 total). They test unusual
 content and structure rather than image quality.
 
-Regenerate them (output is deterministic and seeded per sheet):
-
-    backend/.venv/Scripts/python.exe test-pages/generators/gen_edge.py          # all
-    backend/.venv/Scripts/python.exe test-pages/generators/gen_edge.py 04 06    # some
-
-The generator imports `samples/generate_samples.py` (Hand, Punnett, wobbly lines, photo effect,
-save_pdf) and adds: per-character size, baseline and rotation jitter; per-word rotation and size;
+They were drawn once by a seeded generator (removed; see `test-pages/README.md`) with:
+per-character size, baseline and rotation jitter; per-word rotation and size;
 slant; line drift; pen pressure; ballpoint skipping and pencil-graphite texture; notebook,
 booklet and plain paper; free-hand diagrams; and geometry that scales from 1240 px up to 6000 px.
 

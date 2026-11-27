@@ -469,7 +469,9 @@ stops a proxy or key set up for another tool from leaking into the demo.
 
 ## Client demo script
 
-The sample files are in `samples/` (see `samples/README.md`).
+The sample files are in `samples/` (see `samples/README.md`). The Genetics sheets in steps 2-4
+are synthetic handwritten demo sheets from the original brief; real input is a printed or typed
+sheet (step 5).
 
 1. **Start.** Double-click `start.bat`. On the Intake page, the header pill should say
    **AI ready**. If it says *AI keys missing*, add the key to `.env` and restart.
@@ -639,8 +641,8 @@ npm run lint
 npm run build
 ```
 
-`test-pages/` holds 26 varied generated answer sheets and `run_live_test.py` for live
-end-to-end runs (real AI calls; see `test-pages/README.md`).
+`test-pages/` holds 25 synthetic handwritten answer sheets from the original brief and
+`run_live_test.py` for live end-to-end runs (real AI calls; see `test-pages/README.md`).
 
 ---
 
@@ -659,10 +661,13 @@ scripts/
 .tools/                 portable Node.js downloaded by start.bat when needed (git-ignored)
 backend/
   main.py               FastAPI app and core routes
+  config.py, errors.py  settings from .env; coded API errors
   routers/              pipeline ops, analytics, outputs, intake inspect / preview, voice, AI chain, insights, owner, LMS
   pipeline.py           worker: pre-processing/transcription -> OCR -> evaluation -> insights
   preprocessing.py      image/PDF normalisation for the vision model
   uploads.py            upload validation and content sniffing (documents and audio)
+  docx_reader.py        typed Word sheets and rubric sources (validation, text, HTML)
+  hashing.py            SHA-256 custody, OCR-cache keys, rubric fingerprints, student identity
   paper_detect.py       printed-paper detection from the text layer (answer-key paper, MCQ paper)
   rubric_sources.py     the question paper / answer-key file kept with an intake's key, page previews
   paper_pages.py        question-paper PDF pages rendered for page-by-page rubric drafting
@@ -671,6 +676,9 @@ backend/
   paper_match.py        checks a printed paper's questions against the rubric (same paper / code)
   answer_keys.py        reads key-only answer files and applies them to rubrics
   ai.py, llm_route.py   Claude/OpenAI calls, fallback chain, route provenance, error mapping
+  ai_schemas.py         data contracts between the AI layer and the pipeline
+  costing.py            LLM cost accounting (Rs per call and per student)
+  provenance.py         model invocations, chain of custody, cost / latency and version history
   voice.py              speech-to-text and voice result details
   marking.py, bloom.py  MCQ +4/-1, marking schemes and partial credit; Bloom K1-K5
   insights.py           deterministic mastery and Preparation ROI engine
@@ -682,7 +690,10 @@ backend/
   sittings.py, roster.py  tests, sittings and progress shared by the pages; the students roster
   lms.py                LMS export rows, CSV and API keys
   reports.py            student and cohort PDFs
+  result_view.py        API result shapes assembled from database rows (API and PDFs)
+  report_meta.py        run id, release state, simulated deliveries and signed links
   database.py           SQLAlchemy models (SQLite) and the idempotent migration
+  results_store.py, rubric_store.py  result and rubric persistence and versioning
   schemas.py            API response models and rubric validation
   seed.py, seed_insights.py  base seed and the demo data sets
   rubrics/              Genetics, mixed NEET and sample MCQ / oral rubrics
@@ -691,7 +702,8 @@ backend/
 frontend/src/
   app/                  routes: /, /report/[id], /students, /cohort, /owner, /integrations, /journey
   components/           intake, report, students, cohort, owner, integrations and rubric UI
-  lib/                  API client, shared types, formatters
+  lib/                  API client (api.ts), shared types (types.ts), shared helpers (utils.ts);
+                        page formatting lives in components/*/format.ts
 samples/                demo answer sheets, an MCQ sheet, voice clips and a JSON answer key
 test-pages/             generated test sheets and the live test runner
 docs/POC_SPEC.md        original PoC specification

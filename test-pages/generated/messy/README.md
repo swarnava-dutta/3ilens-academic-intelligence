@@ -2,11 +2,6 @@
 
 Six synthetic answer sheets for the **Biology - Genetics** paper (`backend/rubrics/biology_genetics_v1.json`, Q1-Q5, 20 marks). The handwriting gets worse from sheet to sheet. Every page is a flat, sharp scan with no blur, so any difficulty comes from the writing itself. Each sheet also varies the student's ability, the font, the ink, the paper, the resolution and the file format.
 
-Regenerate (deterministic; output is byte-identical on every run):
-
-    backend/.venv/Scripts/python.exe test-pages/generators/gen_messy.py        # all six
-    backend/.venv/Scripts/python.exe test-pages/generators/gen_messy.py 2 5    # only sheets 02 and 05
-
 Live test (real Claude calls; each sheet takes 5-25 s):
 
     cd /h/3ilens && LIVE_TEST_NAME=messy PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe test-pages/run_live_test.py test-pages/generated/messy
@@ -31,9 +26,7 @@ The live runs used `claude-sonnet-5-5` with the vision provider `anthropic` and 
 - **Insertions are handled well.** Caret insertions were merged inline and margin notes joined by arrows were added to the correct answer. Tiny writing survived the 2000 px downscale. The OCR can lose detail, though: small superscripts inside cramped Punnett cells (sheet 03) were dropped, and the grader then deducted marks for a "muddled" Punnett square.
 - **Grading varies between runs.** The same transcribed text got different marks: sheet 06 Q1 scored 3.5 then 4.0 on "purpose of test cross not stated", and sheet 04 Q4 scored 4.0 then 3.5 on the "1/4 of all children" claim. Totals moved by up to ±0.5 on identical files.
 
-## Generator notes
+## Notes
 
-- `test-pages/generators/gen_messy.py` imports `samples/generate_samples.py` and does not modify it. It reuses the font lookup and loading, the `~~struck~~ ^{sup} _{sub}` parser, the `Word` and `Punnett` models, `wobbly_line` and `verify`. Its own code adds a letter-by-letter handwriting renderer (per-letter rotation, size, baseline and pressure jitter, alternate letterforms, shear, horizontal squash, drifting wavy lines), headers and ruling scaled to any page size, margin notes with arrows, carets, overwrites, scribbles, ink smudges, pencil texture and a sharp flat-bed scan effect (small skew and optional seeded grain).
-- Extra markup: `##word##` scribbles a word out, `[[old|new]]` writes a correction over the old word, `<<a+b>>` adds a caret with words above the line, `@N` adds a caret linked to `Note("N", ...)` in the margin, `@@id` is an invisible anchor (used for the smudge), and `` `word `` makes a word very faint.
-- Determinism: every random source is a seeded `random.Random`. Noise images are built from `rng.randbytes` instead of `Image.effect_noise`, and the PDF uses fixed dates and `no_new_id`, so the output is byte-identical on every run.
+- The sheets were drawn once by a seeded generator (removed; see `test-pages/README.md`): a letter-by-letter handwriting renderer (per-letter rotation, size, baseline and pressure jitter, alternate letterforms, shear, horizontal squash, drifting wavy lines), margin notes with arrows, carets, overwrites, scribbles, ink smudges, pencil texture and a sharp flat-bed scan effect.
 - No file name contains the word that triggers the backend's filename-based review mock.

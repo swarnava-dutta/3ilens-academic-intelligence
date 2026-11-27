@@ -6,11 +6,7 @@ sheet to sheet, along with the handwriting style, ink, paper, file format and re
 None of the pages is meant to be hard to read. They check that the pipeline completes on
 good input and that its grades follow the planted mistakes.
 
-Generator: `test-pages/generators/gen_neat.py`. It imports `samples/generate_samples.py` for
-the font lookup, the answer-markup parser, the Punnett model and the exam constants.
-Every random source is seeded, so the same command produces the same bytes:
-`backend/.venv/Scripts/python.exe test-pages/generators/gen_neat.py [NN ...]`.
-The handwriting is drawn one glyph at a time. Each glyph gets its own rotation, size, baseline
+They were drawn once by a seeded generator (removed; see `test-pages/README.md`). The handwriting is drawn one glyph at a time. Each glyph gets its own rotation, size, baseline
 and spacing jitter, each word gets a small tilt, and each line gets drift and an optional slant.
 A ballpoint texture goes on top, so the text does not look typeset.
 

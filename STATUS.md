@@ -11,7 +11,7 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1521 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1523 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
@@ -30,8 +30,8 @@ Planning notes used while building the requirements are kept in local planning n
 - `start.bat` / `stop.bat`:
   - installs Python 3.13 (per user) and portable Node 24 when they're missing, and pip/npm packages when missing or changed;
   - picks free ports, uses a single-instance lock, and stops only its own processes.
-- Samples (`samples/`) and 26 varied test pages (`test-pages/generated/{neat,messy,photo,edge}`), plus `test-pages/run_live_test.py` for live runs.
-- Public GitHub repo, with `.env` committed but the keys blank (the local `.env` is marked skip-worktree).
+- Samples (`samples/`) and 25 varied test pages (`test-pages/generated/`, 24 of them in `{neat,messy,photo,edge}`), plus `test-pages/run_live_test.py` for live runs.
+- Public GitHub repo; `.env` is git-ignored and `.env.example` is the template.
 
 ### V5 requirements
 All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5.8, and the 11 requirements that were first deferred (listed in the next section). FR-3.1 was already present in the base PoC.
@@ -55,7 +55,7 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
   - release / revoke gate; **simulated** WhatsApp delivery with signed links;
   - students, history and filters APIs;
   - mixed NEET demo rubric and multi-batch / longitudinal demo data (sample).
-- **Student report:** the full SAIR layout:
+- **Student report:** the full SAIR layout (replaced by the redesigned report on 2026-11-27, see "Redesigned pages" below):
   - provisional banner, run metadata, KPI tiles, executive summary, immediate reading with nudges, urgency;
   - subject roll-up, topic screening, worksheet, intervention chooser, action plan, ROI lab;
   - evidence trace to source pages, audit trail, print styles;
@@ -65,8 +65,8 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
   - re-evaluation confirmation with a cost estimate;
   - cohort extensions (ranking, at-risk, common errors, interventions, exam date, operations, filters);
   - `/journey` page.
-- **Interface:** one flat, data-dense style across all pages (Fira Sans / Fira Code, white bordered panels, KPI strips, dense tables, small rectangular status tags, navy primary actions, cyan as the single accent); sample / simulated / illustrative labels kept as quiet tags.
-- **Report analytics:** a "Performance analytics" section with 10 charts (marks and reading confidence by question, topic mastery vs target, batch comparison, score position, focus quadrant, projected gain, score trend, study plan load, Bloom accuracy, accuracy through the paper), each with a computed takeaway and a data table. The student PDF has the matching mastery, marks, quadrant, projected-gain and trend charts.
+- **Interface:** one flat, data-dense style across all pages (Fira Sans / Fira Code, white bordered panels, KPI strips, dense tables, small rectangular status tags, navy primary actions, blue as the single accent); sample / simulated / illustrative labels kept as quiet tags.
+- **Report analytics:** a "Performance analytics" section with 10 charts (marks and reading confidence by question, topic mastery vs target, batch comparison, score position, focus quadrant, projected gain, score trend, study plan load, Bloom accuracy, accuracy through the paper), each with a computed takeaway and a data table. The 2026-11-27 redesign keeps four of them on the web: batch comparison, score position, projected gain and study plan load. The student PDF has the matching mastery, marks, quadrant, projected-gain and trend charts.
 - **Result versions:** `GET /api/results/{id}/versions` and `/versions/{n}`; the report has a version selector and a "Superseded by version N" view of older versions.
 
 ### Previously deferred requirements (now implemented)

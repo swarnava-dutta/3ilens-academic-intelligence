@@ -70,7 +70,7 @@ $NodeSha256 = 'e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f'
 $PortableNodeDir = Join-Path $Tools 'node'
 
 # Imported once after every pip install, as a final check that the packages really load.
-$BackendImports = 'fastapi, uvicorn, sqlalchemy, pydantic, anthropic, openai, python_multipart, dotenv, PIL, pymupdf, httpx'
+$BackendImports = 'fastapi, uvicorn, sqlalchemy, pydantic, anthropic, openai, python_multipart, dotenv, PIL, pymupdf, httpx2'
 $CheckScript = Join-Path $PSScriptRoot 'check-requirements.py'
 
 # A download that receives less than 1 KB/s for this many seconds is aborted (then retried).

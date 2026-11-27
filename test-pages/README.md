@@ -1,10 +1,10 @@
 # 3iLens test pages
 
-26 synthetic handwritten answer sheets for testing the 3iLens pipeline: 2 original pages and 24 generated ones in four categories (neat, messy, photo, edge). Every sheet answers the **Biology - Genetics** rubric (`backend/rubrics/biology_genetics_v1.json`, 5 questions x 4 marks = 20).
+Synthetic handwritten answer sheets from the original brief, kept for live runs of the pipeline. The product now takes printed or typed answer sheets only (never handwritten), so this is a legacy corpus: 2 original pages and 24 generated ones in four categories (neat, messy, photo, edge). Every sheet answers the **Biology - Genetics** rubric (`backend/rubrics/biology_genetics_v1.json`, 5 questions x 4 marks = 20).
 
 | Category | Files | Live results (Claude, threshold 0.80) |
 |---|---|---|
-| originals (`generated/`) | 2 | 1 COMPLETED, 1 HUMAN_REVIEW_REQUIRED (filename mock) |
+| originals (`generated/` and `samples/`) | 2 | 1 COMPLETED, 1 HUMAN_REVIEW_REQUIRED (filename mock) |
 | [neat](#neat) (`generated/neat/`) | 5 (one 3-page PDF) | 5 COMPLETED |
 | [messy](#messy) (`generated/messy/`) | 6 (one 2-page PDF) | 5 COMPLETED, 1 HUMAN_REVIEW_REQUIRED |
 | [photo](#photo) (`generated/photo/`) | 6 | 6 COMPLETED |
@@ -24,7 +24,7 @@ Every file is PDF, JPEG, PNG or WEBP and under 8 MB, so all of them fit the uplo
 **From the command line (no server needed):**
 
 ```powershell
-# every sheet under test-pages/ (26 files, about 50 Claude calls)
+# every sheet under test-pages/ (25 files, about 50 Claude calls; add samples\answer_sheet_aarav_sharma.png for all 26)
 backend\.venv\Scripts\python.exe test-pages\run_live_test.py
 
 # only some files or folders
@@ -40,11 +40,11 @@ backend\.venv\Scripts\python.exe test-pages\run_live_test.py test-pages\generate
 
 ---
 
-## 2. Original pages (`generated/`)
+## 2. Original pages (`generated/` and `samples/`)
 
 | File | What it is | LIVE result |
 |---|---|---|
-| `answer_sheet_aarav_sharma.png` | Strong student, clean sheet | **COMPLETED**, conf **0.94**, **19.5/20** |
+| `samples/answer_sheet_aarav_sharma.png` (kept only in `samples/`) | Strong student, clean sheet | **COMPLETED**, conf **0.94**, **19.5/20** |
 | `answer_sheet_rohan.jpg` | Blurred, low-contrast, tilted photo. Same bytes as `samples/answer_sheet_rohan_blurry.jpg` | Uploaded as `answer_sheet_rohan_blurry.jpg`: **HUMAN_REVIEW_REQUIRED** at 0.65, **no AI call** (mock triggered by `blurry` in the filename) |
 
 > The copy in this folder is named `answer_sheet_rohan.jpg`, without `blurry`, so uploading it as-is runs the real OCR instead of the mock. To reproduce the mock, upload `samples/answer_sheet_rohan_blurry.jpg` or rename the file.
@@ -131,17 +131,9 @@ Structural and safety edge cases: a blank sheet, answers out of order or unnumbe
 
 ---
 
-## 4. Regenerating
+## 4. Where the sheets came from
 
-Each generator is deterministic (seeded) and writes to `generated/<category>/`; reruns give byte-identical files. They need only Pillow + PyMuPDF (the backend venv), Windows handwriting fonts, and they reuse helpers from `samples/generate_samples.py`.
-
-```powershell
-backend\.venv\Scripts\python.exe test-pages\generators\gen_neat.py           # all 5
-backend\.venv\Scripts\python.exe test-pages\generators\gen_messy.py          # all 6
-backend\.venv\Scripts\python.exe test-pages\generators\gen_photo.py          # all 6 (--preview also writes previews)
-backend\.venv\Scripts\python.exe test-pages\generators\gen_edge.py           # all 7
-backend\.venv\Scripts\python.exe test-pages\generators\gen_edge.py 04 06     # only some sheets (sheet numbers as arguments)
-```
+The 24 generated sheets were drawn once by seeded generator scripts (`test-pages/generators/`, built on `samples/generate_samples.py`). Answer sheets are never handwritten in the product, so the scripts were removed; the sheets stay committed, and the scripts are in git history (commit `d91fbd9`).
 
 Each category folder has its own `README.md` with more detail. Previous live outputs: `.run/live_test/{neat,messy,photo,edge}/artifacts/<n>/`.
 
@@ -151,9 +143,8 @@ Each category folder has its own `README.md` with more detail. Previous live out
 test-pages/
   README.md
   run_live_test.py
-  generators/  gen_neat.py  gen_messy.py  gen_photo.py  gen_edge.py
   generated/
-    answer_sheet_aarav_sharma.png  answer_sheet_rohan.jpg
+    answer_sheet_rohan.jpg
     neat/   README.md + 5 sheets
     messy/  README.md + 6 sheets
     photo/  README.md + 6 sheets

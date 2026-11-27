@@ -3,9 +3,8 @@
 Six single-page answer sheets for the **Biology - Genetics** paper (`backend/rubrics/biology_genetics_v1.json`, Q1-Q5).
 Handwriting ranges from neat to average. Each sheet has a different capture problem, font, ink, paper and student ability.
 
-- Generator: `test-pages/generators/gen_photo.py`. It reuses `samples/generate_samples.py` for layout, the header, Punnett squares and `verify`, and does not modify that file. Every random choice is seeded, and a second run produced byte-identical files.
+- Drawn once by a seeded generator (removed; see `test-pages/README.md`).
 - Handwriting: each sheet uses its own font. On top of the font, characters get random baseline, size, spacing and alpha (ink-skip) variation, each word gets its own rotation, the baseline drifts like a random walk, and each line gets slant (shear) and a small rotation.
-- Regenerate: `backend/.venv/Scripts/python.exe test-pages/generators/gen_photo.py [--preview] [NN ...]`
 - Live test: `LIVE_TEST_NAME=photo PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe test-pages/run_live_test.py test-pages/generated/photo`
 
 Live run: 2026-11-20, model `claude-sonnet-5-5`, OCR threshold 0.80.

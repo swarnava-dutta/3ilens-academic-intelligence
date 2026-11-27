@@ -2,6 +2,8 @@
 
 Upload these files from the Faculty Workspace to run the demo end to end. They are written against the **Biology - Genetics** rubric (5 questions x 4 marks = 20). Nothing is seeded: add `backend/rubrics/biology_genetics_v1.json` as the answer key in the intake's Answer key panel ("Question paper / key file"), then upload the sheets.
 
+The four Genetics sheets are synthetic handwritten demo sheets from the original PoC brief. The product itself reads printed or typed answer sheets only (a ticked printed paper or a typed sheet, see the README), so use them to show the pipeline, not as examples of real input.
+
 | File | Student / content | What it demonstrates |
 | --- | --- | --- |
 | `answer_sheet_aarav_sharma.png` | Strong student, 1 page, Punnett squares | Clean happy path. Nearly full marks; the only slip is in Q3, where DNA polymerase is written as 3'->5'. |
