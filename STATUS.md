@@ -1,6 +1,6 @@
 # 3iLens PoC - Project status
 
-_Last updated: 2026-11-23._
+_Last updated: 2026-11-27._
 
 Repo: https://github.com/swarnava-dutta/3ilens-academic-intelligence
 Run: double-click `start.bat` (installs anything missing, starts API + web, opens the browser). Stop: `stop.bat`.
@@ -11,11 +11,11 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1071 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1521 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
-| Live AI checks, newer features | partial: two fallback drills (Claude primary 3.0/4 in 9.4 s, Rs 1.85; simulated outage served by gpt-4o 3.5/4 in 4.0 s, Rs 0.76), one live transcription of the Hindi-English voice sample (`gpt-transcribe`, 30 s), live result rows showing their AI routes; one upload of `neat_02` (#71): OCR cache hit (no vision call), graded 13/20 for Rs 4.28, then re-evaluated from the stored OCR (cache read 6,802 tokens, Rs 3.03) into version 2 |
+| Live AI checks, newer features | partial: two fallback drills (Claude primary 3.0/4 in 9.4 s, Rs 1.85; simulated outage served by gpt-4o 3.5/4 in 4.0 s, Rs 0.76), one live transcription of the Hindi-English voice sample (`gpt-transcribe`, 30 s), live result rows showing their AI routes; one upload of `neat_02` (#71): OCR cache hit (no vision call), graded 13/20 for Rs 4.28, then re-evaluated from the stored OCR (cache read 6,802 tokens, Rs 3.03) into version 2; the real 19-page AIPMT 2016 ticked sheet with its key-only answer key: Rs 20.50, 63 s, 4 AI calls (was Rs 27.24, 73.6 s) |
 | Live UI checks | headless Edge screenshots at 1440 px and 390 px (device emulation) of `/`, a completed live report, a demo report, a human-review report, a superseded report version, `/students`, `/cohort`, `/owner`, `/integrations` and `/journey`: no horizontal scroll and no console errors. Report analytics: takeaways checked against the API for a live and two demo reports, hover tooltips and every "Show data" table open. Student PDF chart pages rendered to PNG and checked |
 | Full end-to-end walkthrough with the `insights` sample set in the live database | not done (see Pending 1) |
 
@@ -45,7 +45,7 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
   - rubric from pasted text / DOCX / PDF, prompt caching of the rubric context, a consistency re-grade check;
   - cohort analysis (common errors, at-risk list, class interventions).
 - **Pipeline:**
-  - DOCX uploads; real pre-processing (300 DPI master, contrast 1.4, sharpen, deskew);
+  - DOCX uploads; real pre-processing (200 DPI master since 2026-11-27, was 300; contrast 1.4, sharpen, deskew);
   - SHA-256 custody and an OCR cache (cache hit = no vision call, Rs 0);
   - OCR gate at **0.70**, per sheet and per page;
   - cost / usage trace per call; retry and dead-letter re-drive; OCR review editor and rescan; re-evaluate without OCR;
@@ -59,7 +59,7 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
   - provisional banner, run metadata, KPI tiles, executive summary, immediate reading with nudges, urgency;
   - subject roll-up, topic screening, worksheet, intervention chooser, action plan, ROI lab;
   - evidence trace to source pages, audit trail, print styles;
-  - a `/students` page with cards, nudges and the focus matrix.
+  - a `/students` page (redesigned on 2026-11-27 as a roster, see below).
 - **Intake and cohort UI:**
   - batch / folder / DOCX intake with per-file status and retry, language hints, rubric from text with versioning;
   - re-evaluation confirmation with a cost estimate;
@@ -78,27 +78,46 @@ All 34 P0 functional requirements, the P1 items FR-1.7, FR-4.9, FR-4.12 and FR-5
 - **FR-4.10 fatigue** in the final third of the paper (cohort-adjusted when at least 5 results share the rubric) and **FR-4.11 memorisation vs transfer** per concept, for students and the class.
 - **FR-4.13 intervention outcomes.** Log an intervention from the report; the outcome comes from the student's next test on that topic (improved / flat / declined / not assessed / pending). Effectiveness compares treated and untreated topics (labelled observational, not causal) and gives a per-institution calibration factor once 5 outcomes are measured.
 - **FR-4.14 what-if.** Projects extra study hours with the illustrative linear model on the NEET matrix, optionally calibrated; shown on `/owner`.
-- **FR-5.9 owner dashboard.** `/owner`: KPIs against the Rs 5 cost target, urgency strip, batches with an editable faculty lead and an indicative trend, faculty, trend per sitting, weakest topics, intervention effectiveness, what-if. No login in this PoC.
+- **FR-5.9 owner dashboard.** `/owner`: a "needs your attention" list, KPIs against the Rs 5 cost target, batches with an editable faculty lead and their latest test, then tabs for progress, topics, exam behaviour, faculty, intervention effectiveness, what-if and cost & operations (redesigned 2026-11-27). No login in this PoC.
 - **FR-5.10 LMS export.** Read-only JSON and CSV (`/api/lms/v1/*`) behind `X-API-Key`; keys stored only as SHA-256 and shown once; released results only by default; CSVs with a UTF-8 BOM and formula-injection guard; key management and a preview on `/integrations`.
-- **Sample data:** `POST /api/demo/seed?set=insights` adds batch `NEET-C (sample)` with the NEET MCQ Mock 09 / Mock 10 (sample) papers, 25 submissions, 24 interventions (22 measured) and a voice sample row, all labelled as sample data and scored by the real engine. `set=all` is unchanged (27 rows). A synthetic MCQ answer sheet for Mock 09 is in `samples/`.
+- **Sample data (only with `SEED_DEMO_DATA=1`; off by default since 2026-11-26):** `POST /api/demo/seed?set=insights` adds batch `NEET-C (sample)` with the NEET MCQ Mock 09 / Mock 10 (sample) papers, 25 submissions, 24 interventions (22 measured) and a voice sample row, all labelled as sample data and scored by the real engine. `set=all` is unchanged (27 rows). A synthetic MCQ answer sheet for Mock 09 is in `samples/`.
 
 ### Printed exam papers at intake (2026-11-23)
 Built for two kinds of PDF the client will upload: a scanned NEET question paper on which a student ticked options (19 pages, 180 MCQs) and a typed question paper with its answer key printed under each question ("Ans. (2)", 9 pages, 45 MCQs).
 - **Limits:** PDFs up to 40 pages (`MAX_PDF_PAGES`), rubrics up to 200 questions.
-- **Detection without AI:** `POST /api/intake/inspect` (`paper_detect.py`) reads the text layer and classifies a file as an answer-key paper, a printed MCQ paper, an answer sheet or unknown. Intake shows a notice: an answer-key paper offers "Draft rubric from this paper"; a printed MCQ paper says its ticks are read as the student's answers and offers "Use the ticks as the answer key". Batch rows are tagged. Uploads log the same hint and are never blocked by it.
-- **Rubric from a full paper:** a question-paper PDF of 3+ pages is read from page images, 2 pages per call (plus the next page as context), 3 calls at a time. The key comes from printed "Ans." lines, an answer-key table or, with `key_source=marks` ("the ticks mark the key"), the ticked options. Drafts over 20 questions open as a dense answer-key table. Warnings are folded per kind (e.g. "No answer key for Q1, Q4-Q7 ...").
-- **Student's ticked paper:** a dedicated reader (`mcq_marks.py`, prompt `marks-v1`) reports the marked option of every printed question, 2 pages per call; options (1)-(4) score as A-D; printed keys are ignored; two chunks that disagree cap the confidence below the review gate. Long handwritten sheets are still transcribed by the OCR prompt (`ocr-v4`), 10 pages per call.
+- **Detection without AI:** `POST /api/intake/inspect` (`paper_detect.py`) reads the text layer and classifies a file as an answer-key paper, a printed MCQ paper, an answer sheet or unknown. Intake shows a notice: an answer-key paper offers "Use as the answer key"; a printed MCQ paper says its ticks are read as the student's answers and offers "Use as the question paper" (no key yet) and "Use the ticks as the answer key". Batch rows are tagged. Uploads log the same hint and are never blocked by it.
+- **Rubric from a full paper:** a question-paper PDF of 3+ pages is read from page images, 2 pages per call (plus the next page as context), `AI_CHUNK_CONCURRENCY` calls at a time (3 then, 5 since 2026-11-27). The key comes from printed "Ans." lines, an answer-key table or, with `key_source=marks` ("the ticks mark the key"), the ticked options. Drafts over 20 questions open as a dense answer-key table. Warnings are folded per kind (e.g. "No answer key for Q1, Q4-Q7 ...").
+- **Student's ticked paper:** a dedicated reader (`mcq_marks.py`, prompt `marks-v1`) reports the marked option of every printed question, 2 pages per call then (5 since 2026-11-27, see below); options (1)-(4) score as A-D; printed keys are ignored; two chunks that disagree cap the confidence below the review gate. Other (typed) sheets are transcribed by the OCR prompt (`ocr-v4`), 10 pages per call.
 - **Live checks on the two sample papers (throwaway database):**
   - Typed paper with key -> rubric: 45/45 questions, 45/45 keys, all checked against the printed "Ans." lines; 5 calls, 50 s, about Rs 17.
   - Scanned ticked paper -> rubric: 180/180 questions (subjects 45/43/92 vs the true 45/45/90). Default mode finds keys for 114 (it treats a student's mixed marks as no key); with "ticks are the key" 137, and the other 43 questions have no tick on the scan. 10 calls, about 105 s, Rs 55.
-  - Scanned ticked paper graded as a student's sheet against that rubric: 134 marked answers read, 516/720, 130 of 134 matching the independent rubric reading, 30/30 correct on questions checked by eye (7 of them unticked), 10 calls, 68 s, Rs 21.77. The handwriting OCR read the same paper far worse (405/720 at 10 pages per call, 373/720 at 2 pages per call, with invented and missed ticks), which is why the dedicated reader exists.
+  - Scanned ticked paper graded as a student's sheet against that rubric: 134 marked answers read, 516/720, 130 of 134 matching the independent rubric reading, 30/30 correct on questions checked by eye (7 of them unticked), 10 calls, 68 s, Rs 21.77. The general transcription OCR read the same paper far worse (405/720 at 10 pages per call, 373/720 at 2 pages per call, with invented and missed ticks), which is why the dedicated reader exists.
   - Typed paper with key uploaded as a student's sheet: the printed key is ignored (0 answers read) and the sheet goes to faculty review.
 - **Same-paper check and separate answer keys (2026-11-24):** the printed-MCQ reader also returns each question's first words and the printed paper code; `paper_match` compares them with the rubric and holds another code / set or a different paper for review, and intake shows the same check before upload (`rubric_id` on inspect, text layer only). Key-only answer files are read (`POST /api/rubrics/answer-key`, text parse or AI from images) and applied while drafting (`key_file`) or in the rubric editor ("Apply answer key from file", with undo). Live checks:
   - key-only list PDF: 45/45 keys read from the text (no AI call); the same key as a grid image: 45/45 via one AI call (5 s);
   - intake check: 2016 paper vs its rubric -> match (90/101); vs the same rubric with numbers shuffled (stand-in for another code) -> reordered; the 2025 Physics paper vs the 2016 rubric -> mismatch; vs its own rubric -> match (38/43);
   - pipeline: 2016 paper vs its rubric -> "match (148 of 153 compared)", graded 521/720 (Rs 27.26); vs the shuffled rubric -> reordered and paper code A vs P, held for review unscored (Rs 27.18).
 - **Review hardening:** the paper check never holds a sheet against a rubric whose questions are short typed summaries (questions need 5+ distinctive words and at least half the rubric needs question text), checks each subject block on its own (a version that reorders only one section is held), holds two different printed codes even when the text lines up (versions that shuffle only the options), and is skipped at intake for typed answer sheets. The answer-key parser skips and warns rather than guessing on gaps, blank grid cells, unlabelled number columns and multi-answer entries.
-- **Cost note:** a 19-page printed paper costs about Rs 22-27 to read, above the Rs 5 per-student target (sized for handwritten sheets of a few pages).
+- **Cost note:** a 19-page printed paper cost about Rs 22-27 to read then, Rs 20.50 since 2026-11-27 (see below) - still above the Rs 5 per-student target, which was sized for sheets of a few pages.
+
+### Answer keys per intake (2026-11-27)
+- **No saved rubrics.** Every intake drafts its own answer key from the question paper it uploads (plus an optional separate answer-key file) and grades straight away; the first upload sends the key inline (`rubric_json`) and becomes a per-intake snapshot, later sheets of the same intake reuse it. There is no rubric library and no default rubric (`rubric_required`). `/cohort` lists the keys a cohort was graded with under "Answer keys used".
+- **Several accepted options and bonus questions.** An MCQ key may accept 2-6 options (`accepted_options`, "2 or 3": any of them scores full marks) or make the question a bonus (`bonus`: full marks to everyone, blank included). Read from answer-key files and AI drafts ("2 or 3", "B/C", "(1), (3)", options back to back such as "(2)(3)" / "b)c)"; "Bonus", "*", "Dropped", "Deleted", "All options correct", also when the model puts one of those words into the correct option). Rule texts and draft warnings name them. A bonus question counts as full credit in the report, the outcome counts and the PDF appendix (older rows that stored it as BLANK are read as full credit).
+- **Source files and previews.** The question paper (or rubric file / marked copy) and the separate answer-key file an intake's key was drafted from are kept with its snapshot (`artifacts/rubrics/<id>/`, with a role for the label) and shown on the report as page thumbnails (`GET /api/rubrics/{id}/sources[/{kind}/preview]`). Rendered pages are cached next to the files; text files may be UTF-8 or UTF-16 (Notepad "Unicode", no longer taken for an MP3), and long lines are cut before wrapping. A source file the server refuses never stops the sheet from grading (the upload goes again without that file only).
+- **One-call re-grade.** "Re-grade with this key" sends the edited key with `POST /api/submissions/{id}/reevaluate` (`rubric`): validated, stored as a new snapshot and re-graded from the stored transcript in one call (held / failed sheets: `/rerun` with `rubric`).
+- **Answer key only.** A key-only file (a publisher's `Que./Ans.` grid PDF, a `1-B` list, a key table), a pasted key grid or a photo of a key builds an all-MCQ key straight from the key: +4 / -1, NEET sections for 180 / 200 questions, two-answer and bonus cells kept, no AI drafting (text is parsed with no AI call; a photo takes one call to read).
+- **Review holds and re-run.** A held sheet carries its `review_reason` (`low_confidence`, `low_page_confidence`, `no_answers`, `mostly_blank`, `paper_mismatch`, `paper_reordered`) and the report says what to do. A held or failed sheet is re-run from its stored upload with a key drafted on the spot (`POST /api/submissions/{id}/rerun` with an inline `rubric`). Sheets held by an older build are re-checked at start-up (no AI call).
+- **Answer sheets are printed or typed, never handwritten.** The tick reader takes all-MCQ keys only (a key with a written question goes to the transcription reader) and reads PDFs and photos / scans of printed papers: 5 pages per call, 5 calls at a time, 200 DPI page masters. No cross-vendor fallback for ticks: a gpt-4o reading moved ticks and filled blanks (304/720 vs 402, at 0.95 confidence), so a transient Claude error is retried with backoff and a sheet that still fails shows **Retry**.
+- **Chapter-level topics.** For a key with no question text, the tick reader also names each question's NCERT chapter from the NEET-UG list (`syllabus` in `backend/data/weightage/neet.json`: 80 chapters - Physics 28, Chemistry 20, Biology 32), so mastery, focus rows and the study plan are per chapter instead of per subject.
+- **Measured on the real 19-page AIPMT 2016 ticked sheet** with the publisher's key-only answer key: Rs 27.24 and 73.6 s before these changes, **Rs 20.50 and 63 s** after, 4 AI calls.
+- **Redesigned pages.**
+  - Report: a student view and a teacher view. Key insights come first (score card with band and target, "In short", three key insights), then subjects, where to focus and a question grid; the study plan, exam technique, chapters, question details, sheet pages and batch comparison are folded under "More details". Review and release, re-grade / re-run, the key's source files, the study-plan lab, teaching actions, reading quality and the audit trail are teacher-view only. The student PDF follows the same order, with the faculty material last (`sair-pdf-v6`).
+  - `/students`: one row per student, "Act on first", a student drawer, a Topics view and CSV export.
+  - `/cohort`: one batch and test at a time, headline tiles, an action strip and tabs (Students, Chapters, Questions, Exam behaviour, Progress).
+  - `/owner`: a "needs your attention" list, KPIs, batches and tabs (Progress, Topics, Exam behaviour, Faculty, Interventions, What-if, Cost & operations).
+  - One definition of test, sitting, latest and previous paper across the three pages (`sittings.py`).
+- **Demo data off by default** (`SEED_DEMO_DATA=0`): a fresh database has no rubric, sheet or result; the demo sets load only with `SEED_DEMO_DATA=1` through `POST /api/demo/seed` (the UI has no seed buttons).
+- **Data reset.** `scripts/reset_data.py` is a dry run by default; `--yes` backs up the database, `uploads/` and `artifacts/` to `backups/<UTC timestamp>/`, then deletes every rubric, sheet and result, the demo batches and the demo faculty leads (institution, base batch and LMS keys stay).
 
 ### Fixes to earlier known issues
 - Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).

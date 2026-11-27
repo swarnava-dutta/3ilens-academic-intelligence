@@ -1,30 +1,41 @@
 # 3iLens Academic Intelligence - Proof of Concept
 
-A runnable local demo of the 3iLens journey: a faculty member uploads a student's handwritten
-answer sheet (or a spoken answer), AI reads the handwriting and maps it to question numbers,
-AI grades it against the institute's rubric, a deterministic engine turns the grades into topic
-mastery, exam-behaviour patterns and a **Preparation ROI** study plan, and the results appear
-for faculty, students' mentors and the institute owner:
+A runnable local demo of the 3iLens journey: a faculty member uploads a student's answer sheet
+(a printed question paper the student ticked, scanned or photographed, or a typed answer sheet;
+answer sheets are printed or typed, never handwritten) or a spoken answer, together with that
+test's question paper or answer key. AI reads the marked options or the typed answers and maps
+them to question numbers, MCQs are scored from the key in Python and written answers are graded
+by AI, a deterministic engine turns the grades into topic mastery, exam-behaviour patterns and a
+**Preparation ROI** study plan, and the results appear for faculty, students' mentors and the
+institute owner:
 
 - **Intake** (`/`): upload single sheets, folders or batches (PDF, images, DOCX, voice
-  recordings), pick or author the rubric, and watch the processing queue update live.
-- **Student Intelligence Report** (`/report/<id>`): score, mastery, urgency, teaching nudges,
-  action plan, ROI lab, exam behaviour, interventions, question-by-question evidence linked
-  to the source pages, and the audit trail. Downloadable as a branded PDF.
-- **Students** (`/students`): one card per student with nudges, the focus matrix and history.
-- **Cohort Dashboard** (`/cohort`): batch KPIs, ranking, at-risk list, common errors, class
-  interventions, class exam behaviour and the effect of logged interventions.
-- **Owner** (`/owner`): institute-level KPIs, batches and faculty, trend, weakest topics,
-  intervention effectiveness and a what-if simulator.
+  recordings), add the question paper and / or answer key for this intake (there are no saved
+  rubrics: each intake drafts its own key), and watch the processing queue update live.
+- **Student Intelligence Report** (`/report/<id>`): a student view - score and band, "In short"
+  and the key insights first, then subjects, where to focus and the question grid, with the
+  study plan, exam technique, chapters, question details, sheet pages and the batch comparison
+  folded under *More details* - and a teacher view that adds review and release, re-grade or
+  re-run with another key, the files the key was drafted from, the study-plan lab, teaching
+  actions and interventions, reading quality and the audit trail. Downloadable as a branded PDF.
+- **Students** (`/students`): one row per student (latest paper, change since the previous one,
+  urgency, weak topics, actions logged), an "Act on first" list, a student drawer, a Topics view
+  and CSV export.
+- **Cohort Dashboard** (`/cohort`): one batch and test at a time - headline tiles and an action
+  strip, then tabs for Students, Chapters, Questions, Exam behaviour and Progress, plus release
+  and intervention dialogs.
+- **Owner** (`/owner`): a "needs your attention" list, institute KPIs and batches, then tabs for
+  Progress, Topics, Exam behaviour, Faculty, Interventions, What-if and Cost & operations.
 - **Integrations** (`/integrations`): LMS export keys and endpoints, and the AI provider chain
   with a fallback drill.
 - **How it works** (`/journey`): the end-to-end journey and what each step does in this PoC.
 
 The AI calls are real. Anthropic Claude (`claude-sonnet-5-5` by default) reads the sheets,
 grades them, maps voice transcripts to questions and drafts rubrics. OpenAI is used for voice
-transcription, as the GPT-4o fallback when Claude is unavailable, and optionally for OCR; every
-OpenAI route is labelled **not residency-approved - PoC only**. The AWS infrastructure from the
-target architecture is replaced by local stand-ins, so the whole thing runs on one laptop.
+transcription, as the GPT-4o fallback when Claude is unavailable (never for reading ticks), and
+optionally for OCR; every OpenAI route is labelled **not residency-approved - PoC only**. The
+AWS infrastructure from the target architecture is replaced by local stand-ins, so the whole
+thing runs on one laptop.
 
 | Part | Technology |
 | --- | --- |
@@ -44,18 +55,29 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
 
 **Intake and pipeline**
 
-- PDF, JPEG, PNG, WEBP and typed DOCX answer sheets, detected from the file content. Single
-  uploads, folder / batch intake with per-file status and retry, language hints
-  (en/hi/ta/kn/te).
+- PDF, JPEG, PNG, WEBP and typed DOCX answer sheets, detected from the file content. Answer
+  sheets are printed or typed, never handwritten: a printed paper the student ticked (PDF scan
+  or a photo / scan image) or a typed answer sheet. Single uploads, folder / batch intake with
+  per-file status and retry, language hints (en/hi/ta/kn/te).
 - **Voice answers** (FR-2.8): MP3, WAV, M4A or OGG, transcribed by OpenAI `gpt-transcribe`
   (stand-in for Whisper / Sarvam). Either one recording per question (no extra AI call) or a
   whole-paper recording that Claude maps onto the rubric questions. Transcription cost is
   shown as **unknown** because its price is not confirmed.
-- **Printed MCQ papers**: a full question paper (up to 40 pages, 200 questions) on which the
-  student ticked, circled or shaded options is read as an answer sheet; options printed
-  (1)-(4) map to A-D, and printed answer keys, logos and adverts are ignored. A dedicated
-  reader reports the marked option for every printed question, 2 pages per call, 3 calls at a
-  time; handwritten sheets longer than 10 pages are transcribed in page chunks.
+- **Printed MCQ papers (the tick reader)**: a full question paper (up to 40 pages, 200
+  questions) on which the student ticked, circled or shaded options is read as an answer sheet;
+  options printed (1)-(4) map to A-D, and printed answer keys, logos and adverts are ignored.
+  The dedicated reader (`mcq_marks.py`) takes all-MCQ keys only (10+ questions; a key with any
+  written question goes to the transcription reader) and reads a PDF of 3+ pages, a PDF whose
+  text reads as a printed paper, or a photo / scan image. It reports the marked option for
+  every printed question, 5 pages per call (plus the next page as context), 5 calls at a time,
+  from 200 DPI page masters. There is **no cross-vendor fallback for ticks**: a GPT-4o reading
+  moved ticks and filled blanks, so a transient Claude error is retried with backoff and a
+  sheet that still fails shows **Retry** - never wrong marks. Typed sheets longer than 10 pages are
+  transcribed in page chunks.
+- **Chapter-level topics:** when the key has no question text (a key-only key), the tick reader
+  also names each printed question's NCERT chapter from the NEET-UG list in
+  `backend/data/weightage/neet.json` (`syllabus`: 80 chapters - Physics 28, Chemistry 20,
+  Biology 32), so mastery, focus rows and the study plan are per chapter instead of per subject.
 - **Same-paper check:** the printed questions on a student's paper are compared with the
   rubric's. A paper from another code / set (same questions, different order) or a different
   paper is held for faculty review instead of being scored; intake warns before upload.
@@ -63,30 +85,54 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   to a rubric, either while drafting from the question paper or later in the rubric editor. Intake reads each PDF / DOCX's
   printed text first (`POST /api/intake/inspect`, no AI call) and flags a question paper that
   carries its own answer key ("Ans. (2)") as a rubric source rather than a student sheet.
-- Pre-processing: 300 DPI PDF master, deskew, contrast and sharpen.
+- **Answer key only:** a key-only file (for example a publisher's AIPMT / NEET `Que./Ans.` key
+  PDF, a `1-B` list or a key table), a pasted key grid or a photo of a key, added as the answer
+  key, builds an all-MCQ key with no AI drafting: +4 / -1, NEET sections by question count (180
+  or 200), two-answer and bonus cells honoured. Text is parsed with no AI call; only a photo
+  needs one call to read the key. A printed ticked paper uploaded as the answer sheet is then
+  read by the tick reader. Measured on the real 19-page AIPMT 2016 sheet with
+  `aipmt-2016-Answer-Key-Code-A-P-W-v2.pdf`: **Rs 20.50 and 63 s, 4 AI calls** (Rs 27.24 and
+  73.6 s before the tick-reader changes above).
+- Pre-processing: 200 DPI PDF master, deskew, contrast and sharpen.
 - SHA-256 custody and an OCR cache: re-uploading identical bytes reuses the stored OCR
   ("OCR cache hit - no vision call (Rs 0.00)").
 - OCR keeps the student's literal answer (it never "corrects" towards the textbook answer),
   marks doubtful words with `[?]`, transcribes Punnett squares, pedigrees and labelled
   sketches as text, and wraps text addressed to the examiner in `[note to examiner: ...]`,
   which the grader ignores and the report flags.
-- Human-review gate at OCR confidence **0.70**, per sheet and per page. Faculty can approve or
-  correct the transcript in a review editor, or rescan.
+- Human-review gate at OCR confidence **0.70**, per sheet and per page. A held sheet carries
+  its reason (`review_reason`): `low_confidence`, `low_page_confidence`, `no_answers` (legible
+  pages but no answer for any key question - usually the wrong key), `mostly_blank`,
+  `paper_mismatch` (another paper) or `paper_reordered` (another code / set). Faculty can
+  approve or correct the transcript in a review editor, rescan, or re-run the sheet with a key
+  drafted on the spot (`POST /api/submissions/{id}/rerun` with an inline `rubric`).
 - Retries with backoff and a dead-letter queue with operator retry ("attempt N"). Jobs cut
   off by a server restart are moved to FAILED so they can be retried.
 - **Fallback chain** (FR-3.10): if Claude times out, is unreachable, rate-limited, overloaded,
   refuses or returns nothing, the OCR, grading or voice-mapping call is retried once on
   `LLM_FALLBACK_MODEL` (default `gpt-4o`, announced shutdown **2027-01-14**). Each report shows
-  which model served each stage.
+  which model served each stage. The tick reader is the exception (no fallback, see above).
 - Per-call cost and token trace, prompt caching of the rubric, an operations cost view.
 
 **Rubrics and grading**
 
-- Rubrics from JSON, pasted text, DOCX or PDF (AI-drafted, with warnings), versioned with
-  change notes and faculty approval. A question-paper PDF of 3+ pages is read from page images,
-  2 pages per call: the answer key comes from printed "Ans." lines, an answer-key table or the
-  ticked option, and large drafts open as a dense answer-key table for review. Bulk re-evaluation after an edit is confirmed with a cost
-  estimate.
+- **No saved rubrics.** Every intake drafts its own answer key (rubric) from its question paper
+  and an optional separate answer-key file: JSON, pasted text, DOCX, PDF (AI-drafted, with
+  warnings) or a photo of a key. The first upload sends the key inline and stores it as a
+  per-intake snapshot that the intake's later sheets reuse; there is no rubric library, no
+  default rubric and no picker. Edits are versioned with change notes.
+- **Source files and previews:** the question paper and answer-key file a key was drafted from
+  are kept with its snapshot and shown on the report (teacher view) as page thumbnails
+  (`GET /api/rubrics/{id}/sources`); intake previews a file before upload with
+  `POST /api/intake/preview` (PDF, Word, image or text, no AI call).
+- **Several accepted options and bonus MCQs:** a key may accept 2-6 options for an MCQ
+  (`accepted_options`, "2 or 3": any of them scores full marks) or make it a bonus (`bonus`:
+  full marks to everyone, blank included). Read from key files and AI drafts ("2 or 3", "B/C",
+  "Bonus", "*", "Dropped") and named in the rule text and the draft warnings.
+- A question-paper PDF of 3+ pages is read from page images, 2 pages per call: the answer key
+  comes from printed "Ans." lines, an answer-key table or the ticked option, and large drafts
+  open as a dense answer-key table for review. Bulk re-evaluation after an edit is confirmed
+  with a cost estimate.
 - **Marking policies** (FR-3.8, FR-4.8): NEET MCQs score +4 / -1 / 0 from the option letter
   alone, with no grading call; descriptive questions can have per-question marking schemes,
   required steps and partial-credit modes (steps, proportional, all-or-nothing). Totals can be
@@ -97,10 +143,22 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
 
 **Reports and analytics**
 
-- Student report: KPIs, executive summary, teaching nudges, urgency (on track / needs
-  attention / at risk), subject and topic mastery, interventions to teach / practise / check,
-  action plan, ROI lab with quadrants and projected mark gain, weekly study calendar, evidence
-  trace to the source pages, audit trail and AI route chips.
+- Student report, redesigned around a **student view** and a **teacher view** (a switch in the
+  header; a shared link opens in the student view, `?view=teacher` in the teacher view, and the
+  last choice is kept in the browser): key insights first - score, band (at risk < 55% / needs
+  attention / on track >= 70%) and the gap to the target, "In short", three key insights
+  (attempts and negative marking, weakest subject, path to the target) - then subjects, where
+  to focus and a question grid. Details stay folded until opened: weekly study plan, exam technique, all
+  chapters and topics, question-by-question evidence, sheet pages, the batch comparison. The
+  teacher view adds review and release, re-grade / re-run with another key, the key's source
+  files, the study-plan lab (ROI quadrants, projected gain), teaching actions and interventions,
+  reading quality, AI route chips and the audit trail. Every headline number comes from the
+  server (1-decimal percentages).
+- Students, cohort and owner pages were redesigned the same way: one row per student with an
+  "Act on first" list and a drawer (`/students`); one batch and test at a time with headline
+  tiles, an action strip and tabs (`/cohort`); a "needs your attention" list, KPIs, batches and
+  tabs (`/owner`). The three pages share one definition of test, sitting, latest and previous
+  paper.
 - **Exam behaviour** (FR-4.8, FR-4.10, FR-4.11): negative-marking risk per topic with skip
   thresholds, fatigue in the last third of the paper, memorisation vs transfer per concept,
   and a Bloom profile. Thresholds are labelled "default - confirm with academic lead".
@@ -109,10 +167,11 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   untreated topics and is labelled observational, not causal.
 - Student and cohort PDFs, a ZIP bundle, a release / revoke sign-off gate, and **simulated**
   WhatsApp delivery with signed, expiring download links.
-- **Owner dashboard** (FR-5.9): KPIs against the Rs 5 per-student cost target, batches with an
-  editable faculty lead, faculty, trend per sitting, weakest topics, intervention
-  effectiveness and the **what-if** simulator (FR-4.14, illustrative linear model). There is no
-  login in this PoC.
+- **Owner dashboard** (FR-5.9): "needs your attention" signals, KPIs against the Rs 5
+  per-student cost target, batches with an editable faculty lead and their latest test,
+  progress of re-tested students, topic gaps, exam behaviour, faculty, intervention
+  effectiveness, the **what-if** simulator (FR-4.14, illustrative linear model) and spend.
+  There is no login in this PoC.
 - **LMS export API** (FR-5.10): read-only JSON and CSV for batches, students, results and topic
   mastery, behind `X-API-Key`. Keys are stored only as SHA-256 and shown once. Released results
   only by default.
@@ -168,7 +227,8 @@ Good to know:
 - The folder path must not contain `&` or `^` (npm cannot handle them); `start.bat` says so
   right away. Spaces and parentheses are fine.
 - An empty `ANTHROPIC_API_KEY` is only a warning. The app starts, live uploads are marked
-  `FAILED` with a clear message, and the blurry-sheet demo and the demo data sets still work.
+  `FAILED` with a clear message. The blurry-sheet demo still works once a JSON answer key is
+  added (a JSON key is read without AI), and so do the demo data sets (with `SEED_DEMO_DATA=1`).
 
 ### Prerequisites
 
@@ -203,7 +263,7 @@ cloud service for a local stand-in:
 
 ```
   Faculty browser (Next.js :3000)
-        |  POST /api/upload  (file or recording + student name + rubric choice)
+        |  POST /api/upload  (file or recording + student name + this intake's answer key)
         v
  +--------------------------------------------------------------------------------------+
  |  FastAPI orchestrator :8000  (backend/main.py + backend/routers/)                    |
@@ -218,12 +278,15 @@ cloud service for a local stand-in:
  |   5 S3 raw-upload bucket             ./uploads/ (SHA-256 recorded for custody)       |
  |   6 SQS job queue                    FastAPI BackgroundTasks, retries with backoff   |
  |   7 ECS / Lambda worker              pipeline.process_submission()                   |
- |   8 Pre-processing (deskew, DPI)     preprocessing.py: 300 DPI master, deskew,       |
+ |   8 Pre-processing (deskew, DPI)     preprocessing.py: 200 DPI master, deskew,       |
  |                                      contrast, sharpen                               |
  |   9 OCR (Google Vision)              Claude vision (or GPT-4o); OCR cache by SHA-256 |
+ |                                      Printed MCQ papers: Claude tick reader          |
+ |                                      (no fallback)                                   |
  |                                      Voice: OpenAI speech-to-text                    |
  |  10 Answer structuring               same call / Claude maps a voice transcript      |
  |  11 Confidence gate / human review   sheet or any page < 0.70 -> HUMAN_REVIEW        |
+ |                                      no answers / another paper or code -> review    |
  |  12 Rubric evaluation engine         Claude grades descriptive answers; MCQs scored  |
  |                                      in Python; GPT-4o fallback if Claude fails      |
  |  13 Insights & Preparation ROI       insights.py, analytics.py, patterns.py          |
@@ -239,9 +302,11 @@ cloud service for a local stand-in:
 ```
 
 Submission statuses move `PENDING -> PROCESSING -> COMPLETED`. Two other endings exist:
-`HUMAN_REVIEW_REQUIRED` (low OCR confidence; evaluation waits for faculty review and the UI
-shows it in amber) and `FAILED` (any error after retries; the reason is shown in the UI and
-written to the dead-letter file, and **Retry** re-runs it).
+`HUMAN_REVIEW_REQUIRED` (low OCR confidence, no answers, a mostly blank sheet, or another paper
+or code than the key's - stored as `review_reason`; evaluation waits for faculty review, the UI
+shows it in amber and offers approve, correct, rescan or a re-run with another key) and `FAILED`
+(any error after retries; the reason is shown in the UI and written to the dead-letter file,
+and **Retry** re-runs it).
 
 Safety rules built into the pipeline:
 
@@ -330,7 +395,7 @@ the backend after editing it: `--reload` watches only Python files.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | *(empty)* | **Required for live grading.** Used for OCR (when `VISION_PROVIDER=anthropic`), grading, voice-transcript mapping, rubric drafts and Bloom suggestions. |
 | `OPENAI_API_KEY` | *(empty)* | Needed for voice answers, the GPT-4o fallback and `VISION_PROVIDER=openai`. |
-| `VISION_PROVIDER` | `anthropic` | Which model reads the handwriting: `anthropic` (Claude) or `openai` (GPT-4o). Grading always starts with Claude. |
+| `VISION_PROVIDER` | `anthropic` | Which model reads the answer sheets (ticks and typed answers): `anthropic` (Claude) or `openai` (GPT-4o). Grading always starts with Claude. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Claude model for OCR and grading. |
 | `OPENAI_VISION_MODEL` | `gpt-4o` | OpenAI model for OCR when `VISION_PROVIDER=openai`. |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | API endpoint, pinned in `.env`. |
@@ -355,12 +420,13 @@ table of [API_CONTRACT.md](API_CONTRACT.md)):
 | Area | Variables |
 | --- | --- |
 | OCR cache | `OCR_CACHE=1` |
-| Pre-processing | `PDF_MASTER_DPI=300`, `VISION_MAX_EDGE_PX=2000`, `PREPROCESS_ENHANCE=1`, `PREPROCESS_CONTRAST=1.4`, `MIN_SHORT_EDGE_PX=1200` |
+| Pre-processing | `PDF_MASTER_DPI=200`, `VISION_MAX_EDGE_PX=2000`, `PREPROCESS_ENHANCE=1`, `PREPROCESS_CONTRAST=1.4`, `MIN_SHORT_EDGE_PX=1200` |
 | Worker | `MAX_JOB_ATTEMPTS=3`, `RETRY_BACKOFF_BASE_SECONDS=2.0`, `WORKER_CONCURRENCY=4` |
-| Printed papers | `MAX_PDF_PAGES=40`, `OCR_PAGES_PER_CALL=10`, `MCQ_OCR_PAGES_PER_CALL=2`, `RUBRIC_PAGES_PER_CALL=2`, `AI_CHUNK_CONCURRENCY=3` |
+| Printed papers | `MAX_PDF_PAGES=40`, `OCR_PAGES_PER_CALL=10`, `MCQ_OCR_PAGES_PER_CALL=5`, `RUBRIC_PAGES_PER_CALL=2`, `AI_CHUNK_CONCURRENCY=5` |
 | Cost tracking | `USD_INR=85`, `COST_TARGET_INR=5`, `LATENCY_TARGET_SECONDS=300`, `BATCH_TARGET_SECONDS=1800`, `LLM_PRICING_JSON` |
 | Study plan | `DEFAULT_EXAM=NEET`, `NEET_EXAM_DATE=2027-05-02` (assumed, labelled so in the UI), `STUDY_HOURS_PER_WEEK=18` |
 | Delivery and PDFs | `WHATSAPP_MODE=blocked` (always simulated), `DOWNLOAD_LINK_SECRET`, `DOWNLOAD_LINK_TTL_HOURS=24`, `REPORT_LOGO_PATH` |
+| Demo data | `SEED_DEMO_DATA=0` (off: a fresh database holds no rubric, sheet or result; see [Seeding and demo data](#seeding-and-demo-data)) |
 
 **Model note:** the original spec named Claude 3.5 Sonnet (`claude-3-5-sonnet-20241022`).
 That model was retired on 2025-10-28, so the PoC uses the current Sonnet,
@@ -377,12 +443,14 @@ stops a proxy or key set up for another tool from leaking into the demo.
 ## Seeding and demo data
 
 - **Base seed** (runs automatically at every backend start, and in `start.bat`): institution
-  `Instit-42`, batch `NEET-A` / `Mock-07`, and the **Biology - Genetics** rubric
-  (5 questions x 4 marks = 20). It is safe to run repeatedly:
+  `Instit-42` and batch `NEET-A` / `Mock-07` only. No rubric is saved: every intake drafts its
+  own answer key from the uploaded question paper / key file. It is safe to run repeatedly:
   `backend\.venv\Scripts\python.exe backend\seed.py`
-- **Demo data sets** (optional). They make no AI calls, every row is labelled as sample data
-  (`is_demo`), and repeated runs add nothing. Load them with the seed buttons on the empty
-  Intake queue, Cohort and Owner pages, or with `POST http://localhost:8000/api/demo/seed?set=<name>`:
+- **Demo data sets** (off by default). With `SEED_DEMO_DATA=1` in `.env` the base seed also adds
+  the **Biology - Genetics** rubric and the sets below can be loaded with
+  `POST http://localhost:8000/api/demo/seed?set=<name>` (otherwise 403 `demo_data_disabled`;
+  the UI has no seed buttons). They make no AI calls, every row is labelled as sample data
+  (`is_demo`), and repeated runs add nothing:
 
   | Set | Contents |
   | --- | --- |
@@ -391,8 +459,11 @@ stops a proxy or key set up for another tool from leaking into the demo.
   | `all` | `genetics` + `mixed` (27 rows on a fresh database). Also `seed.py --all`. |
   | `insights` | Batch `NEET-C (sample)` with the NEET MCQ Mock 09 and Mock 10 (sample) papers (+4/-1 marking, Bloom levels, a marking scheme), 12 students on each, logged interventions with measured outcomes, released results and a voice-answer sample row. Drives the exam-behaviour, intervention-effectiveness and what-if views. |
 
-- **Reset everything:** stop the servers, then delete `backend\3ilens.db` and the contents of
-  `uploads\` and `artifacts\`. The next start recreates the base seed.
+- **Reset the graded data:** `backend\.venv\Scripts\python.exe scripts\reset_data.py` prints
+  what would be deleted (dry run); `--yes` first backs up the database and moves `uploads\` and
+  `artifacts\` into `backups\<UTC timestamp>\`, then deletes every rubric, every sheet and
+  everything graded with one, the demo batches and demo faculty leads, keeping the institution,
+  the base batch and LMS API keys. It works while the backend runs.
 
 ---
 
@@ -402,12 +473,16 @@ The sample files are in `samples/` (see `samples/README.md`).
 
 1. **Start.** Double-click `start.bat`. On the Intake page, the header pill should say
    **AI ready**. If it says *AI keys missing*, add the key to `.env` and restart.
-2. **Happy path.** Upload `samples/answer_sheet_aarav_sharma.png` with student name *Aarav
-   Sharma* and the default rubric. Watch the queue row move through Pre-processing, OCR,
-   Rubric evaluation and Insights to **Completed** (usually 1-2 minutes with live AI). Click
-   **View report**: KPIs, summary and nudges, the action plan and ROI lab, the transcribed
-   answer and evidence for every question (linked to the page image), the AI route used for
-   each stage, and the audit trail. Download the PDF from the report.
+2. **Happy path.** There is no saved or default rubric: in the Answer key panel add the
+   question paper (or, for the samples, `backend/rubrics/biology_genetics_v1.json`). Then upload
+   `samples/answer_sheet_aarav_sharma.png` with student name *Aarav Sharma*. Watch the queue row
+   move through Pre-processing, OCR, Rubric evaluation and Insights to **Completed** (usually
+   1-2 minutes with live AI). Click
+   **View report**: the student view opens with the score, band and key insights, then
+   subjects, where to focus and the question grid, with the details folded under *More
+   details*. Switch to the **Teacher view** for review and release, the files the key was drafted
+   from, the study-plan lab, teaching actions, the AI route used for each stage and the audit
+   trail. Download the PDF from the report.
 3. **Safety constraint.** Upload `samples/answer_sheet_rohan_blurry.jpg`. Within a few seconds
    it turns amber, **Human review required** (OCR confidence 65%, below the 70% gate), and AI
    grading is skipped. Open the review editor to type or correct the answers. This step works
@@ -415,31 +490,40 @@ The sample files are in `samples/` (see `samples/README.md`).
 4. **More sheets (optional).** `answer_sheet_priya_nair.pdf` shows a 2-page PDF and a mixed
    ROI plan. `answer_sheet_kavya_iyer.jpg` shows a phone photo with Q3 not attempted, which
    scores zero.
-5. **Voice answer (needs `OPENAI_API_KEY`).** Drop `samples/voice_answer_genetics_hinglish.mp3`,
+5. **Printed NEET paper (the client's real input; the files are not in the repo).** In a new
+   intake, add the publisher's answer-key PDF (or paste its `Que./Ans.` grid, or a photo of the
+   key) in the Answer key panel: it builds a 180-question +4/-1 key with no AI drafting. Then
+   upload the student's ticked paper (PDF scan or photos). The tick reader grades a 19-page
+   paper in about a minute for about Rs 20 (4 AI calls), with topics per NCERT chapter. A
+   paper from another code / set, or a sheet with no answers for the key, is held for review
+   with its reason; **Re-run** it with the right key from the report.
+6. **Voice answer (needs `OPENAI_API_KEY`).** Drop `samples/voice_answer_genetics_hinglish.mp3`,
    choose **Q3** under *Answers question* and tick `hi` and `en`. The report shows the audio
    player, the transcript and the "not residency-approved" note.
-6. **Sample analytics.** Load the `all` and `insights` demo sets (buttons on the Cohort and
-   Owner pages).
-   - **Cohort:** KPIs, ranking, at-risk students, common errors, class interventions, the
-     class exam-behaviour section (negative-marking risk, fatigue, memorisation vs transfer,
-     Bloom accuracy) and the intervention effect for the batch.
-   - **A NEET-C report:** MCQ rows such as "Marked C · Correct B · -1", the net total after
-     negative marking, the Exam behaviour cards and the Interventions log. Record an
-     intervention from there.
-   - **Owner:** institute KPIs, batches with the editable faculty lead, trend, intervention
-     effectiveness and the what-if simulator (try "+5 h Organic Chemistry").
-   - Optional: upload `samples/answer_sheet_mcq_mock09_sample.png` against the "NEET MCQ
-     Practice - Mock 09 (sample)" rubric to see +4/-1/0 scoring on a live read (expect about
-     81/104).
-7. **Integrations.** Create an LMS key (the secret is shown once), preview the first 20
+7. **Sample analytics (optional, off by default).** With `SEED_DEMO_DATA=1` in `.env` and a
+   backend restart, load the `all` and `insights` demo sets with
+   `POST http://localhost:8000/api/demo/seed?set=all` and `?set=insights`.
+   - **Cohort:** pick batch NEET-C and a mock: headline tiles, the action strip, and the
+     Students, Chapters, Questions, Exam behaviour (negative-marking risk, fatigue,
+     memorisation vs transfer, Bloom accuracy) and Progress tabs.
+   - **Students:** the roster with "Act on first", the student drawer and the Topics view.
+   - **A NEET-C report:** MCQ rows such as "Marked C · Accepted B · −1", the net total after
+     negative marking and the exam-technique fold; in the teacher view, record an intervention
+     under *Teaching actions*.
+   - **Owner:** the attention list, institute KPIs, batches with the editable faculty lead, and
+     the Interventions and What-if tabs (try "+5 h Organic Chemistry").
+   - Optional: add `backend/rubrics/neet_mcq_mock09_sample.json` as the answer key, then upload
+     `samples/answer_sheet_mcq_mock09_sample.png` to see +4/-1/0 scoring on a live read (expect
+     about 81/104).
+8. **Integrations.** Create an LMS key (the secret is shown once), preview the first 20
    released rows, then revoke it. In the AI providers card, run the fallback drill with
    *Simulate Claude outage* on: it makes real provider calls (about Rs 1-2) and shows the
    route "Claude -> GPT-4o (simulated_outage)".
-8. **Custom rubric.** In the upload card, choose `samples/rubric_physics_kinematics.json`
-   under *Custom rubric JSON* (the **Template** link downloads the current rubric as a
-   starting point), or open the rubric editor to try the NEET +4/-1 preset, MCQ options,
-   marking schemes and Bloom suggestions. Note that grading a Biology sheet against the
-   Physics rubric scores low; this step only shows the rubric options.
+9. **Another answer key.** In the Answer key panel, add `samples/rubric_physics_kinematics.json`
+   under *Question paper / key file* (the **JSON template** link downloads a small example
+   key), or open the rubric editor to try the NEET +4/-1 preset, MCQ options, marking schemes
+   and Bloom suggestions. Note that grading a Biology sheet against the Physics key scores
+   low; this step only shows the answer-key options.
 
 ---
 
@@ -450,12 +534,12 @@ Full JSON shapes, status codes, error codes and validation rules are in
 
 | Area | Endpoints |
 | --- | --- |
-| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/intake/inspect` (optional `rubric_id`), `POST /api/upload`, `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` |
-| Pipeline operations | `POST /api/submissions/{id}/retry`, `.../reevaluate`, `.../review`, `.../rescan`; `GET /api/submissions/{id}/ocr`, `.../pages`, `.../pages/{n}`, `.../invocations`; `GET /api/ops/costs`; `GET /api/intake-batches/{id}` |
+| Core | `GET /api/health`, `GET /api/rubrics`, `POST /api/intake/inspect` (optional `rubric_id`), `POST /api/intake/preview` (page thumbnail of a PDF / Word / image / text file), `POST /api/upload` (optional `rubric_source_file` / `rubric_key_file` with `rubric_json`), `GET /api/submissions`, `GET /api/results/{id}`, `GET /api/cohort`, `GET /api/cohort/sittings`, `POST /api/demo/seed?set=genetics\|mixed\|all\|insights` (only with `SEED_DEMO_DATA=1`) |
+| Pipeline operations | `POST /api/submissions/{id}/retry`, `.../reevaluate` (`rubric_id` or an inline `rubric`), `.../rerun` (held / failed sheets; `rubric_id` or an inline `rubric`), `.../review`, `.../rescan`; `GET /api/submissions/{id}/ocr`, `.../pages`, `.../pages/{n}`, `.../invocations`; `GET /api/ops/costs`; `GET /api/intake-batches/{id}` |
 | Voice | `GET /api/submissions/{id}/audio`, `GET /api/submissions/{id}/transcript` |
-| Rubrics | `POST /api/rubrics/parse` (AI draft, optional `key_file`), `POST /api/rubrics/answer-key`, `POST /api/rubrics`, `POST /api/rubrics/{id}/versions`, `GET /api/rubrics/{id}/reevaluation-estimate`, `POST /api/rubrics/{id}/bloom-levels` |
+| Rubrics | `POST /api/rubrics/parse` (AI draft, optional `key_file`), `POST /api/rubrics/answer-key`, `POST /api/rubrics`, `POST /api/rubrics/{id}/versions`, `GET /api/rubrics/{id}/reevaluation-estimate`, `POST /api/rubrics/{id}/bloom-levels`, `GET /api/rubrics/{id}/sources`, `GET /api/rubrics/{id}/sources/{paper\|key}/preview` |
 | Analytics | `GET /api/results/{id}/plan`, `POST /api/results/{id}/consistency-check`, `GET /api/weightage`, `GET /api/exams`, `PATCH /api/batches/{id}` (exam, exam date, faculty lead) |
-| Outputs | `GET /api/reports/{id}/pdf`, `GET /api/cohort/pdf`, `GET /api/reports/bundle.zip`, `POST /api/results/{id}/release` and `/revoke`, `POST /api/deliveries` (simulated), `GET /api/download/{token}`, `GET /api/students`, `GET /api/students/{ref}/history`, `GET /api/filters` |
+| Outputs | `GET /api/reports/{id}/pdf`, `GET /api/cohort/pdf`, `GET /api/reports/bundle.zip`, `POST /api/results/{id}/release` and `/revoke`, `POST /api/deliveries` (simulated), `GET /api/download/{token}`, `GET /api/students`, `GET /api/students/roster`, `GET /api/students/{ref}/history`, `GET /api/filters` |
 | Interventions and what-if | `POST /api/interventions`, `GET /api/interventions`, `DELETE /api/interventions/{id}`, `GET /api/interventions/effectiveness`, `POST /api/whatif`, `GET /api/whatif/options` |
 | Owner | `GET /api/owner/dashboard?institution_id=` |
 | AI provider chain | `GET /api/ops/llm-chain`, `POST /api/ops/llm-chain/drill` (real provider calls) |
@@ -516,7 +600,7 @@ labelled as such.
 | --- | --- |
 | A port is already in use | `start.bat` moves to the next free port and prints the URLs. Manually: `netstat -ano \| findstr :8000` shows the owner's PID. Start uvicorn with another `--port` and set `NEXT_PUBLIC_API_BASE_URL` for the frontend. |
 | Upload ends in **FAILED**: "ANTHROPIC_API_KEY is not configured" | Add the key to `.env` in the project root, then restart the backend (close the *3iLens API* window and run `start.bat` again). |
-| FAILED with "rejected the API key", "model ... not available", "rate limit" or "temporarily unavailable" | The message comes from the provider. Check the key and `ANTHROPIC_MODEL` in `.env`, or retry later with **Retry**. Details are in `artifacts/<id>/dead_letter.json` and the API window. With an OpenAI key and `LLM_FALLBACK=1`, outages and rate limits are retried once on the fallback model first. |
+| FAILED with "rejected the API key", "model ... not available", "rate limit" or "temporarily unavailable" | The message comes from the provider. Check the key and `ANTHROPIC_MODEL` in `.env`, or retry later with **Retry**. Details are in `artifacts/<id>/dead_letter.json` and the API window. With an OpenAI key and `LLM_FALLBACK=1`, outages and rate limits are retried once on the fallback model first - except a printed paper's ticks, which are never sent to the fallback (it moved ticks): use **Retry**. |
 | A voice answer fails at transcription | Voice needs `OPENAI_API_KEY` in `.env` and `VOICE_ANSWERS=1`. Restart the backend after adding the key. |
 | Red **API offline** banner in the app | The backend is not running, or the frontend points to the wrong port. Check the *3iLens API* window; `start.bat` sets the port automatically. |
 | Browser console shows CORS errors | Open the app at `http://localhost:<port>` or `http://127.0.0.1:<port>`. For other hosts, add the origin to `CORS_ORIGINS` in `.env` and restart the backend. |
@@ -528,7 +612,7 @@ labelled as such.
 | "The folder path contains & or ^" | Move or rename the 3iLens folder, for example to `C:\3ilens`. |
 | `start.bat` downloads a portable Node.js although Node.js is installed | The `node.exe` (or the `npm`) that comes first on `PATH` is older than 20.9, for example a leftover install or an old version-manager link. Remove it from `PATH` to use the installed Node.js instead; the portable copy in `.tools\node` works too. |
 | "failed its SHA-256 check" | The download was damaged or changed on the way, so it was deleted and not used. Run `start.bat` again. If it keeps happening, install that tool by hand. |
-| Lots of old test uploads | See *Reset everything* above. |
+| Lots of old test uploads | See *Reset the graded data* above: `backend\.venv\Scripts\python.exe scripts\reset_data.py --yes`. |
 
 ---
 
@@ -570,17 +654,20 @@ start.bat / stop.bat    one-click start and stop (Windows)
 scripts/
   ensure-deps.ps1       installs/checks Python, Node.js and the packages for start.bat
   check-requirements.py checks backend\.venv against requirements.txt (used by ensure-deps.ps1)
+  reset_data.py         backs up, then deletes rubrics, sheets and demo batches / leads (dry run by default)
   server-processes.ps1  process helper used by start.bat / stop.bat (ports, server windows, stop)
 .tools/                 portable Node.js downloaded by start.bat when needed (git-ignored)
 backend/
   main.py               FastAPI app and core routes
-  routers/              pipeline ops, analytics, outputs, voice, AI chain, insights, owner, LMS
+  routers/              pipeline ops, analytics, outputs, intake inspect / preview, voice, AI chain, insights, owner, LMS
   pipeline.py           worker: pre-processing/transcription -> OCR -> evaluation -> insights
   preprocessing.py      image/PDF normalisation for the vision model
   uploads.py            upload validation and content sniffing (documents and audio)
   paper_detect.py       printed-paper detection from the text layer (answer-key paper, MCQ paper)
+  rubric_sources.py     the question paper / answer-key file kept with an intake's key, page previews
   paper_pages.py        question-paper PDF pages rendered for page-by-page rubric drafting
-  mcq_marks.py          reads the marked option of every question on a printed MCQ paper
+  mcq_marks.py          tick reader: the marked option (and, for a key-only key, the NCERT chapter)
+                        of every question on a printed MCQ paper
   paper_match.py        checks a printed paper's questions against the rubric (same paper / code)
   answer_keys.py        reads key-only answer files and applies them to rubrics
   ai.py, llm_route.py   Claude/OpenAI calls, fallback chain, route provenance, error mapping
@@ -591,19 +678,21 @@ backend/
   patterns.py           negative-marking risk, fatigue, memorisation vs transfer
   outcomes.py, whatif.py intervention outcomes and effectiveness; what-if projections
   cohort.py, owner.py   cohort and institute-owner aggregates
+  cohort_insights.py    cohort page figures (one latest sheet per student)
+  sittings.py, roster.py  tests, sittings and progress shared by the pages; the students roster
   lms.py                LMS export rows, CSV and API keys
   reports.py            student and cohort PDFs
   database.py           SQLAlchemy models (SQLite) and the idempotent migration
   schemas.py            API response models and rubric validation
   seed.py, seed_insights.py  base seed and the demo data sets
   rubrics/              Genetics, mixed NEET and sample MCQ / oral rubrics
-  data/weightage/       illustrative NEET chapter-weightage matrix
+  data/weightage/       illustrative NEET chapter-weightage matrix and the NEET-UG syllabus (80 NCERT chapters)
   tests/                pytest suite (offline)
 frontend/src/
   app/                  routes: /, /report/[id], /students, /cohort, /owner, /integrations, /journey
   components/           intake, report, students, cohort, owner, integrations and rubric UI
   lib/                  API client, shared types, formatters
-samples/                demo answer sheets, an MCQ sheet, voice clips and a custom rubric
+samples/                demo answer sheets, an MCQ sheet, voice clips and a JSON answer key
 test-pages/             generated test sheets and the live test runner
 docs/POC_SPEC.md        original PoC specification
 uploads/, artifacts/    local stand-ins for S3 (created at runtime)

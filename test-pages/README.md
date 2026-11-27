@@ -1,6 +1,6 @@
 # 3iLens test pages
 
-26 synthetic handwritten answer sheets for testing the 3iLens pipeline: 2 original pages and 24 generated ones in four categories (neat, messy, photo, edge). Every sheet answers the default **Biology - Genetics** rubric (`backend/rubrics/biology_genetics_v1.json`, 5 questions x 4 marks = 20).
+26 synthetic handwritten answer sheets for testing the 3iLens pipeline: 2 original pages and 24 generated ones in four categories (neat, messy, photo, edge). Every sheet answers the **Biology - Genetics** rubric (`backend/rubrics/biology_genetics_v1.json`, 5 questions x 4 marks = 20).
 
 | Category | Files | Live results (Claude, threshold 0.80) |
 |---|---|---|
@@ -19,7 +19,7 @@ Every file is PDF, JPEG, PNG or WEBP and under 8 MB, so all of them fit the uplo
 
 ## 1. How to use them
 
-**In the app:** open the Faculty Workspace at http://localhost:3000 and upload any file from `test-pages/generated/`.
+**In the app:** open the Faculty Workspace at http://localhost:3000, add `backend/rubrics/biology_genetics_v1.json` as the answer key (Answer key panel, "Question paper / key file"), then upload any file from `test-pages/generated/`.
 
 **From the command line (no server needed):**
 
@@ -31,7 +31,7 @@ backend\.venv\Scripts\python.exe test-pages\run_live_test.py
 backend\.venv\Scripts\python.exe test-pages\run_live_test.py test-pages\generated\messy test-pages\generated\edge\answer_sheet_edge_04_prompt_injection.jpg
 ```
 
-- These are **live Claude calls**: two per sheet (OCR + grading). The keys come from `.env`. A file whose name contains `blurry` stops before any AI call.
+- These are **live Claude calls**: two per sheet (OCR + grading), graded against the Genetics rubric, which the runner adds to its own throwaway database. The keys come from `.env`. A file whose name contains `blurry` stops before any AI call.
 - Results go to `.run/live_test/<name>/` (`live.db`, `uploads/`, and `artifacts/<n>/` with `ocr.json`, `evaluation.json`, `report.json` and the page images the model saw). The app's real database and uploads are not touched.
 - `<name>` comes from `LIVE_TEST_NAME` (default: `default`). Set a different name for each run you start in parallel. **A run deletes that folder first**, so reusing a name overwrites the earlier results.
   - PowerShell: `$env:LIVE_TEST_NAME='messy'; $env:PYTHONIOENCODING='utf-8'; backend\.venv\Scripts\python.exe test-pages\run_live_test.py test-pages\generated\messy`
