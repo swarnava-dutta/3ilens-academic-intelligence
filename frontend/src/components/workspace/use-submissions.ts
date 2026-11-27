@@ -5,6 +5,13 @@ import { errorMessage, getSubmissions, type DashboardQuery } from "@/lib/api";
 import type { Submission, Urgency } from "@/lib/types";
 
 export const QUEUE_POLL_MS = 3_000;
+/** Poll interval when no sheet is waiting or being read (the window gaining focus refreshes too). */
+export const QUEUE_IDLE_POLL_MS = 30_000;
+
+/** True while a sheet is waiting or being read, or before the first list arrives (poll fast). */
+export function queueBusy(submissions: Submission[] | null): boolean {
+  return submissions === null || submissions.some((s) => s.status === "PENDING" || s.status === "PROCESSING");
+}
 
 export interface QueueState {
   /** Last good list (null until the first successful load). */
@@ -35,12 +42,13 @@ function queryFromKey(key: string): DashboardQuery {
 }
 
 /**
- * Polls GET /api/submissions every 3 s, optionally filtered (batch, test, urgency). Pass
+ * Polls GET /api/submissions, optionally filtered (batch, test, urgency): every 3 s while a sheet
+ * is pending or processing (or `fast` is set), else every 30 s, and on window focus. Pass
  * `enabled = false` to pause it. Never overlaps requests (a refresh requested while one is in
  * flight runs right after it), keeps the last good data on transient errors, and pauses while
  * the tab is hidden.
  */
-export function useSubmissions(filters: DashboardQuery | null = null, enabled = true) {
+export function useSubmissions(filters: DashboardQuery | null = null, enabled = true, fast = false) {
   const [state, setState] = useState<QueueState>({ submissions: null, error: null, fetchedAt: null });
   const inFlight = useRef(false);
   const rerun = useRef(false);
@@ -87,13 +95,23 @@ export function useSubmissions(filters: DashboardQuery | null = null, enabled = 
     if (!enabled) return;
     keyRef.current = key;
     void refresh();
-    const id = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") void refresh();
-    }, QUEUE_POLL_MS);
-    return () => window.clearInterval(id);
   }, [refresh, key, enabled]);
 
-  return { ...state, refresh, addOptimistic };
+  const pollMs = fast || queueBusy(state.submissions) ? QUEUE_POLL_MS : QUEUE_IDLE_POLL_MS;
+  useEffect(() => {
+    if (!enabled) return;
+    const onFocus = () => void refresh();
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void refresh();
+    }, pollMs);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh, enabled, pollMs]);
+
+  return { ...state, pollMs, refresh, addOptimistic };
 }
 
 export type SubmissionsQueue = ReturnType<typeof useSubmissions>;

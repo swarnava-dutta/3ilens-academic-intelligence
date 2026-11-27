@@ -1,9 +1,11 @@
 // Printed papers at intake: POST /api/intake/inspect tells an answer sheet from a printed MCQ
 // question paper (a student's ticks are read as answers) and from a question paper that carries
-// its own answer key (that one belongs in the rubric, not in the queue). With a saved rubric chosen
-// it also compares the printed questions with that rubric (rubric_match: the same paper, another
-// code / set, or a different paper). Advisory only: the API repeats its checks on upload (a sheet
-// that does not match is held for faculty review, never rejected), and an API build without the
+// its own answer key (that one is the intake's answer key, not a sheet for the queue). Once the
+// intake's answer key has a snapshot on the server (after the first upload) it also compares the
+// printed questions with it (rubric_match: the same paper, another code / set, or a different
+// paper - also a long printed paper against a small non-MCQ key).
+// Advisory only: the API repeats its checks on upload (a document that does not match is held for
+// faculty review unless its answers map to the key - never rejected), and an API build without the
 // endpoint just shows nothing.
 import { errorStatus, inspectPaper } from "@/lib/api";
 import type { PaperInspection, RubricMatch } from "@/lib/types";
@@ -19,7 +21,7 @@ let unsupported = false;
 
 /**
  * The inspection, or null when it is unavailable or failed (the upload repeats every check).
- * rubricId: compare the printed questions with that saved rubric (rubric_match).
+ * rubricId: compare the printed questions with that answer-key snapshot (rubric_match).
  */
 export async function fetchInspection(file: File, rubricId?: number | null): Promise<PaperInspection | null> {
   if (unsupported) return null;
@@ -80,14 +82,14 @@ export function paperTag(inspection: PaperInspection | null | undefined): PaperT
     return {
       label: "Answer key paper",
       tone: "amber",
-      hint: "Looks like a question paper with its key, not a student sheet - remove it or draft the rubric from it.",
+      hint: "Looks like a question paper with its key, not a student sheet - use it as the answer key or remove it.",
     };
   }
   if (inspection.role === "question_paper") {
     return {
       label: "Printed MCQ paper",
       tone: "neutral",
-      hint: "Ticked, circled or shaded options are read as the student's answers.",
+      hint: "Ticked, circled or shaded options are read as the student's answers; it can also be the question paper.",
     };
   }
   return null;
@@ -98,16 +100,16 @@ export function shownMatch(match: RubricMatch | null | undefined): RubricMatch |
   return match && match.verdict !== "unknown" ? match : null;
 }
 
-/** "Matches the selected rubric (38 of 40 questions compared)". */
+/** "Matches the answer key in use (38 of 40 questions compared)". */
 export function matchLine(match: RubricMatch): string {
-  return `Matches the selected rubric (${match.matched} of ${match.compared} questions compared)`;
+  return `Matches the answer key in use (${match.matched} of ${match.compared} questions compared)`;
 }
 
-/** "Sheet: Code P · Rubric: Code A" (null when neither side names a code / set). */
+/** "Sheet: Code P · Key: Code A" (null when neither side names a code / set). */
 export function codesLine(match: RubricMatch): string | null {
   const parts = [
     match.sheet_code ? `Sheet: ${match.sheet_code}` : null,
-    match.rubric_code ? `Rubric: ${match.rubric_code}` : null,
+    match.rubric_code ? `Key: ${match.rubric_code}` : null,
   ].filter((p): p is string => !!p);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -130,10 +132,10 @@ export function matchMessage(match: RubricMatch): string {
   if (match.verdict === "reordered") {
     return `${match.moved} of ${match.compared} questions are printed under other numbers - another code / set of this paper.`;
   }
-  return `Only ${match.matched} of ${match.compared} printed questions match the rubric's questions.`;
+  return `Only ${match.matched} of ${match.compared} printed questions match the answer key's questions.`;
 }
 
-/** Delay before re-comparing staged papers with a newly chosen rubric (quick switches send one request). */
+/** Delay before re-comparing staged papers with a new answer-key snapshot (quick changes send one request). */
 export const RECHECK_DELAY_MS = 300;
 
 /** Only a printed paper with a text layer can be compared with a rubric (the server returns null otherwise). */
@@ -141,29 +143,44 @@ export function rubricComparable(paper: PaperInspection | null | undefined): boo
   return !!paper && paper.text_layer && (paper.role === "question_paper" || paper.role === "answer_key_paper");
 }
 
-/** Shown under a sheet that does not match when the server will hold it (printed-MCQ reader path). */
+/**
+ * Shown under a document that does not match. The server's check on upload holds it for faculty
+ * review unless its answers map to the key (a typed answer sheet compared by its text is graded
+ * when most rubric questions get an answer).
+ */
 export const MATCH_HOLD_NOTE =
-  "You can still upload it: the sheet is held for faculty review instead of being graded against this rubric.";
-/** Shown when the server's paper check may not run for this sheet: no hold is promised. */
-export const MATCH_CHECK_NOTE = "Check the rubric before uploading: this sheet would be graded against it.";
+  "You can still upload it: it is held for faculty review unless its answers map to this key.";
+/** A printed paper far larger than the key (the size check): always held on upload. */
+export const SIZE_HOLD_NOTE =
+  "You can still upload it: it is held for faculty review instead of being graded against this key.";
+/** Shown when the server's paper check does not run for this file (not a PDF or Word file): no hold is promised. */
+export const MATCH_CHECK_NOTE = "Check the answer key before uploading: this sheet would be graded against it.";
 
-/** Mirrors the backend's printed-MCQ reader rule (mcq_marks.mcq_heavy): 10+ questions, at least 80% MCQs. */
-export function mcqHeavyRubric(
-  content: { questions?: { question_type?: string | null }[] } | null | undefined,
-): boolean {
-  const questions = content?.questions ?? [];
-  if (questions.length < 10) return false;
-  const mcqs = questions.filter((q) => q.question_type === "mcq").length;
-  return mcqs >= 0.8 * questions.length;
+/**
+ * True when the server's paper check runs on upload for this file: a PDF or Word file with any
+ * rubric. What it then does with a mismatch: the printed-MCQ reader (a PDF with an MCQ-heavy rubric)
+ * holds a paper whose question stems do not match; the handwriting reader compares the text layer
+ * with the rubric and holds a mismatch only when fewer than half the rubric questions get an
+ * answer (the answers mapped: graded); a long printed paper against a small key (the size check,
+ * sizeMismatch) is held either way. So the copy says "held unless its answers map to the key". A
+ * rubric_match is only returned for printed papers with a text layer.
+ */
+export function mismatchHeld(inspection: { file_type?: string | null } | null | undefined): boolean {
+  return inspection?.file_type === "pdf" || inspection?.file_type === "docx";
 }
 
 /**
- * True when the server will hold a non-matching sheet for faculty review: the paper check only runs
- * on the printed-MCQ reader path (a PDF graded with an MCQ-heavy rubric; a rubric_match is only
- * returned for printed papers).
+ * The size check's verdict (backend paper_match.structural): a mismatch with nothing compared and
+ * no printed sheet code - far more printed questions than the key has. Held on upload either way.
  */
-export function mismatchHeld(inspection: { file_type?: string | null } | null | undefined, mcqRubric: boolean): boolean {
-  return mcqRubric && inspection?.file_type === "pdf";
+export function sizeMismatch(match: RubricMatch | null | undefined): boolean {
+  return !!match && match.verdict === "mismatch" && match.compared === 0 && !match.sheet_code;
+}
+
+/** The note under a mismatch when the server's check runs (held) or not. */
+export function matchHoldNote(match: RubricMatch | null | undefined, held: boolean): string {
+  if (!held) return MATCH_CHECK_NOTE;
+  return sizeMismatch(match) ? SIZE_HOLD_NOTE : MATCH_HOLD_NOTE;
 }
 
 export interface MatchTag {
@@ -181,9 +198,13 @@ export function matchTag(match: RubricMatch | null | undefined, held = false): M
   if (!shown || shown.verdict === "match") return null;
   const codes = codesLine(shown);
   const detail = [matchMessage(shown), codes, ...matchExamples(shown)].filter(Boolean).join("\n");
-  const after = held ? "held for faculty review on upload" : "check the rubric before uploading";
+  const after = !held
+    ? "check the answer key before uploading"
+    : sizeMismatch(shown)
+      ? "held for faculty review on upload"
+      : "held for faculty review unless its answers map to the key";
   return shown.verdict === "mismatch"
-    ? { label: "Different paper", tone: "rose", hint: `Not the selected rubric's paper${codes ? ` (${codes})` : ""} - ${after}.`, detail }
+    ? { label: "Different paper", tone: "rose", hint: `Not the answer key's paper${codes ? ` (${codes})` : ""} - ${after}.`, detail }
     : { label: "Other code / set", tone: "amber", hint: `Same questions, other numbers${codes ? ` (${codes})` : ""} - ${after}.`, detail };
 }
 

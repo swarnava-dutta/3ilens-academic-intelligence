@@ -16,7 +16,6 @@ export function FacultyWorkspace() {
   const healthState = useHealth();
   const queue = useSubmissions();
   const { refresh, addOptimistic } = queue;
-  const apiOnline = healthState.health !== null && healthState.error === null;
   const [startedIntake, setStartedIntake] = useState<string | null>(null);
   const [dismissedIntakes, setDismissedIntakes] = useState<string[]>([]);
 
@@ -53,11 +52,12 @@ export function FacultyWorkspace() {
       />
       <AiReadinessBanner {...healthState} />
       <UploadCard
-        apiOnline={apiOnline}
         health={healthState.health}
         knownHashes={knownHashes}
+        submissions={queue.submissions}
         onUploaded={handleUploaded}
         onIntakeStarted={handleIntakeStarted}
+        onQueueChanged={() => void refresh()}
       />
       <PipelineStrip
         ocrAdapter={healthState.health?.ocr_adapter ?? null}

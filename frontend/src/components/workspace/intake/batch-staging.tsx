@@ -5,6 +5,7 @@ import { useId, useRef } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Copy,
   FileText,
   Info,
@@ -14,11 +15,14 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import type { KeyOrigin } from "@/components/rubrics/use-rubric-source";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ACCEPT_ATTR, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { codeLabel } from "./codes";
+import { KEY_SAVE_WAIT, keySaveNote, queuedNote, type IntakeGate } from "./gate";
 import { matchTag, mismatchHeld, paperTag } from "./paper";
+import { SheetThumb } from "./sheet-thumb";
 import {
   isVoiceRow,
   QUEUE_API_NOTE_THRESHOLD,
@@ -26,15 +30,15 @@ import {
   UPLOAD_CONCURRENCY,
   type BatchIntake,
   type RowView,
-  type UploadContext,
 } from "./use-batch-intake";
 import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
 const cellInput =
   "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
+/** # · student · sheet thumbnail · file · custody · status · actions (stacked below lg). */
 const GRID =
-  "lg:grid lg:grid-cols-[2rem_minmax(0,1.35fr)_minmax(0,1.25fr)_8.5rem_minmax(0,1fr)_7.5rem] lg:items-start lg:gap-3";
+  "lg:grid lg:grid-cols-[2rem_minmax(0,1.35fr)_7.5rem_minmax(0,1.25fr)_8.5rem_minmax(0,1fr)_7.5rem] lg:items-start lg:gap-3";
 
 function StatusChip({ view }: { view: RowView }) {
   const { row, blocked, skippedAsDuplicate } = view;
@@ -42,7 +46,13 @@ function StatusChip({ view }: { view: RowView }) {
   let text: string;
   let Icon = Info;
   let spin = false;
-  if (row.phase === "checking") {
+  let title = row.errorDetail ?? blocked?.message ?? undefined;
+  if (view.waiting) {
+    tone = "bg-brand-cyan-50 text-brand-cyan-600 ring-brand-cyan/30";
+    text = "waiting to upload";
+    Icon = Clock;
+    title = keySaveNote("this sheet goes");
+  } else if (row.phase === "checking") {
     text = "checking…";
     Icon = Loader2;
     spin = true;
@@ -78,7 +88,7 @@ function StatusChip({ view }: { view: RowView }) {
         "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium",
         tone,
       )}
-      title={row.errorDetail ?? blocked?.message ?? undefined}
+      title={title}
     >
       <Icon className={cn("h-3.5 w-3.5 shrink-0", spin && "motion-safe:animate-spin")} aria-hidden />
       <span className="truncate">{text}</span>
@@ -88,34 +98,46 @@ function StatusChip({ view }: { view: RowView }) {
 
 interface BatchStagingProps {
   intake: BatchIntake;
-  /** Upload settings (rubric, languages, batch) chosen in the form; null while no rubric is chosen. */
-  context: UploadContext | null;
+  /** Upload now / queue until the answer key is ready / why nothing can be sent yet. */
+  gate: IntakeGate;
+  /** Re-upload one rejected row (needs a ready answer key). */
+  onRetry: (key: string) => void;
+  /** Re-upload every rejected row in one run. */
+  onRetryRejected: () => void;
+  /** The answer key is ready (a retry can be sent now). */
+  keyReady: boolean;
   /** SHA-256 -> earlier submission (from the queue) for the "seen before" hint. */
   knownHashes: Map<string, Submission>;
   ocrCacheEnabled: boolean;
   voice: VoiceSettings;
-  /** Questions of the chosen rubric (for per-question voice recordings). */
+  /** Questions of the answer key (for per-question voice recordings). */
   questions: VoiceQuestionOption[];
-  /** Draft the rubric from a staged answer-key paper (the row is removed from the batch). */
-  onDraftRubric?: (file: File) => void;
-  /** The chosen rubric is MCQ-heavy (paper.mcqHeavyRubric): a non-matching printed PDF is held for review. */
-  mcqRubric?: boolean;
+  /**
+   * Make a staged file the intake's answer-key source: "key" (an answer-key paper - the row is
+   * removed) or "paper" (a printed question paper - the row stays as a student's sheet).
+   */
+  onUseForKey?: (file: File, how: KeyOrigin) => void;
+  /** No answer key yet: printed papers offer "Use as question paper". */
+  canUseAsPaper?: boolean;
 }
 
 export function BatchStaging({
   intake,
-  context,
+  gate,
+  onRetry,
+  onRetryRejected,
+  keyReady,
   knownHashes,
   ocrCacheEnabled,
   voice,
   questions,
-  onDraftRubric,
-  mcqRubric = false,
+  onUseForKey,
+  canUseAsPaper = false,
 }: BatchStagingProps) {
   const ids = useId();
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceKeyRef = useRef<string | null>(null);
-  const { views, skipped, running } = intake;
+  const { views, skipped, running, pendingRun, waitingCount } = intake;
 
   if (views.length === 0 && skipped.length === 0) return null;
 
@@ -123,6 +145,7 @@ export function BatchStaging({
   const attempted = views.filter((v) => v.row.phase === "queued" || v.row.phase === "rejected" || v.row.phase === "uploading");
   const queued = views.filter((v) => v.row.phase === "queued").length;
   const rejected = views.filter((v) => v.row.phase === "rejected").length;
+  const retryable = views.filter((v) => v.row.phase === "rejected" && !v.blocked && !v.waiting).length;
   // During a run the not-yet-started rows are still "ready" (waiting for a free upload slot).
   const runTotal = attempted.length + (running ? uploadable : 0);
   const groups = summarize(views, skipped);
@@ -135,6 +158,8 @@ export function BatchStaging({
   const differentPapers = otherPapers.filter((v) => v.rubricMatch?.verdict === "mismatch").length;
   const otherCodes = otherPapers.length - differentPapers;
   const otherRows = otherPapers.map((v) => v.index + 1);
+  const waitingForKey = gate.queued && uploadable > 0;
+  const blocked = !!gate.blocked;
 
   function pickReplacement(key: string) {
     replaceKeyRef.current = key;
@@ -164,8 +189,8 @@ export function BatchStaging({
             Staged answer sheets <span className="font-normal text-slate-500">({views.length})</span>
           </h3>
           <p className="text-xs text-slate-500">
-            One row per student. Names come from the file or sub-folder name - edit them before uploading. Rubric,
-            language and batch apply to the whole batch.
+            One row per student. Names come from the file or sub-folder name - edit them before uploading. The
+            answer key, language and batch apply to the whole batch.
             {shortId ? (
               <>
                 {" "}
@@ -177,7 +202,7 @@ export function BatchStaging({
         <button
           type="button"
           onClick={intake.clear}
-          disabled={running}
+          disabled={running || pendingRun || waitingCount > 0}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -207,7 +232,8 @@ export function BatchStaging({
       {otherPapers.length > 0 ? (
         <p className="border-l-2 border-amber-500 pl-3 text-xs text-amber-900" role="status">
           <span className="font-medium">
-            {otherPapers.length} {otherPapers.length === 1 ? "sheet does" : "sheets do"} not match the selected rubric
+            {otherPapers.length} {otherPapers.length === 1 ? "sheet does" : "sheets do"} not match the answer key in
+            use
           </span>{" "}
           (
           {[
@@ -218,7 +244,8 @@ export function BatchStaging({
             .join(", ")}
           ; {otherRows.length === 1 ? "row" : "rows"} {otherRows.slice(0, 12).join(", ")}
           {otherRows.length > 12 ? ` +${otherRows.length - 12} more` : ""}). They upload, but are held for faculty
-          review instead of being graded - pick the matching rubric or remove them first.
+          review unless their answers map to the key - remove them and grade them in their own intake with their
+          own key.
         </p>
       ) : null}
 
@@ -253,6 +280,7 @@ export function BatchStaging({
           >
             <span>#</span>
             <span>Student · roll no</span>
+            <span>Sheet</span>
             <span>File</span>
             <span>Custody (SHA-256)</span>
             <span>Status</span>
@@ -265,18 +293,19 @@ export function BatchStaging({
                 view={view}
                 views={views}
                 intake={intake}
-                context={context}
+                keyReady={keyReady}
+                onRetry={() => onRetry(view.row.key)}
                 seenBefore={view.row.hash ? (knownHashes.get(view.row.hash) ?? null) : null}
                 ocrCacheEnabled={ocrCacheEnabled}
                 questions={questions}
                 voiceReady={voice.ready}
-                mcqRubric={mcqRubric}
+                canUseAsPaper={canUseAsPaper}
                 onReplace={() => pickReplacement(view.row.key)}
-                onDraftRubric={
-                  onDraftRubric
-                    ? () => {
-                        onDraftRubric(view.row.file);
-                        intake.removeRow(view.row.key);
+                onUseForKey={
+                  onUseForKey
+                    ? (how: KeyOrigin) => {
+                        onUseForKey(view.row.file, how);
+                        if (how !== "paper") intake.removeRow(view.row.key);
                       }
                     : undefined
                 }
@@ -321,25 +350,78 @@ export function BatchStaging({
             <span className="text-slate-500">No answer sheets staged.</span>
           )}
         </p>
-        <button
-          type="button"
-          onClick={() => context && void intake.start(context)}
-          disabled={running || checking || uploadable === 0 || !context}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand-navy px-4 text-sm font-medium text-white transition-colors duration-150 hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {running ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
-          {running
-            ? "Uploading…"
-            : checking
-              ? "Checking files…"
-              : uploadable > 0
-                ? `Upload ${uploadable} ${uploadable === 1 ? "sheet" : "sheets"} & start AI evaluation`
-                : "Nothing left to upload"}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {retryable > 0 && !running ? (
+            <button
+              type="button"
+              onClick={onRetryRejected}
+              disabled={!keyReady || pendingRun}
+              title={keyReady ? undefined : "The answer key is not ready yet"}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden />
+              Retry {retryable} rejected
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={gate.send}
+            disabled={running || pendingRun || checking || uploadable === 0 || blocked || waitingForKey}
+            aria-describedby={uploadable > 0 && (blocked || gate.waiting) ? `${ids}-why` : undefined}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand-navy px-4 text-sm font-medium text-white transition-colors duration-150 hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {running ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
+            {(waitingForKey || pendingRun) && !running ? <Clock className="h-4 w-4" aria-hidden /> : null}
+            {running
+              ? "Uploading…"
+              : pendingRun
+                ? KEY_SAVE_WAIT
+                : checking
+                  ? "Checking files…"
+                  : uploadable === 0
+                    ? "Nothing left to upload"
+                    : waitingForKey
+                      ? "Queued - waiting for the answer key"
+                      : gate.held
+                        ? `Send the ${uploadable} waiting ${uploadable === 1 ? "sheet" : "sheets"}`
+                        : gate.waiting
+                          ? `Upload ${uploadable} ${uploadable === 1 ? "sheet" : "sheets"} when the key is ready`
+                          : `Upload ${uploadable} ${uploadable === 1 ? "sheet" : "sheets"} & start AI evaluation`}
+          </button>
+        </div>
       </div>
 
-      {!context && uploadable > 0 ? (
-        <p className="text-xs text-amber-800">Choose a rubric above before uploading.</p>
+      {waitingCount > 0 ? (
+        <p className="text-xs text-slate-600" role="status" aria-live="polite">
+          {keySaveNote(`${waitingCount} waiting ${waitingCount === 1 ? "sheet goes" : "sheets go"}`)}
+        </p>
+      ) : null}
+
+      {uploadable > 0 && !running && !pendingRun ? (
+        blocked ? (
+          <p id={`${ids}-why`} className="text-xs text-amber-800">
+            {gate.blocked}
+          </p>
+        ) : waitingForKey ? (
+          <p id={`${ids}-why`} className="text-xs text-slate-600" role="status" aria-live="polite">
+            {queuedNote(`${uploadable} ${uploadable === 1 ? "sheet" : "sheets"}`, gate.waiting)}{" "}
+            <button
+              type="button"
+              onClick={gate.cancel}
+              className="font-medium text-brand-cyan-600 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+            >
+              Cancel
+            </button>
+          </p>
+        ) : gate.waiting ? (
+          <p id={`${ids}-why`} className="text-xs text-slate-500">
+            {gate.waiting} A click queues the sheets; they upload the moment the key is ready.
+          </p>
+        ) : gate.held ? (
+          <p className="text-xs text-slate-600" role="status">
+            The key was edited after these sheets were queued - check it, then send them.
+          </p>
+        ) : null
       ) : null}
 
       {intake.message ? (
@@ -355,37 +437,43 @@ function StagedRowItem({
   view,
   views,
   intake,
-  context,
+  keyReady,
+  onRetry,
   seenBefore,
   ocrCacheEnabled,
   questions,
   voiceReady,
+  canUseAsPaper,
   onReplace,
-  onDraftRubric,
-  mcqRubric,
+  onUseForKey,
 }: {
   view: RowView;
   views: RowView[];
   intake: BatchIntake;
-  context: UploadContext | null;
+  /** The answer key is ready for a retry. */
+  keyReady: boolean;
+  onRetry: () => void;
   seenBefore: Submission | null;
   ocrCacheEnabled: boolean;
   questions: VoiceQuestionOption[];
   voiceReady: boolean;
+  canUseAsPaper: boolean;
   onReplace: () => void;
-  onDraftRubric?: () => void;
-  mcqRubric: boolean;
+  onUseForKey?: (how: KeyOrigin) => void;
 }) {
   const ids = useId();
   const { row, index, duplicateOf, blocked } = view;
   const tag = paperTag(row.paper);
-  const match = matchTag(view.rubricMatch, mismatchHeld(row.paper, mcqRubric));
+  const match = matchTag(view.rubricMatch, mismatchHeld(row.paper));
   const answerKeyRow = row.paper?.role === "answer_key_paper";
-  const locked = row.phase === "uploading" || row.phase === "queued" || intake.running;
+  const printedRow = row.paper?.role === "question_paper";
+  const locked = row.phase === "uploading" || row.phase === "queued" || intake.running || view.waiting;
   const canRetry = row.phase === "rejected" && !blocked;
   const canReplace = row.phase !== "uploading" && row.phase !== "queued";
   const original = duplicateOf !== null ? views[duplicateOf] : null;
   const isVoice = isVoiceRow(row);
+  // A page thumbnail once the bytes are checked (not for audio, nor a file refused before upload).
+  const showThumb = !isVoice && !!row.signature && !row.signature.error && !blocked;
 
   return (
     <li
@@ -438,85 +526,90 @@ function StagedRowItem({
         ) : null}
       </div>
 
-      {/* File */}
-      <div className="mt-2 min-w-0 text-sm lg:mt-0">
-        <p className="flex items-center gap-1.5 text-slate-800" title={row.path}>
-          <span className="truncate">{row.file.name}</span>
-        </p>
-        {isVoice ? <VoiceChip className="mt-1" /> : null}
-        {tag ? (
-          <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
-                tag.tone === "amber" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700",
-              )}
-              title={row.paper?.message || undefined}
-            >
-              {tag.label}
-            </span>
-            {tag.tone === "amber" ? <span className="min-w-0 text-amber-800">{tag.hint}</span> : null}
+      {/* Sheet thumbnail + file: side by side from 640px, stacked on phones, own grid columns at lg. */}
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 lg:contents">
+        {showThumb ? <SheetThumb file={row.file} /> : <div className="hidden lg:block" aria-hidden />}
+
+        {/* File */}
+        <div className="min-w-0 text-sm sm:flex-1">
+          <p className="flex items-center gap-1.5 text-slate-800" title={row.path}>
+            <span className="truncate">{row.file.name}</span>
           </p>
-        ) : row.paperChecking ? (
-          <p className="mt-1 text-[11px] text-slate-500">Reading printed text…</p>
-        ) : null}
-        {match ? (
-          <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
-                match.tone === "rose" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800",
-              )}
-              title={match.detail}
-            >
-              {match.label}
-            </span>
-            <span className={cn("min-w-0 break-words", match.tone === "rose" ? "text-rose-700" : "text-amber-800")}>
-              {match.hint}
-            </span>
+          {isVoice ? <VoiceChip className="mt-1" /> : null}
+          {tag ? (
+            <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
+                  tag.tone === "amber" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700",
+                )}
+                title={row.paper?.message || undefined}
+              >
+                {tag.label}
+              </span>
+              {tag.tone === "amber" ? <span className="min-w-0 text-amber-800">{tag.hint}</span> : null}
+            </p>
+          ) : row.paperChecking ? (
+            <p className="mt-1 text-[11px] text-slate-500">Reading printed text…</p>
+          ) : null}
+          {match ? (
+            <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs">
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-medium",
+                  match.tone === "rose" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800",
+                )}
+                title={match.detail}
+              >
+                {match.label}
+              </span>
+              <span className={cn("min-w-0 break-words", match.tone === "rose" ? "text-rose-700" : "text-amber-800")}>
+                {match.hint}
+              </span>
+            </p>
+          ) : view.matchChecking ? (
+            <p className="mt-1 text-[11px] text-slate-500">Comparing with the answer key in use…</p>
+          ) : null}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+            <span>{formatBytes(row.file.size)}</span>
+            {row.signature?.kind ? <span>· {row.signature.kind.toUpperCase()}</span> : null}
+            {row.path !== row.file.name ? <span className="truncate">· {row.path.split("/").slice(0, -1).join("/")}</span> : null}
           </p>
-        ) : view.matchChecking ? (
-          <p className="mt-1 text-[11px] text-slate-500">Comparing with the selected rubric…</p>
-        ) : null}
-        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-          <span>{formatBytes(row.file.size)}</span>
-          {row.signature?.kind ? <span>· {row.signature.kind.toUpperCase()}</span> : null}
-          {row.path !== row.file.name ? <span className="truncate">· {row.path.split("/").slice(0, -1).join("/")}</span> : null}
-        </p>
-        {row.file.size > MULTIPART_THRESHOLD_BYTES ? (
-          <p className="mt-1 text-[11px] text-slate-500">
-            Production: S3 presigned multipart (resumable). PoC: single streamed upload
-          </p>
-        ) : null}
-        {isVoice ? (
-          <div className="mt-2 max-w-[16rem]">
-            <VoiceQuestionSelect
-              id={`${ids}-voice-q`}
-              value={row.voiceQuestion}
-              onChange={(q) => intake.updateRow(row.key, { voiceQuestion: q })}
-              questions={questions}
-              disabled={locked}
-              compact
-            />
-            {!voiceReady ? (
-              <p className="mt-1 flex items-start gap-1 text-[11px] font-medium text-amber-900">
-                <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-700" aria-hidden />
-                OPENAI_API_KEY missing - this voice answer will fail at transcription
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {/blurry/i.test(row.file.name) ? (
-          <p className="mt-1 text-[11px] text-amber-800" title="Mock OCR confidence 65% (below the 70% gate): held for faculty review, no AI call.">
-            Human-review demo (&ldquo;blurry&rdquo; in the name)
-          </p>
-        ) : null}
-        {row.signature?.warning ? (
-          <p className="mt-1 flex items-start gap-1 text-xs text-amber-800">
-            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
-            {row.signature.warning}
-          </p>
-        ) : null}
+          {row.file.size > MULTIPART_THRESHOLD_BYTES ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Production: S3 presigned multipart (resumable). PoC: single streamed upload
+            </p>
+          ) : null}
+          {isVoice ? (
+            <div className="mt-2 max-w-[16rem]">
+              <VoiceQuestionSelect
+                id={`${ids}-voice-q`}
+                value={row.voiceQuestion}
+                onChange={(q) => intake.updateRow(row.key, { voiceQuestion: q })}
+                questions={questions}
+                disabled={locked}
+                compact
+              />
+              {!voiceReady ? (
+                <p className="mt-1 flex items-start gap-1 text-[11px] font-medium text-amber-900">
+                  <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-700" aria-hidden />
+                  OPENAI_API_KEY missing - this voice answer will fail at transcription
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {/blurry/i.test(row.file.name) ? (
+            <p className="mt-1 text-[11px] text-amber-800" title="Mock OCR confidence 65% (below the 70% gate): held for faculty review, no AI call.">
+              Human-review demo (&ldquo;blurry&rdquo; in the name)
+            </p>
+          ) : null}
+          {row.signature?.warning ? (
+            <p className="mt-1 flex items-start gap-1 text-xs text-amber-800">
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+              {row.signature.warning}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {/* Custody */}
@@ -539,7 +632,7 @@ function StagedRowItem({
             Same bytes as row {original.index + 1}
             <span className="hidden lg:inline"> ({original.row.file.name})</span>
           </p>
-        ) : seenBefore ? (
+        ) : seenBefore && seenBefore.id !== row.submission?.id ? (
           <p className="mt-1 text-slate-500" title="The OCR cache is keyed by file SHA-256 (plus rubric questions and language).">
             Seen before as #{seenBefore.id}
             {ocrCacheEnabled ? " - OCR cache can reuse it (no vision call, Rs 0.00)" : ""}
@@ -584,23 +677,36 @@ function StagedRowItem({
             Open
           </Link>
         ) : null}
-        {answerKeyRow && onDraftRubric && row.phase === "ready" ? (
+        {answerKeyRow && onUseForKey && row.phase === "ready" ? (
           <button
             type="button"
-            onClick={onDraftRubric}
-            disabled={intake.running}
+            onClick={() => onUseForKey("key")}
+            disabled={intake.running || intake.pendingRun || view.waiting}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
-            title="Draft the rubric from this paper and remove it from the batch"
+            title="Draft the answer key from this paper and remove it from the batch"
           >
             <FileText className="h-3.5 w-3.5" aria-hidden />
-            Draft rubric
+            Use as key
+          </button>
+        ) : null}
+        {printedRow && canUseAsPaper && onUseForKey && row.phase === "ready" ? (
+          <button
+            type="button"
+            onClick={() => onUseForKey("paper")}
+            disabled={intake.running || intake.pendingRun || view.waiting}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
+            title="Use as the question paper: draft the answer key from this printed paper - the row stays staged as a student's sheet; drop its answer key into the Answer key box too"
+          >
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Use as paper
           </button>
         ) : null}
         {canRetry ? (
           <button
             type="button"
-            onClick={() => context && void intake.retryRow(row.key, context)}
-            disabled={!context || intake.running}
+            onClick={onRetry}
+            disabled={!keyReady || intake.running || view.waiting}
+            title={view.waiting ? "Waiting to upload" : keyReady ? undefined : "The answer key is not ready yet"}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-brand-navy transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden />
@@ -611,7 +717,7 @@ function StagedRowItem({
           <button
             type="button"
             onClick={onReplace}
-            disabled={intake.running}
+            disabled={intake.running || view.waiting}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
           >
             <Replace className="h-3.5 w-3.5" aria-hidden />
@@ -622,7 +728,7 @@ function StagedRowItem({
           <button
             type="button"
             onClick={() => intake.removeRow(row.key)}
-            disabled={intake.running}
+            disabled={intake.running || view.waiting}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
             aria-label={`Remove ${row.file.name}`}
           >

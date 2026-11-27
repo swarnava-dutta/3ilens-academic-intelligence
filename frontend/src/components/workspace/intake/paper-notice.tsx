@@ -1,15 +1,15 @@
 "use client";
 
 import { CheckCircle2, FileText, Loader2 } from "lucide-react";
+import type { KeyOrigin } from "@/components/rubrics/use-rubric-source";
 import type { PaperInspection, RubricMatch } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   answerKeyLine,
   codesDiffer,
   codesLine,
-  MATCH_CHECK_NOTE,
-  MATCH_HOLD_NOTE,
   matchExamples,
+  matchHoldNote,
   matchLine,
   matchMessage,
   printedPaperLine,
@@ -27,17 +27,31 @@ interface PaperNoticeProps {
   /** Faculty chose "Upload as a student sheet anyway" for an answer-key paper. */
   dismissed: boolean;
   disabled?: boolean;
-  /** Hand the file to the rubric source and start drafting (null hides the drafting actions). */
-  onDraftRubric: ((options?: { keyFromMarks?: boolean }) => void) | null;
+  /**
+   * Make the file the intake's answer-key source and start drafting: "key" (a paper with its own
+   * key), "paper" (the question paper - the sheet stays staged) or "ticks" (the ticks are the key).
+   * Null hides these actions.
+   */
+  onUseForKey: ((how: KeyOrigin) => void) | null;
+  /** No answer key yet: offer "Use as the question paper" for a printed paper. */
+  canUseAsPaper?: boolean;
   onDismiss: () => void;
 }
 
 /**
  * Under the staged file in single-sheet mode: what the document looks like. An answer-key paper
- * is steered to rubric drafting; a printed MCQ paper is graded from the student's ticks. Answer
- * sheets and unknown files show nothing.
+ * is steered to the answer key; a printed MCQ paper is graded from the student's ticks and can also
+ * be the intake's question paper. Answer sheets and unknown files show nothing.
  */
-export function PaperNotice({ inspection, inspecting, dismissed, disabled, onDraftRubric, onDismiss }: PaperNoticeProps) {
+export function PaperNotice({
+  inspection,
+  inspecting,
+  dismissed,
+  disabled,
+  onUseForKey,
+  canUseAsPaper = false,
+  onDismiss,
+}: PaperNoticeProps) {
   if (inspecting && !inspection) {
     return (
       <p className="flex items-center gap-1.5 text-xs text-slate-500" aria-live="polite">
@@ -61,10 +75,10 @@ export function PaperNotice({ inspection, inspecting, dismissed, disabled, onDra
           {answerKeyLine(inspection)} This is not a student&apos;s sheet.
         </p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          {onDraftRubric ? (
-            <button type="button" onClick={() => onDraftRubric()} disabled={disabled} className={primaryBtn}>
+          {onUseForKey ? (
+            <button type="button" onClick={() => onUseForKey("key")} disabled={disabled} className={primaryBtn}>
               <FileText className="h-3.5 w-3.5" aria-hidden />
-              Draft rubric from this paper
+              Use as the answer key
             </button>
           ) : null}
           <button type="button" onClick={onDismiss} disabled={disabled} className={secondaryBtn}>
@@ -85,21 +99,32 @@ export function PaperNotice({ inspection, inspecting, dismissed, disabled, onDra
           <PaperMeta inspection={inspection} />
         </div>
         <p className="mt-2 text-sm text-slate-800">
-          {printedPaperLine(inspection)} Ticked, circled or shaded options are read as the student&apos;s answers; pick
-          this paper&apos;s answer-key rubric.
+          {printedPaperLine(inspection)} Ticked, circled or shaded options are read as the student&apos;s answers.
+          {canUseAsPaper
+            ? " No answer key yet: use this paper as the question paper (it stays staged as this student's sheet) and drop its answer key into the Answer key box too."
+            : ""}
         </p>
-        {/* The server reads ticks only from PDF page images (key_source=marks is ignored for DOCX). */}
-        {onDraftRubric && inspection.file_type === "pdf" ? (
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => onDraftRubric({ keyFromMarks: true })}
-              disabled={disabled}
-              className={secondaryBtn}
-            >
-              <FileText className="h-3.5 w-3.5" aria-hidden />
-              Use the ticks as the answer key
-            </button>
+        {onUseForKey ? (
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {canUseAsPaper ? (
+              <button type="button" onClick={() => onUseForKey("paper")} disabled={disabled} className={primaryBtn}>
+                <FileText className="h-3.5 w-3.5" aria-hidden />
+                Use as the question paper
+              </button>
+            ) : null}
+            {/* The server reads ticks only from PDF page images (key_source=marks is ignored for DOCX). */}
+            {inspection.file_type === "pdf" ? (
+              <button
+                type="button"
+                onClick={() => onUseForKey("ticks")}
+                disabled={disabled}
+                className={secondaryBtn}
+                title="A teacher's marked copy: the ticked options become the answer key (the file is not graded)"
+              >
+                <FileText className="h-3.5 w-3.5" aria-hidden />
+                Use the ticks as the answer key
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -110,11 +135,13 @@ export function PaperNotice({ inspection, inspecting, dismissed, disabled, onDra
 }
 
 /**
- * Under the staged file: how its printed questions compare with the chosen saved rubric. The same
+ * Under the staged file: how its printed questions compare with the intake's answer key (once its
+ * snapshot exists on the server, i.e. after the first upload). The same
  * paper gets one quiet line; another code / set (same questions, other numbers) an amber warning;
- * a different paper a rose one. Never blocks the upload; the server holds such sheets for faculty
- * review only on the printed-MCQ reader path (`held`), so the hold is promised only then. Unknown
- * (too little printed text) shows nothing.
+ * a different paper (or the wrong rubric for it) a rose one. Never blocks the upload; the server
+ * checks such a PDF or Word file again (`held`, paper.mismatchHeld) and holds it for faculty review
+ * unless its answers map to the key (a paper far larger than the key is held either way).
+ * Unknown (too little printed text) shows nothing.
  */
 export function RubricMatchNotice({
   match,
@@ -123,7 +150,7 @@ export function RubricMatchNotice({
 }: {
   match: RubricMatch | null;
   checking?: boolean;
-  /** The server will hold a non-matching sheet for review (paper.mismatchHeld). */
+  /** The server checks this file on upload and holds a mismatch unless its answers map (paper.mismatchHeld). */
   held?: boolean;
 }) {
   const shown = shownMatch(match);
@@ -131,7 +158,7 @@ export function RubricMatchNotice({
     return (
       <p className="flex items-center gap-1.5 text-xs text-slate-500" aria-live="polite">
         <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-        Comparing the printed questions with the selected rubric…
+        Comparing the printed questions with the answer key in use…
       </p>
     );
   }
@@ -146,8 +173,8 @@ export function RubricMatchNotice({
         </p>
         {codesDiffer(shown) ? (
           <p className="pl-5 text-amber-800">
-            The printed code ({shown.sheet_code}) differs from the rubric&apos;s ({shown.rubric_code}) - check the
-            version.
+            The printed code ({shown.sheet_code}) differs from the answer key&apos;s ({shown.rubric_code}) - check
+            the version.
           </p>
         ) : null}
       </div>
@@ -174,7 +201,7 @@ export function RubricMatchNotice({
         </span>
         {codes ? <p className="min-w-0 break-words pt-0.5 text-xs text-slate-500">{codes}</p> : null}
       </div>
-      {mismatch ? <p className="mt-2 text-sm font-medium text-rose-800">Doesn&apos;t match the selected rubric</p> : null}
+      {mismatch ? <p className="mt-2 text-sm font-medium text-rose-800">Doesn&apos;t match the answer key in use</p> : null}
       <p className={cn("break-words text-sm text-slate-800", mismatch ? "mt-0.5" : "mt-2")}>{matchMessage(shown)}</p>
       {examples.length ? (
         <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
@@ -187,9 +214,9 @@ export function RubricMatchNotice({
       ) : null}
       <p className="mt-2 text-xs text-slate-600">
         {mismatch
-          ? "Pick this paper's rubric to grade it. "
-          : "Pick the rubric for this code / set to grade it. "}
-        {held ? MATCH_HOLD_NOTE : MATCH_CHECK_NOTE}
+          ? "Grade it in its own intake, with its own question paper and key. "
+          : "Grade it in its own intake, with the key for this code / set. "}
+        {matchHoldNote(shown, held)}
       </p>
     </div>
   );

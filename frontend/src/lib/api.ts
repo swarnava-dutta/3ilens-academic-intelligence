@@ -9,6 +9,7 @@ import type {
   BloomDetectInput,
   BloomDetection,
   Cohort,
+  CohortSitting,
   ConsistencyCheck,
   DashboardFilters,
   DemoSeedResult,
@@ -37,6 +38,7 @@ import type {
   PaperInspection,
   ReevaluateInput,
   ReevaluationEstimate,
+  RerunInput,
   ReleaseInfo,
   ReleaseInput,
   Result,
@@ -46,9 +48,13 @@ import type {
   Rubric,
   RubricCreateInput,
   RubricDraft,
+  RubricSourceFile,
+  RubricSourceKind,
+  RubricSourceRole,
   RubricVersionInput,
   RubricVersionResult,
   StudentCard,
+  StudentRoster,
   StudyPlan,
   Submission,
   Urgency,
@@ -169,7 +175,21 @@ export async function uploadSubmission(input: {
   studentName: string;
   rollNo?: string;
   rubricId?: number;
+  /**
+   * With rubricId: the snapshot's rubric_hash from the upload that created it - after a data reset
+   * the id may name another intake's key, and the server answers 422 unknown_rubric on a mismatch.
+   */
+  rubricHash?: string;
   rubricJson?: string;
+  /**
+   * With rubricJson only (the first upload of an intake): the question paper / rubric file the key
+   * was drafted from and the separate answer-key file. The server keeps them with the new snapshot
+   * (GET /api/rubrics/{id}/sources) so the report can preview them; ignored with rubricId.
+   */
+  rubricSourceFile?: File;
+  rubricKeyFile?: File;
+  /** With rubricSourceFile: what that file is (question paper, rubric file, marked copy) - the report labels it. */
+  rubricSourceRole?: RubricSourceRole;
   /** Answer languages, e.g. ["en", "hi"] (default en). */
   languageHints?: LanguageHint[];
   batchId?: number;
@@ -184,20 +204,56 @@ export async function uploadSubmission(input: {
   form.append("student_name", input.studentName);
   if (input.rollNo) form.append("roll_no", input.rollNo);
   if (input.rubricId !== undefined) form.append("rubric_id", String(input.rubricId));
-  if (input.rubricJson) form.append("rubric_json", input.rubricJson);
+  if (input.rubricId !== undefined && input.rubricHash) form.append("rubric_hash", input.rubricHash);
+  if (input.rubricJson) {
+    form.append("rubric_json", input.rubricJson);
+    if (input.rubricSourceFile) {
+      form.append("rubric_source_file", input.rubricSourceFile);
+      if (input.rubricSourceRole) form.append("rubric_source_role", input.rubricSourceRole);
+    }
+    if (input.rubricKeyFile) form.append("rubric_key_file", input.rubricKeyFile);
+  }
   if (input.languageHints && input.languageHints.length) {
     form.append("language_hints", input.languageHints.join(","));
   }
   if (input.batchId !== undefined) form.append("batch_id", String(input.batchId));
   if (input.intakeBatchId) form.append("intake_batch_id", input.intakeBatchId);
   if (input.voiceQuestion !== undefined) form.append("voice_question", String(input.voiceQuestion));
-  const res = await api.post<Submission>("/api/upload", form, {
-    timeout: UPLOAD_TIMEOUT_MS,
-    onUploadProgress: (e) => {
-      if (input.onProgress && e.total) input.onProgress(Math.round((e.loaded / e.total) * 100));
-    },
-  });
-  return res.data;
+  try {
+    const res = await api.post<Submission>("/api/upload", form, {
+      timeout: UPLOAD_TIMEOUT_MS,
+      onUploadProgress: (e) => {
+        if (input.onProgress && e.total) input.onProgress(Math.round((e.loaded / e.total) * 100));
+      },
+    });
+    return res.data;
+  } catch (err) {
+    // The key's source files are kept only for the report's preview: one the server refuses
+    // ("Question paper file: ..." / "Answer key file: ...") must not keep the sheet from grading.
+    // The upload goes again without that file only - the other one is still kept.
+    const refused = input.rubricJson ? refusedSourceFile(err) : null;
+    if (refused === "key" && input.rubricKeyFile) {
+      return uploadSubmission({ ...input, rubricKeyFile: undefined });
+    }
+    if (refused === "paper" && input.rubricSourceFile) {
+      return uploadSubmission({ ...input, rubricSourceFile: undefined, rubricSourceRole: undefined });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Which source file a 4xx refused: the server prefixes the detail with the file's label ("Answer key
+ * file: ..." for rubric_key_file; "Question paper file: ..." - or a rubric / marked-copy label - for
+ * rubric_source_file). Null for any other error.
+ */
+function refusedSourceFile(err: unknown): RubricSourceKind | null {
+  const status = errorStatus(err);
+  if (status === null || status < 400 || status >= 500) return null;
+  const detail = errorMessage(err);
+  if (/^Answer key file:/i.test(detail)) return "key";
+  if (/^(?:Question paper|Rubric|Marked copy)\b[^:]{0,60}\bfile:/i.test(detail)) return "paper";
+  return null;
 }
 
 /**
@@ -241,6 +297,36 @@ export async function getCohort(filters?: DashboardQuery): Promise<Cohort> {
   return (await api.get<Cohort>("/api/cohort", { params: queryParams(filters) })).data;
 }
 
+/** Scope of the cohort page: one test (any key version id) of one batch, or each student's latest test. */
+export interface CohortViewQuery {
+  batch_id?: number | null;
+  /** Any version id of the test; null = each student's latest test. */
+  test_id?: number | null;
+}
+
+function cohortViewParams(query?: CohortViewQuery) {
+  return { batch_id: query?.batch_id, test_id: query?.test_id, per_student: true };
+}
+
+/** GET /api/cohort?per_student=true: one row per student plus the cohort page fields. */
+export async function getCohortView(query?: CohortViewQuery): Promise<Cohort> {
+  return (await api.get<Cohort>("/api/cohort", { params: queryParams(cohortViewParams(query)) })).data;
+}
+
+/** Every (batch, test) sitting, newest first (is_class: 3+ students). */
+export async function getCohortSittings(batchId?: number | null): Promise<CohortSitting[]> {
+  return (await api.get<CohortSitting[]>("/api/cohort/sittings", { params: queryParams({ batch_id: batchId }) })).data;
+}
+
+/** Cohort PDF / reports ZIP with the same student set as the cohort page. */
+export function cohortViewPdfUrl(query?: CohortViewQuery): string {
+  return absolute(withQuery("/api/cohort/pdf", cohortViewParams(query)));
+}
+
+export function cohortViewBundleUrl(query?: CohortViewQuery): string {
+  return absolute(withQuery("/api/reports/bundle.zip", cohortViewParams(query)));
+}
+
 /** POST /api/demo/seed?set=genetics|mixed|all|insights (default genetics: the 13-row Genetics cohort). */
 export async function seedDemoCohort(set?: DemoSet): Promise<DemoSeedResult> {
   return (await api.post<DemoSeedResult>("/api/demo/seed", null, { params: queryParams({ set }) })).data;
@@ -249,14 +335,33 @@ export async function seedDemoCohort(set?: DemoSet): Promise<DemoSeedResult> {
 // --------------------------------------------------------------------------- //
 // Pipeline operations (retry, re-evaluate, OCR review, pages, cost)
 // --------------------------------------------------------------------------- //
+/** Set the student's name (1-120 characters; 422 invalid_student_name). The student ref is kept. */
+export async function renameSubmission(id: number, studentName: string): Promise<Submission> {
+  return (await api.patch<Submission>(`/api/submissions/${id}`, { student_name: studentName })).data;
+}
+
 /** Re-drive a FAILED submission from the dead-letter queue (202). */
 export async function retrySubmission(id: number): Promise<Submission> {
   return (await api.post<Submission>(`/api/submissions/${id}/retry`)).data;
 }
 
-/** Re-grade a COMPLETED submission (optionally against another rubric); OCR is reused. */
+/**
+ * Re-grade a COMPLETED submission from its stored transcript (no new reading): with its own key,
+ * `rubric_id` (an existing snapshot) or `rubric` (a key drafted on the fly; stored as a new snapshot
+ * the sheet moves to - one call, no POST /api/rubrics first).
+ */
 export async function reevaluateSubmission(id: number, input: ReevaluateInput = { rubric_id: null }): Promise<Submission> {
   return (await api.post<Submission>(`/api/submissions/${id}/reevaluate`, input)).data;
+}
+
+/**
+ * Full re-run of a HUMAN_REVIEW_REQUIRED or FAILED sheet from the stored upload (202): the sheet
+ * is read again from the start (the stored reading is reused when this exact file was already read
+ * with these questions), then the paper check and grading - with the same key, or with `rubric`, a
+ * key drafted on the fly from the right question paper (the sheet moves to a new snapshot of it).
+ */
+export async function rerunSubmission(id: number, input: RerunInput = {}): Promise<Submission> {
+  return (await api.post<Submission>(`/api/submissions/${id}/rerun`, input)).data;
 }
 
 export async function getOcrReview(id: number): Promise<OcrReviewData> {
@@ -291,6 +396,19 @@ export async function getPages(id: number): Promise<PageRef[]> {
 /** Absolute URL of a page image (processed = what the vision model saw; original = before enhancement). */
 export function pageImageUrl(id: number, pageNumber: number, variant: "processed" | "original" = "processed"): string {
   return absolute(withQuery(`/api/submissions/${id}/pages/${pageNumber}`, { variant }));
+}
+
+/**
+ * GET /api/rubrics/{id}/sources: the question paper and the separate answer-key file the key was
+ * drafted from at upload ([] when it was pasted or sent as JSON). Older API builds answer 404.
+ */
+export async function getRubricSources(rubricId: number): Promise<RubricSourceFile[]> {
+  return (await api.get<RubricSourceFile[]>(`/api/rubrics/${rubricId}/sources`)).data;
+}
+
+/** Image URL of page `page` (1-based) of a stored key file; 404 code no_source when it is not stored. */
+export function rubricSourcePreviewUrl(rubricId: number, kind: RubricSourceKind, page: number, width = 960): string {
+  return absolute(withQuery(`/api/rubrics/${rubricId}/sources/${kind}/preview`, { page, width }));
 }
 
 export async function getInvocations(id: number): Promise<ModelInvocation[]> {
@@ -443,6 +561,21 @@ export async function getStudents(filters?: DashboardQuery): Promise<StudentCard
 
 /** Dated history for one learner. demo=true: synthetic records only; false: real only;
  * omitted: real records when any exist, else the demo ones (the two are never mixed). */
+/** Roster scope: batch + test + demo (false = real records only, true = demo only, null = both).
+ * urgency / topic narrow the rows only; summary and topics always describe the scope. */
+export interface RosterQuery {
+  batch_id?: number | null;
+  rubric_id?: number | null;
+  demo?: boolean | null;
+  urgency?: Urgency | null;
+  topic?: string | null;
+}
+
+/** One row per student (student_ref + is_demo) with the latest paper, trend and actions. */
+export async function getStudentRoster(query?: RosterQuery): Promise<StudentRoster> {
+  return (await api.get<StudentRoster>("/api/students/roster", { params: queryParams({ ...query }) })).data;
+}
+
 export async function getStudentHistory(studentRef: string, demo?: boolean): Promise<HistoryEntry[]> {
   return (
     await api.get<HistoryEntry[]>(`/api/students/${encodeURIComponent(studentRef)}/history`, {

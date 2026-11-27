@@ -11,25 +11,12 @@ export interface VoiceQuestionOption {
   topic: string;
 }
 
-function questionsFromJson(text: string): VoiceQuestionOption[] {
-  try {
-    const data = JSON.parse(text) as { questions?: unknown };
-    if (!Array.isArray(data.questions)) return [];
-    return data.questions.flatMap((q, i) => {
-      const item = (q ?? {}) as { question?: unknown; topic?: unknown };
-      const n = typeof item.question === "number" ? item.question : i + 1;
-      return [{ question: n, topic: typeof item.topic === "string" ? item.topic : "" }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-/** Questions of the rubric chosen in the intake form (saved rubric, or the custom JSON file). */
+/** Questions of the intake's answer key (the drafted key; none before it is drafted). */
 export function rubricQuestionOptions(state: RubricSourceState): VoiceQuestionOption[] {
-  if (state.mode === "json" && state.custom) return questionsFromJson(state.custom.text);
-  const questions = state.selectedRubric?.content?.questions ?? [];
-  return questions.map((q) => ({ question: q.question, topic: q.topic }));
+  const questions = state.content?.questions ?? [];
+  return questions
+    .filter((q) => Number.isInteger(q.question))
+    .map((q) => ({ question: q.question, topic: q.topic }));
 }
 
 /** The voice_question to send: only a question that exists in the chosen rubric (else whole recording). */

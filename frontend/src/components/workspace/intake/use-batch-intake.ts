@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
-import type { LanguageHint, PaperInspection, RubricMatch, Submission } from "@/lib/types";
+import type { LanguageHint, PaperInspection, RubricMatch, RubricSourceRole, Submission } from "@/lib/types";
 import { hasAcceptedType, MAX_UPLOAD_BYTES } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import type { PickedFile } from "./collect";
@@ -36,6 +36,11 @@ export const QUEUE_API_NOTE_THRESHOLD = 100;
 export const MAX_STAGED = 300;
 /** Concurrent POST /api/intake/inspect calls while staging PDFs / DOCX. */
 export const INSPECT_CONCURRENCY = 3;
+/** Shown when an upload has no answer key (the API answers 422 rubric_required). */
+export const NO_KEY_MESSAGE =
+  "Add the question paper or the answer key first - every upload needs its own answer key (rubric).";
+/** Refusals of the answer key itself (not of one sheet): a run stops at the first. */
+const KEY_REFUSALS = new Set(["unknown_rubric", "invalid_rubric", "rubric_required"]);
 
 export type RowPhase = "checking" | "ready" | "uploading" | "queued" | "rejected";
 
@@ -62,7 +67,7 @@ export interface StagedRow {
   /** PDF / DOCX: what the server reads from its text layer (answer key paper, printed MCQ paper); advisory. */
   paper: PaperInspection | null;
   paperChecking: boolean;
-  /** Saved rubric `paper.rubric_match` was compared with (null = none). */
+  /** Answer-key snapshot `paper.rubric_match` was compared with (null = none). */
   paperRubric: number | null;
 }
 
@@ -77,15 +82,48 @@ export interface SkippedFile {
 }
 
 export interface UploadContext {
+  /** The intake's answer-key snapshot (created by an earlier upload of this key), with its hash... */
   rubricId?: number;
+  rubricHash?: string;
+  /**
+   * ...or the key itself, inline: sent with the first upload only, the rest reuse its snapshot (with
+   * rubricId too: sent once when the server no longer knows that id).
+   */
   rubricJson?: string;
+  /** With the inline key (the first upload): the files the key was drafted from (report preview). */
+  rubricSourceFile?: File;
+  rubricKeyFile?: File;
+  /** With rubricSourceFile: what that file is (question paper, rubric file, marked copy). */
+  rubricSourceRole?: RubricSourceRole;
+  /** The first upload created the snapshot from rubricJson. */
+  onRubricCreated?: (rubricId: number, rubricHash?: string | null) => void;
+  /** 422 unknown_rubric: the snapshot is gone (data reset) - the key goes inline again. */
+  onRubricLost?: () => void;
   languages: LanguageHint[];
   batchId: number | null;
-  /** Question numbers of the chosen rubric (a voice_question outside them is not sent). */
+  /** Question numbers of the answer key (a voice_question outside them is not sent). */
   questionNumbers?: number[];
   onUploaded: (submission: Submission) => void;
   onIntakeStarted?: (intakeBatchId: string) => void;
 }
+
+/** The key one upload sends: inline with the files it was drafted from (the first upload), or a snapshot id. */
+interface RowRubric {
+  id?: number;
+  hash?: string;
+  json?: string;
+  sourceFile?: File;
+  keyFile?: File;
+  sourceRole?: RubricSourceRole;
+}
+
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * Rows an upload click holds until its upload starts: the ready rows (Upload), the rejected rows
+ * (Retry rejected) or one row (its Retry).
+ */
+export type HoldScope = "uploadable" | "rejected" | { key: string };
 
 /** A row's display status after client checks and duplicate detection. */
 export interface RowView {
@@ -100,10 +138,15 @@ export interface RowView {
   /** Ready and not skipped: part of the next upload run. */
   uploadable: boolean;
   skippedAsDuplicate: boolean;
-  /** How the printed paper compares with the chosen saved rubric (null: unknown, none or re-checking). */
+  /** How the printed paper compares with the answer key (null: unknown, none or re-checking). */
   rubricMatch: RubricMatch | null;
-  /** The paper is being compared with a newly chosen rubric. */
+  /** The paper is being compared with the answer key's snapshot. */
   matchChecking: boolean;
+  /**
+   * Its upload was clicked and waits to start (another upload is saving the answer key on the
+   * server): it shows "waiting" and its buttons are disabled.
+   */
+  waiting: boolean;
 }
 
 function clientBlock(row: StagedRow, maxBytes: number): { code: string; message: string } | null {
@@ -129,7 +172,12 @@ function patchRows(rows: StagedRow[], key: string, patch: Partial<StagedRow>, ve
   return rows.map((r) => (r.key === key && (version === undefined || r.version === version) ? { ...r, ...patch } : r));
 }
 
-export function describeRows(rows: StagedRow[], maxBytes: number, rubricId: number | null = null): RowView[] {
+export function describeRows(
+  rows: StagedRow[],
+  maxBytes: number,
+  rubricId: number | null = null,
+  waiting: ReadonlySet<string> = NO_KEYS,
+): RowView[] {
   const firstByHash = new Map<string, number>();
   return rows.map((row, index) => {
     let duplicateOf: number | null = null;
@@ -141,6 +189,7 @@ export function describeRows(rows: StagedRow[], maxBytes: number, rubricId: numb
     const blocked = row.phase === "checking" ? null : clientBlock(row, maxBytes);
     const skippedAsDuplicate = duplicateOf !== null && !row.includeDuplicate;
     const compared = !!row.paper && rubricId !== null && row.paperRubric === rubricId;
+    const held = waiting.has(row.key) && (row.phase === "ready" || row.phase === "rejected");
     return {
       row,
       index,
@@ -148,11 +197,16 @@ export function describeRows(rows: StagedRow[], maxBytes: number, rubricId: numb
       blocked,
       nameProblem: nameProblem(row.studentName),
       rollProblem: rollNoProblem(row.rollNo),
-      uploadable: row.phase === "ready" && !blocked && !skippedAsDuplicate,
+      uploadable: row.phase === "ready" && !blocked && !skippedAsDuplicate && !held,
       skippedAsDuplicate: row.phase === "ready" && skippedAsDuplicate,
       rubricMatch: compared ? shownMatch(row.paper?.rubric_match) : null,
       matchChecking:
-        rubricComparable(row.paper) && !row.paperChecking && rubricId !== null && row.paperRubric !== rubricId,
+        rubricComparable(row.paper) &&
+        !row.paperChecking &&
+        rubricId !== null &&
+        row.paperRubric !== rubricId &&
+        !settled(row),
+      waiting: held,
     };
   });
 }
@@ -166,7 +220,8 @@ export function summarize(views: RowView[], skipped: SkippedFile[]): { label: st
     groups.set(label, g);
   };
   for (const v of views) {
-    if (v.row.phase === "queued") bump("queued", "good");
+    if (v.waiting) bump("waiting", "muted");
+    else if (v.row.phase === "queued") bump("queued", "good");
     else if (v.row.phase === "rejected") bump(codeLabel(v.row.errorCode), "bad");
     else if (v.blocked) bump(codeLabel(v.blocked.code), "bad");
     else if (v.skippedAsDuplicate) bump("duplicate skipped", "muted");
@@ -177,6 +232,11 @@ export function summarize(views: RowView[], skipped: SkippedFile[]): { label: st
     for (const s of skipped) bump(s.reason === "system file" ? "system file skipped" : "not an answer sheet", "muted");
   }
   return [...groups.entries()].map(([label, g]) => ({ label, ...g }));
+}
+
+/** Uploaded (or uploading): its paper check is the server's now. */
+function settled(row: StagedRow): boolean {
+  return row.phase === "queued" || row.phase === "uploading";
 }
 
 async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -194,8 +254,8 @@ async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<vo
 /**
  * Batch / folder intake: stage files (one row per answer sheet), inspect each in the browser
  * (magic bytes + SHA-256), then upload with a pool of 3 concurrent requests that share one
- * intake_batch_id. A rejected file never blocks the others. rubricId: the saved rubric chosen for
- * the batch - printed papers are compared with it, again whenever the choice changes.
+ * intake_batch_id. A rejected file never blocks the others. rubricId: the intake's answer-key
+ * snapshot (null until the first upload created it) - printed papers are compared with it.
  */
 export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled = true, rubricId: number | null = null) {
   const [rows, setRows] = useState<StagedRow[]>([]);
@@ -203,33 +263,108 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
   const [intakeBatchId, setIntakeBatchId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  /** Rubric the server created from an inline JSON rubric in this session (reused by later uploads). */
-  const [jsonRubric, setJsonRubric] = useState<{ text: string; id: number } | null>(null);
   /** At most INSPECT_CONCURRENCY paper inspections in flight across the staging session. */
   const inspectLimit = useRef(createLimiter(INSPECT_CONCURRENCY));
   /** Re-comparisons in flight ("row key:file version:rubric id"), so each is asked for once. */
   const rechecks = useRef(new Set<string>());
-  /** The rubric chosen now: a re-comparison for an earlier choice is dropped. */
+  /** The snapshot now: a re-comparison for an earlier one is dropped. */
   const chosenRubric = useRef<number | null>(rubricId);
-  /** The staged rows as of the last render (queued re-checks skip rows that were removed or replaced). */
+  // Mirrors kept in step with every change (not with the render): an upload that waited for the
+  // key's server copy, or a queued re-check, runs later and must see the rows as they are then.
   const rowsRef = useRef<StagedRow[]>([]);
+  const runningRef = useRef(false);
+  const intakeIdRef = useRef<string | null>(null);
+  /** Rows an upload click holds until its upload starts (one click per row). */
+  const [waiting, setWaiting] = useState<ReadonlySet<string>>(NO_KEYS);
+  const waitingRef = useRef<ReadonlySet<string>>(NO_KEYS);
+  /** An Upload / Retry rejected click waits to start its run (a second one is not taken). */
+  const [pendingRun, setPendingRun] = useState(false);
+  const pendingRunRef = useRef(false);
 
-  function patchRow(key: string, patch: Partial<StagedRow>, version?: number) {
-    setRows((prev) => patchRows(prev, key, patch, version));
+  function changeRows(next: (prev: StagedRow[]) => StagedRow[]) {
+    rowsRef.current = next(rowsRef.current);
+    setRows(rowsRef.current);
   }
 
-  // Another saved rubric chosen: compare every inspected printed paper with it again (through the
-  // same 3-at-a-time limiter). Rows still on their first inspection are left to it.
+  function patchRow(key: string, patch: Partial<StagedRow>, version?: number) {
+    changeRows((prev) => patchRows(prev, key, patch, version));
+  }
+
+  function putRunning(next: boolean) {
+    runningRef.current = next;
+    setRunning(next);
+  }
+
+  function putWaiting(next: ReadonlySet<string>) {
+    waitingRef.current = next;
+    setWaiting(next);
+  }
+
+  function putPendingRun(next: boolean) {
+    pendingRunRef.current = next;
+    setPendingRun(next);
+  }
+
+  /** This staging session's intake batch id (made by its first upload). */
+  function ensureIntakeId(): string {
+    if (!intakeIdRef.current) {
+      intakeIdRef.current = randomId();
+      setIntakeBatchId(intakeIdRef.current);
+    }
+    return intakeIdRef.current;
+  }
+
+  /** The rows as they are now (not as of the last render). */
+  function viewsNow(): RowView[] {
+    return describeRows(rowsRef.current, maxBytes, null, waitingRef.current);
+  }
+
+  /**
+   * An upload click: its rows show "waiting" (their buttons disabled) until the upload starts - at
+   * once, or after another upload saved the answer key on the server. Returns the rows held now: a
+   * row another click already holds is not taken again, nor a run while one waits or runs.
+   */
+  function hold(scope: HoldScope): string[] {
+    const run = typeof scope === "string";
+    if (run && (pendingRunRef.current || runningRef.current)) return [];
+    const keys = viewsNow()
+      .filter((v) =>
+        scope === "uploadable"
+          ? v.uploadable
+          : !v.waiting &&
+            v.row.phase === "rejected" &&
+            !v.blocked &&
+            (scope === "rejected" || v.row.key === scope.key),
+      )
+      .map((v) => v.row.key);
+    if (keys.length === 0) return [];
+    putWaiting(new Set([...waitingRef.current, ...keys]));
+    if (run) putPendingRun(true);
+    return keys;
+  }
+
+  /** The held rows' upload starts (or gave up): they are ordinary rows again. run: an Upload / Retry rejected hold. */
+  function release(keys: string[], run: boolean) {
+    if (run && pendingRunRef.current) putPendingRun(false);
+    if (!keys.some((k) => waitingRef.current.has(k))) return;
+    const next = new Set(waitingRef.current);
+    for (const k of keys) next.delete(k);
+    putWaiting(next);
+  }
+
+  // A new answer-key snapshot: compare every inspected printed paper with it (through the same
+  // 3-at-a-time limiter). Rows still on their first inspection are left to it; uploaded rows too.
   useEffect(() => {
     chosenRubric.current = rubricId;
-    rowsRef.current = rows;
-    if (rubricId === null) return;
+    // During a run the rows are being uploaded (the server checks them): none is re-sent here.
+    if (rubricId === null || running) return;
     // Rows that cannot be compared (no text layer, not a printed paper) are never re-sent: the
     // server would return no comparison for them (describeRows shows no check for them either).
     const timer = setTimeout(() => {
       if (chosenRubric.current !== rubricId) return;
       for (const row of rowsRef.current) {
         if (!row.paper || row.paperChecking || row.paperRubric === rubricId || !rubricComparable(row.paper)) continue;
+        if (settled(row)) continue;
         const id = `${row.key}:${row.version}:${rubricId}`;
         if (rechecks.current.has(id)) continue;
         rechecks.current.add(id);
@@ -244,14 +379,14 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
           const next = await fetchInspection(file, rubricId);
           rechecks.current.delete(id);
           if (chosenRubric.current !== rubricId) return;
-          setRows((prev) =>
+          changeRows((prev) =>
             patchRows(prev, key, { paper: next ?? { ...paper, rubric_match: null }, paperRubric: rubricId }, version),
           );
         });
       }
     }, RECHECK_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [rows, rubricId]);
+  }, [rows, rubricId, running]);
 
   async function inspect(key: string, version: number, file: File) {
     let signature: SignatureCheck | null = null;
@@ -284,7 +419,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
     setMessage(null);
     const newRows: StagedRow[] = [];
     const newSkipped: SkippedFile[] = [];
-    let room = MAX_STAGED - rows.length;
+    let room = MAX_STAGED - rowsRef.current.length;
     for (const { file, path } of picked) {
       const reason = skipReason(file.name, hasAcceptedType(file));
       if (reason) {
@@ -317,7 +452,7 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
         paperRubric: null,
       });
     }
-    setRows((prev) => [...prev, ...newRows]);
+    changeRows((prev) => [...prev, ...newRows]);
     setSkipped((prev) => [...prev, ...newSkipped]);
     if (picked.length > 0 && newRows.length === 0) {
       setMessage("None of those files is an answer sheet (PDF, JPG, PNG, WEBP or DOCX) or a voice answer (MP3, WAV, M4A, OGG).");
@@ -336,13 +471,13 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
   }
 
   function removeRow(key: string) {
-    setRows((prev) => prev.filter((r) => r.key !== key || r.phase === "uploading"));
+    changeRows((prev) => prev.filter((r) => r.key !== key || r.phase === "uploading" || waitingRef.current.has(r.key)));
   }
 
   async function replaceFile(key: string, file: File) {
     setMessage(null);
-    const current = rows.find((r) => r.key === key);
-    if (!current || current.phase === "uploading" || current.phase === "queued") return;
+    const current = rowsRef.current.find((r) => r.key === key);
+    if (!current || current.phase === "uploading" || current.phase === "queued" || waitingRef.current.has(key)) return;
     if (!hasAcceptedType(file)) {
       setMessage(`"${file.name}" is not an answer sheet (PDF, JPG, PNG, WEBP or DOCX) or a voice answer (MP3, WAV, M4A, OGG).`);
       return;
@@ -366,12 +501,19 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
     await inspect(key, version, file);
   }
 
-  function rubricFor(ctx: UploadContext): { id?: number; json?: string } {
-    if (ctx.rubricJson && jsonRubric?.text === ctx.rubricJson) return { id: jsonRubric.id };
-    return { id: ctx.rubricId, json: ctx.rubricJson };
+  /** The snapshot id while the server has the key (inline: false), else the key inline. */
+  function rubricFor(ctx: UploadContext, inline = false): RowRubric {
+    return ctx.rubricId !== undefined && !inline
+      ? { id: ctx.rubricId, hash: ctx.rubricHash }
+      : { json: ctx.rubricJson, sourceFile: ctx.rubricSourceFile, keyFile: ctx.rubricKeyFile, sourceRole: ctx.rubricSourceRole };
   }
 
-  async function uploadRow(row: StagedRow, ctx: UploadContext, intakeId: string, rubric: { id?: number; json?: string }) {
+  async function uploadRow(
+    row: StagedRow,
+    ctx: UploadContext,
+    intakeId: string,
+    rubric: RowRubric,
+  ): Promise<{ submission: Submission | null; code: string | null; detail: string | null }> {
     patchRow(row.key, { phase: "uploading", percent: 0, errorCode: null, errorDetail: null });
     try {
       const submission = await uploadSubmission({
@@ -379,7 +521,11 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
         studentName: row.studentName.trim(),
         rollNo: row.rollNo.trim() || undefined,
         rubricId: rubric.json ? undefined : rubric.id,
+        rubricHash: rubric.json ? undefined : rubric.hash,
         rubricJson: rubric.json,
+        rubricSourceFile: rubric.json ? rubric.sourceFile : undefined,
+        rubricKeyFile: rubric.json ? rubric.keyFile : undefined,
+        rubricSourceRole: rubric.json ? rubric.sourceRole : undefined,
         languageHints: ctx.languages,
         batchId: ctx.batchId ?? undefined,
         intakeBatchId: intakeId,
@@ -388,71 +534,123 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
       });
       patchRow(row.key, { phase: "queued", percent: 100, submission });
       ctx.onUploaded(submission);
-      return submission;
+      return { submission, code: null, detail: null };
     } catch (err) {
-      patchRow(row.key, {
-        phase: "rejected",
-        errorCode: errorCode(err) ?? fallbackCode(errorStatus(err)),
-        errorDetail: errorMessage(err),
-      });
-      return null;
+      const code = errorCode(err) ?? fallbackCode(errorStatus(err));
+      const detail = errorMessage(err);
+      if (code === "unknown_rubric") ctx.onRubricLost?.();
+      patchRow(row.key, { phase: "rejected", errorCode: code, errorDetail: detail });
+      return { submission: null, code, detail };
     }
   }
 
-  /** Upload every ready row (3 at a time). Returns false when validation blocked the run. */
-  async function start(ctx: UploadContext): Promise<boolean> {
-    if (running) return false;
-    setMessage(null);
-    const views = describeRows(rows, maxBytes);
+  /** Why the ready rows cannot be uploaded (null when they can). */
+  function problem(views: RowView[]): string | null {
     const todo = views.filter((v) => v.uploadable);
-    if (todo.length === 0) {
-      setMessage("Nothing to upload: add answer sheets, or fix / replace the rejected ones.");
-      return false;
-    }
+    if (todo.length === 0) return "Nothing to upload: add answer sheets, or fix / replace the rejected ones.";
     const invalid = todo.filter((v) => v.nameProblem || v.rollProblem);
     if (invalid.length > 0) {
-      setMessage(
-        `${invalid.length} ${invalid.length === 1 ? "sheet needs" : "sheets need"} a student name or a valid roll no (rows ${invalid
-          .map((v) => v.index + 1)
-          .join(", ")}).`,
-      );
-      return false;
+      return `${invalid.length} ${invalid.length === 1 ? "sheet needs" : "sheets need"} a student name or a valid roll no (rows ${invalid
+        .map((v) => v.index + 1)
+        .join(", ")}).`;
     }
+    return null;
+  }
+
+  /** Client checks before a run (also before queueing it while the answer key is drafted). */
+  function check(): boolean {
+    const found = problem(viewsNow());
+    setMessage(found);
+    return found === null;
+  }
+
+  /**
+   * Upload every ready row (3 at a time) - with retry, the rejected rows instead (as if ready); with
+   * only, just those of them. Rows another click holds are left to it. The rows are read as they are
+   * now, so a run that waited for the key's server copy never sends a row twice. Returns false when
+   * validation blocked the run.
+   */
+  async function start(ctx: UploadContext, retry = false, only?: string[]): Promise<boolean> {
+    if (runningRef.current) return false;
+    const staged = rowsRef.current;
+    const again = retry
+      ? new Set(staged.filter((r) => r.phase === "rejected" && (!only || only.includes(r.key))).map((r) => r.key))
+      : null;
+    const views = describeRows(
+      again ? staged.map((r) => (again.has(r.key) ? { ...r, phase: "ready" as const } : r)) : staged,
+      maxBytes,
+      null,
+      waitingRef.current,
+    ).filter((v) => !again || again.has(v.row.key));
+    const found = problem(views);
+    setMessage(found);
+    if (found) return false;
+    const todo = views.filter((v) => v.uploadable);
     if (!ctx.rubricId && !ctx.rubricJson) {
-      setMessage("Choose a rubric first.");
+      setMessage(NO_KEY_MESSAGE);
       return false;
     }
 
-    const intakeId = intakeBatchId ?? randomId();
-    if (!intakeBatchId) setIntakeBatchId(intakeId);
-    ctx.onIntakeStarted?.(intakeId);
-    setRunning(true);
+    const runId = ensureIntakeId();
+    ctx.onIntakeStarted?.(runId);
+    putRunning(true);
     try {
       const queue = todo.map((v) => v.row);
       let rubric = rubricFor(ctx);
-      // An inline JSON rubric would create one custom rubric per upload: send it with the first
-      // file only, then reuse the rubric id the server created for the rest of the batch.
-      while (rubric.json && queue.length > 0) {
-        const first = queue.shift()!;
-        const created = await uploadRow(first, ctx, intakeId, rubric);
-        if (created) {
-          setJsonRubric({ text: rubric.json, id: created.rubric_id });
-          rubric = { id: created.rubric_id };
+      // A refusal of the key itself: the rest would be refused too - they stay ready.
+      let refused = null as { code: string; detail: string | null } | null;
+      /** unknown_rubric already answered by sending the key inline once more. */
+      let relinked = false;
+      while (queue.length > 0 && !refused) {
+        if (rubric.json) {
+          // The inline key would create one snapshot per upload: send it with one file at a time
+          // until the server keeps it, then reuse that snapshot's id for the rest of the batch.
+          const { submission, code, detail } = await uploadRow(queue.shift()!, ctx, runId, rubric);
+          if (submission) {
+            ctx.onRubricCreated?.(submission.rubric_id, submission.rubric_hash);
+            rubric = { id: submission.rubric_id, hash: submission.rubric_hash ?? undefined };
+          } else if (code && KEY_REFUSALS.has(code)) refused = { code, detail };
+          continue;
+        }
+        const lost: StagedRow[] = [];
+        await runPool(queue.splice(0), UPLOAD_CONCURRENCY, async (row) => {
+          if (refused || lost.length) {
+            queue.push(row);
+            return;
+          }
+          const { code, detail } = await uploadRow(row, ctx, runId, rubric);
+          if (code === "unknown_rubric" && !relinked && ctx.rubricJson) lost.push(row);
+          else if (code && KEY_REFUSALS.has(code)) refused = { code, detail };
+        });
+        if (lost.length) {
+          // The server no longer knows the snapshot (data reset): the key goes inline once more.
+          relinked = true;
+          rubric = rubricFor(ctx, true);
+          queue.unshift(...lost);
         }
       }
-      await runPool(queue, UPLOAD_CONCURRENCY, async (row) => {
-        await uploadRow(row, ctx, intakeId, rubric);
-      });
+      if (refused) {
+        const left = queue.length ? ` - ${queue.length} ${queue.length === 1 ? "sheet was" : "sheets were"} not sent` : "";
+        setMessage(`The server refused the answer key (${codeLabel(refused.code)}), so the run stopped${left}: ${refused.detail ?? ""}`);
+      }
     } finally {
-      setRunning(false);
+      putRunning(false);
     }
     return true;
   }
 
-  /** Re-upload one rejected (or replaced) row with the same intake id. */
+  /** Re-upload one rejected (or replaced) row with the same intake id - as the row is now. */
   async function retryRow(key: string, ctx: UploadContext) {
-    const view = describeRows(rows, maxBytes).find((v) => v.row.key === key);
-    if (!view || view.row.phase === "uploading" || view.row.phase === "queued" || view.row.phase === "checking") return;
+    const view = viewsNow().find((v) => v.row.key === key);
+    if (
+      !view ||
+      view.waiting ||
+      view.row.phase === "uploading" ||
+      view.row.phase === "queued" ||
+      view.row.phase === "checking"
+    ) {
+      return;
+    }
     if (view.blocked) {
       setMessage(`Row ${view.index + 1}: ${view.blocked.message} Replace the file first.`);
       return;
@@ -462,41 +660,47 @@ export function useBatchIntake(maxBytes: number = MAX_UPLOAD_BYTES, voiceEnabled
       return;
     }
     if (!ctx.rubricId && !ctx.rubricJson) {
-      setMessage("Choose a rubric first.");
+      setMessage(NO_KEY_MESSAGE);
       return;
     }
     setMessage(null);
-    const intakeId = intakeBatchId ?? randomId();
-    if (!intakeBatchId) setIntakeBatchId(intakeId);
-    ctx.onIntakeStarted?.(intakeId);
+    const runId = ensureIntakeId();
+    ctx.onIntakeStarted?.(runId);
     const rubric = rubricFor(ctx);
-    const created = await uploadRow(view.row, ctx, intakeId, rubric);
-    if (created && rubric.json) setJsonRubric({ text: rubric.json, id: created.rubric_id });
+    const { submission } = await uploadRow(view.row, ctx, runId, rubric);
+    if (submission && rubric.json) ctx.onRubricCreated?.(submission.rubric_id, submission.rubric_hash);
   }
 
   function clear() {
-    if (running) return;
-    setRows([]);
+    if (runningRef.current || pendingRunRef.current || waitingRef.current.size > 0) return;
+    changeRows(() => []);
     setSkipped([]);
+    intakeIdRef.current = null;
     setIntakeBatchId(null);
     setMessage(null);
-    setJsonRubric(null);
   }
 
-  const views = describeRows(rows, maxBytes, rubricId);
+  const views = describeRows(rows, maxBytes, rubricId, waiting);
   return {
     rows,
     views,
     skipped,
     intakeBatchId,
     running,
+    /** An Upload / Retry rejected click waits to start its run (another one is not taken meanwhile). */
+    pendingRun,
+    /** Rows whose upload was clicked and has not started yet. */
+    waitingCount: views.filter((v) => v.waiting).length,
     message,
     addFiles,
     updateRow,
     removeRow,
     replaceFile,
+    check,
     start,
     retryRow,
+    hold,
+    release,
     clear,
   };
 }

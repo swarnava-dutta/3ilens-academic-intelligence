@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { errorCode, errorMessage, errorStatus, uploadSubmission } from "@/lib/api";
-import type { LanguageHint, PaperInspection, Submission } from "@/lib/types";
+import type { LanguageHint, PaperInspection, RubricSourceRole, Submission } from "@/lib/types";
 import { isAudio, MAX_UPLOAD_BYTES, validateAnswerSheet } from "../format";
 import { codeLabel, fallbackCode } from "./codes";
 import { checkSignature, deriveStudentName, isVoiceKind, readHead, rollNoProblem, sha256Hex, type SignatureCheck } from "./inspect";
@@ -12,19 +12,31 @@ import { voiceQuestionFor } from "./voice-fields";
 export type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
 
 export interface SingleUploadSettings {
+  /** The intake's answer-key snapshot (created by an earlier upload of this key), with its hash... */
   rubricId?: number;
+  rubricHash?: string;
+  /** ...or (without rubricId) the key itself, inline (the server stores it as the snapshot). */
   rubricJson?: string;
+  /** With the inline key only: the files the key was drafted from (kept for the report's preview). */
+  rubricSourceFile?: File;
+  rubricKeyFile?: File;
+  /** With rubricSourceFile: what that file is (question paper, rubric file, marked copy). */
+  rubricSourceRole?: RubricSourceRole;
   languages: LanguageHint[];
   batchId: number | null;
-  /** Question numbers of the chosen rubric (a voice_question outside them is not sent). */
+  /** Question numbers of the answer key (a voice_question outside them is not sent). */
   questionNumbers?: number[];
+  /** The upload created the snapshot from rubricJson. */
+  onRubricCreated?: (rubricId: number, rubricHash?: string | null) => void;
+  /** 422 unknown_rubric: the snapshot is gone (data reset) - the next upload sends the key inline. */
+  onRubricLost?: () => void;
 }
 
 /**
  * One answer sheet, one student: pick or drop a file, check its signature and SHA-256 in the
  * browser, then POST /api/upload with progress. The server repeats every check on the bytes.
- * rubricId: the saved rubric chosen for the upload - a printed paper is compared with it, again
- * whenever the choice changes.
+ * rubricId: this intake's answer-key snapshot (null until the first upload created it) - a printed
+ * paper is compared with it, again whenever it changes.
  */
 export function useSingleIntake(
   onUploaded: (submission: Submission) => void,
@@ -41,7 +53,7 @@ export function useSingleIntake(
   /** What the server reads from the document's text layer (printed paper / answer key); advisory. */
   const [inspection, setInspection] = useState<PaperInspection | null>(null);
   const [inspecting, setInspecting] = useState(false);
-  /** Saved rubric the inspection compared the paper with (null = none). */
+  /** Answer-key snapshot the inspection compared the paper with (null = none). */
   const [inspectedRubric, setInspectedRubric] = useState<number | null>(null);
   /** Faculty chose to upload an answer-key paper as a student sheet anyway. */
   const [paperNoticeDismissed, setPaperNoticeDismissed] = useState(false);
@@ -54,13 +66,20 @@ export function useSingleIntake(
   const [voiceQuestion, setVoiceQuestion] = useState<number | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
+  /**
+   * Upload was clicked and waits to start (another upload is saving the answer key on the server):
+   * the sheet shows it and its controls are disabled. One click at a time.
+   */
+  const [waiting, setWaiting] = useState(false);
+  const waitingRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [notice, setNotice] = useState<SingleNotice | null>(null);
   /** Bumped per pick so a slow inspection of an earlier file is ignored. */
   const pickVersion = useRef(0);
 
-  // A different saved rubric chosen while a printed paper is attached: compare it again. A reply
-  // for an earlier file or an earlier choice is dropped.
+  // Another answer-key snapshot while a printed paper is attached: compare it again. A reply for an
+  // earlier file or an earlier snapshot is dropped.
   useEffect(() => {
     if (!file || !inspection || rubricId === null || inspectedRubric === rubricId) return;
     // Only printed papers with a text layer can be compared: nothing to ask the server for others
@@ -68,7 +87,7 @@ export function useSingleIntake(
     if (!rubricComparable(inspection)) return;
     const version = pickVersion.current;
     let cancelled = false;
-    // Short delay so flicking through rubrics sends one request for the final choice.
+    // Short delay so quick changes send one request for the final snapshot.
     const timer = setTimeout(() => {
       void fetchInspection(file, rubricId).then((result) => {
         if (cancelled || version !== pickVersion.current) return;
@@ -111,7 +130,8 @@ export function useSingleIntake(
     setPaperNoticeDismissed(false);
     setChecking(true);
     setFileMessage(extraNote ? { tone: "info", text: extraNote } : null);
-    setPreviewUrl(next.type.startsWith("image/") || isAudio(next) ? URL.createObjectURL(next) : null);
+    // The audio player's source (documents and images get a DocPreview thumbnail).
+    setPreviewUrl(isAudio(next) ? URL.createObjectURL(next) : null);
     if (!nameTouched || !studentName.trim()) {
       setStudentNameState(deriveStudentName(next.name));
       setNameTouched(false);
@@ -144,6 +164,28 @@ export function useSingleIntake(
     setChecking(false);
   }
 
+  function putUploading(next: boolean) {
+    uploadingRef.current = next;
+    setUploading(next);
+  }
+
+  function putWaiting(next: boolean) {
+    waitingRef.current = next;
+    setWaiting(next);
+  }
+
+  /** An Upload click: false when this sheet is already uploading or waiting for an earlier click. */
+  function hold(): boolean {
+    if (uploadingRef.current || waitingRef.current) return false;
+    putWaiting(true);
+    return true;
+  }
+
+  /** The held upload starts (or gave up). */
+  function release() {
+    if (waitingRef.current) putWaiting(false);
+  }
+
   /** One inspection in flight per pick; a result for an earlier file is dropped. */
   async function inspectDocument(target: File, version: number, against: number | null) {
     setInspecting(true);
@@ -172,14 +214,14 @@ export function useSingleIntake(
   const isVoice = file !== null && (signature?.kind ? isVoiceKind(signature.kind) : isAudio(file));
   /** Over the server's page limit (from the inspection): blocks the upload like other client checks. */
   const pageProblem = file ? pageLimitProblem(inspection) : null;
-  /** The comparison with the chosen rubric (null while it is re-checked or no saved rubric is chosen). */
+  /** The comparison with the answer key (null while it is re-checked or before its snapshot exists). */
   const current = !!inspection && rubricId !== null && inspectedRubric === rubricId;
   const rubricMatch = current ? (inspection?.rubric_match ?? null) : null;
   const matchChecking =
     !!file && rubricComparable(inspection) && rubricId !== null && inspectedRubric !== rubricId;
 
-  async function submit(settings: SingleUploadSettings) {
-    if (uploading) return;
+  /** Client checks before an upload (also before queueing it while the key is drafted). */
+  function check(): boolean {
     const name = studentName.trim();
     let invalid = false;
     if (!file) {
@@ -199,18 +241,29 @@ export function useSingleIntake(
       setFileMessage({ tone: "error", text: `"${file?.name ?? "This file"}" has ${pageProblem}.` });
       invalid = true;
     }
-    if (invalid || !file || checking) return;
+    return !invalid;
+  }
 
-    setUploading(true);
+  async function submit(settings: SingleUploadSettings): Promise<Submission | null> {
+    if (uploadingRef.current) return null;
+    const name = studentName.trim();
+    if (!check() || !file || checking) return null;
+
+    putUploading(true);
     setProgress(0);
     setNotice(null);
+    const inline = settings.rubricId === undefined;
     try {
       const submission = await uploadSubmission({
         file,
         studentName: name,
         rollNo: rollNo.trim() || undefined,
-        rubricId: settings.rubricJson ? undefined : settings.rubricId,
-        rubricJson: settings.rubricJson,
+        rubricId: settings.rubricId,
+        rubricHash: settings.rubricHash,
+        rubricJson: inline ? settings.rubricJson : undefined,
+        rubricSourceFile: inline ? settings.rubricSourceFile : undefined,
+        rubricKeyFile: inline ? settings.rubricKeyFile : undefined,
+        rubricSourceRole: inline ? settings.rubricSourceRole : undefined,
         languageHints: settings.languages,
         batchId: settings.batchId ?? undefined,
         voiceQuestion: isVoice ? voiceQuestionFor(voiceQuestion, settings.questionNumbers) : undefined,
@@ -226,12 +279,16 @@ export function useSingleIntake(
       setNameTouched(false);
       setRollNo("");
       setNameError(null);
+      if (inline) settings.onRubricCreated?.(submission.rubric_id, submission.rubric_hash);
       onUploaded(submission);
+      return submission;
     } catch (err) {
       const code = errorCode(err) ?? fallbackCode(errorStatus(err));
+      if (code === "unknown_rubric") settings.onRubricLost?.();
       setNotice({ kind: "error", message: `Rejected (${codeLabel(code)}): ${errorMessage(err)}` });
+      return null;
     } finally {
-      setUploading(false);
+      putUploading(false);
     }
   }
 
@@ -258,10 +315,17 @@ export function useSingleIntake(
     rollNo,
     setRollNo,
     uploading,
+    /** Upload was clicked and waits to start. */
+    waiting,
+    /** Uploading or waiting to: the sheet's file, name and options are fixed. */
+    locked: uploading || waiting,
+    hold,
+    release,
     progress,
     notice,
     chooseFile,
     clearFile,
+    check,
     submit,
   };
 }

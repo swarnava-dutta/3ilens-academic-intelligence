@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useId } from "react";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Clock, Loader2, X } from "lucide-react";
+import { DocPreview } from "@/components/preview/doc-preview";
+import type { KeyOrigin } from "@/components/rubrics/use-rubric-source";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileKindLabel, formatBytes, MULTIPART_THRESHOLD_BYTES, shortHash, type VoiceSettings } from "../format";
 import { DropZone } from "./drop-zone";
+import { KEY_SAVE_WAIT, keySaveNote, queuedNote, type IntakeGate } from "./gate";
 import { mismatchHeld } from "./paper";
 import { PaperNotice, RubricMatchNotice } from "./paper-notice";
-import type { SingleIntake, SingleUploadSettings } from "./use-single-intake";
+import type { SingleIntake } from "./use-single-intake";
 import { VoiceChip, VoiceNotes, VoiceQuestionSelect, type VoiceQuestionOption } from "./voice-fields";
 
 const inputClass =
@@ -24,27 +27,32 @@ export function SingleSheetPanel({
   ocrCacheEnabled,
   voice,
   questions,
-  onDraftRubric,
-  mcqRubric = false,
+  onUseForKey,
+  canUseAsPaper = false,
 }: {
   intake: SingleIntake;
-  /** The chosen rubric is MCQ-heavy (paper.mcqHeavyRubric): a non-matching printed PDF is held for review. */
-  mcqRubric?: boolean;
   maxMb: number;
   /** Health.max_pdf_pages. */
   maxPages?: number;
   knownHashes: Map<string, Submission>;
   ocrCacheEnabled: boolean;
   voice: VoiceSettings;
-  /** Questions of the chosen rubric (for a per-question voice recording). */
+  /** Questions of the answer key (for a per-question voice recording). */
   questions: VoiceQuestionOption[];
-  /** Draft the rubric from this file instead (an answer-key or ticked question paper); clears the sheet. */
-  onDraftRubric?: (file: File, options?: { keyFromMarks?: boolean }) => void;
+  /**
+   * Make this file the intake's answer-key source: "key" and "ticks" take it off as a sheet; "paper"
+   * (the printed question paper) keeps it staged as the student's sheet.
+   */
+  onUseForKey?: (file: File, how: KeyOrigin) => void;
+  /** No answer key yet: a printed paper can be the question paper. */
+  canUseAsPaper?: boolean;
 }) {
   const ids = useId();
   const { file } = intake;
   const isBlurryDemo = file !== null && /blurry/i.test(file.name);
   const seenBefore = intake.hash ? (knownHashes.get(intake.hash) ?? null) : null;
+  // A page thumbnail once the bytes are checked (audio gets its player below instead).
+  const showThumb = file !== null && !intake.isVoice && !!intake.signature && !intake.signature.error;
   const nameId = `${ids}-student`;
   const rollId = `${ids}-roll`;
 
@@ -52,7 +60,7 @@ export function SingleSheetPanel({
     <div className="space-y-4">
       <DropZone
         mode="single"
-        disabled={intake.uploading}
+        disabled={intake.locked}
         hasFile={file !== null}
         error={intake.fileMessage?.tone === "error"}
         maxMb={maxMb}
@@ -73,38 +81,45 @@ export function SingleSheetPanel({
       />
 
       {file ? (
-        <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3">
-          {!intake.isVoice && intake.previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
-            <img src={intake.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-sm border border-slate-200 object-cover" />
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-800" title={file.name}>
-              <span className="truncate">{file.name}</span>
-              {intake.isVoice ? <VoiceChip className="shrink-0" /> : null}
-            </p>
-            <p className="text-xs text-slate-500">
-              {fileKindLabel(file)} · {formatBytes(file.size)}
-              {intake.signature?.kind ? ` · bytes: ${intake.signature.kind.toUpperCase()}` : ""}
-            </p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {intake.checking ? (
-                <span>Checking signature and hashing…</span>
-              ) : intake.hash ? (
-                <span className="font-mono" title={`SHA-256 ${intake.hash}`}>
-                  SHA-256 {shortHash(intake.hash, 12)}
-                </span>
-              ) : (
-                <span title="Web Crypto is unavailable here; the server hashes the bytes on upload.">
-                  Custody hash taken by the server
-                </span>
-              )}
-            </p>
+        <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+          {/* Thumbnail beside the details from 640px, above them on phones. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start">
+            {showThumb ? (
+              <DocPreview
+                label="Answer sheet"
+                source={{ kind: "file", file }}
+                size="sm"
+                className="w-[120px] shrink-0 border-0 p-0"
+              />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-800" title={file.name}>
+                <span className="truncate">{file.name}</span>
+                {intake.isVoice ? <VoiceChip className="shrink-0" /> : null}
+              </p>
+              <p className="text-xs text-slate-500">
+                {fileKindLabel(file)} · {formatBytes(file.size)}
+                {intake.signature?.kind ? ` · bytes: ${intake.signature.kind.toUpperCase()}` : ""}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {intake.checking ? (
+                  <span>Checking signature and hashing…</span>
+                ) : intake.hash ? (
+                  <span className="font-mono" title={`SHA-256 ${intake.hash}`}>
+                    SHA-256 {shortHash(intake.hash, 12)}
+                  </span>
+                ) : (
+                  <span title="Web Crypto is unavailable here; the server hashes the bytes on upload.">
+                    Custody hash taken by the server
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={intake.clearFile}
-            disabled={intake.uploading}
+            disabled={intake.locked}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan disabled:opacity-50"
             aria-label={`Remove ${file.name}`}
           >
@@ -123,7 +138,7 @@ export function SingleSheetPanel({
             value={intake.voiceQuestion}
             onChange={intake.setVoiceQuestion}
             questions={questions}
-            disabled={intake.uploading}
+            disabled={intake.locked}
           />
           <p className="-mt-2 text-xs text-slate-600">
             Whole recording: Claude maps the transcript onto the rubric questions. Pick a question when the student
@@ -138,12 +153,13 @@ export function SingleSheetPanel({
           inspection={intake.inspection}
           inspecting={intake.inspecting}
           dismissed={intake.paperNoticeDismissed}
-          disabled={intake.uploading}
-          onDraftRubric={
-            onDraftRubric
-              ? (options?: { keyFromMarks?: boolean }) => {
-                  onDraftRubric(file, options);
-                  intake.clearFile();
+          disabled={intake.locked}
+          canUseAsPaper={canUseAsPaper}
+          onUseForKey={
+            onUseForKey
+              ? (how: KeyOrigin) => {
+                  onUseForKey(file, how);
+                  if (how !== "paper") intake.clearFile();
                 }
               : null
           }
@@ -154,7 +170,7 @@ export function SingleSheetPanel({
         <RubricMatchNotice
           match={intake.rubricMatch}
           checking={intake.matchChecking}
-          held={mismatchHeld(intake.inspection, mcqRubric)}
+          held={mismatchHeld(intake.inspection)}
         />
       ) : null}
       {intake.pageProblem && intake.fileMessage?.tone !== "error" ? (
@@ -204,7 +220,7 @@ export function SingleSheetPanel({
             autoComplete="off"
             placeholder="e.g. Aisha Verma"
             value={intake.studentName}
-            disabled={intake.uploading}
+            disabled={intake.locked}
             aria-invalid={intake.nameError ? true : undefined}
             aria-describedby={intake.nameError ? `${nameId}-error` : undefined}
             onChange={(e) => intake.setStudentName(e.target.value)}
@@ -227,7 +243,7 @@ export function SingleSheetPanel({
             autoComplete="off"
             placeholder="e.g. NA-0412"
             value={intake.rollNo}
-            disabled={intake.uploading}
+            disabled={intake.locked}
             onChange={(e) => intake.setRollNo(e.target.value)}
             className={inputClass}
           />
@@ -255,25 +271,27 @@ export function SingleSheetPanel({
   );
 }
 
-/** Right-column submit button, progress and result notice for single-sheet mode. */
-export function SingleSubmit({
-  intake,
-  settings,
-}: {
-  intake: SingleIntake;
-  settings: SingleUploadSettings;
-}) {
-  const { uploading, progress, notice } = intake;
+/**
+ * Right-column submit button, progress and result notice for single-sheet mode. Disabled until the
+ * intake has an answer-key source; while the key is drafted a click queues the sheet, and it is
+ * sent the moment the key is ready.
+ */
+export function SingleSubmit({ intake, gate }: { intake: SingleIntake; gate: IntakeGate }) {
+  const ids = useId();
+  const { uploading, waiting, progress, notice } = intake;
+  const queued = gate.queued && !!intake.file;
+  const blocked = !!gate.blocked;
   return (
     <div className="space-y-3">
       <button
         type="button"
-        onClick={() => void intake.submit(settings)}
-        disabled={uploading || intake.checking || !!intake.pageProblem}
+        onClick={gate.send}
+        disabled={uploading || waiting || intake.checking || !!intake.pageProblem || blocked || queued}
+        aria-describedby={blocked || gate.waiting ? `${ids}-why` : undefined}
         className={cn(
           "relative flex h-10 w-full items-center justify-center gap-2 overflow-hidden rounded-md px-4 text-sm font-medium text-white transition-colors duration-150",
           "bg-brand-navy hover:bg-brand-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2",
-          "disabled:cursor-wait disabled:bg-brand-navy-700",
+          blocked ? "disabled:cursor-not-allowed disabled:opacity-60" : "disabled:cursor-wait disabled:bg-brand-navy-700",
         )}
       >
         {uploading ? (
@@ -289,16 +307,58 @@ export function SingleSubmit({
               <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
               {progress < 100 ? `Uploading… ${progress}%` : "Validating & queuing…"}
             </>
+          ) : waiting ? (
+            <>
+              <Clock className="h-4 w-4" aria-hidden />
+              {KEY_SAVE_WAIT}
+            </>
           ) : intake.checking ? (
             <>
               <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
               Checking the file…
             </>
+          ) : queued ? (
+            <>
+              <Clock className="h-4 w-4" aria-hidden />
+              Queued - waiting for the answer key
+            </>
+          ) : gate.held ? (
+            "Send the waiting sheet"
+          ) : gate.waiting ? (
+            "Upload when the key is ready"
           ) : (
             "Upload and evaluate"
           )}
         </span>
       </button>
+      {waiting ? (
+        <p className="text-xs text-slate-600" role="status" aria-live="polite">
+          {keySaveNote("this sheet goes")}
+        </p>
+      ) : blocked ? (
+        <p id={`${ids}-why`} className="text-xs text-amber-800">
+          {gate.blocked}
+        </p>
+      ) : queued ? (
+        <p id={`${ids}-why`} className="text-xs text-slate-600" role="status" aria-live="polite">
+          {queuedNote("This sheet is", gate.waiting)}{" "}
+          <button
+            type="button"
+            onClick={gate.cancel}
+            className="font-medium text-brand-cyan-600 underline underline-offset-2 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+          >
+            Cancel
+          </button>
+        </p>
+      ) : gate.waiting ? (
+        <p id={`${ids}-why`} className="text-xs text-slate-500">
+          {gate.waiting} A click queues the sheet; it is sent the moment the key is ready.
+        </p>
+      ) : gate.held && !uploading ? (
+        <p className="text-xs text-slate-600" role="status">
+          The key was edited after this sheet was queued - check it, then send it.
+        </p>
+      ) : null}
       {uploading ? (
         <div
           className="h-1.5 w-full overflow-hidden rounded-sm bg-slate-100"
