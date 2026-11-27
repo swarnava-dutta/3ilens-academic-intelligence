@@ -118,6 +118,21 @@ def test_students_at_target_gain_nothing_and_combined_sums_scenarios(client, db_
     assert body["students_considered"] == 2
 
 
+def test_students_at_target_before_and_after_the_extra_hours(client, db_session):
+    add_result(db_session, "Whatif Top", {"Human Physiology": 90})
+    add_result(db_session, "Whatif Gap", {"Human Physiology": 50})  # from_mid 7 h to reach 85%
+    short = _run(client, [{"topic": "Human Physiology", "extra_hours": 5}]).json()["scenarios"][0]
+    assert (short["students_at_target"], short["students_at_target_after"]) == (1, 1)
+    full = _run(client, [{"topic": "Human Physiology", "extra_hours": 7}]).json()["scenarios"][0]
+    assert (full["students_at_target"], full["students_at_target_after"]) == (1, 2)
+    # The count agrees with the per-student table.
+    assert full["students_at_target_after"] == sum(1 for s in full["students"] if s["mastery_after"] >= 85)
+
+
+def test_means_round_half_up_like_the_owner_page():
+    assert whatif.r1(56.25) == 56.3 and whatif.r1(71.25) == 71.3 and whatif.r1(41.04) == 41.0
+
+
 def test_latest_result_per_student_is_the_baseline(client, db_session):
     add_result(db_session, "Whatif Repeat", {"Human Physiology": 20}, days_ago=10)
     add_result(db_session, "Whatif Repeat", {"Human Physiology": 50}, days_ago=1)

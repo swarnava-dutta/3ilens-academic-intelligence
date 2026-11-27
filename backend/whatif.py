@@ -12,6 +12,7 @@ k = 1.0, or the institution's outcome-calibration factor (outcomes.effectiveness
 """
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
 from statistics import fmean, median
 from typing import Any
 
@@ -26,6 +27,11 @@ from hashing import student_ref_for
 FALLBACK_HOURS = 6.0
 DEFAULT_CONFIDENCE = 0.3
 LABEL = "Illustrative - linear effort-response model on the illustrative NEET matrix; not a calibrated forecast"
+
+
+def r1(value: float) -> float:
+    """Half-up to 1 dp, like the owner dashboard (round() would show 56.25 as 56.2, the page 56.3)."""
+    return float(Decimal(repr(float(value))).quantize(Decimal("0.1"), ROUND_HALF_UP))
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -229,8 +235,11 @@ def run(db: Session, body: Any) -> dict[str, Any]:
             meta.setdefault("chapter", str(row_map.get("chapter")) if row_map else chapter)
             meta.setdefault("topic", name)
             meta.setdefault("hours", []).append(h)
+            # Counted by the 1-dp mastery each student row shows, so the counts match the table.
+            after = r1(min(100.0, mastery + delta))
             rows.append({
-                "sub": sub, "mastery": mastery, "delta": delta, "at_target": at_target,
+                "sub": sub, "mastery": mastery, "delta": delta, "at_target": r1(mastery) >= analytics.TARGET_MASTERY,
+                "after": after,
                 "gain": gain, "low": max(0.0, gain - (1 - c) * gain), "high": gain + (1 - c) * gain, "pts": pts,
             })
             agg = per_student.setdefault(sub.id, {"gain": 0.0, "low": 0.0, "high": 0.0, "pts": 0.0})
@@ -245,19 +254,22 @@ def run(db: Session, body: Any) -> dict[str, Any]:
         topic_label = meta["topic"]
         headline = (
             f"+{_g(hours)} h of {topic_label} for every student in {scope_name} -> about "
-            f"+{_g(impact['exam_marks_avg'])} NEET marks per student (range {_g(impact['exam_marks_low'])}-"
-            f"{_g(impact['exam_marks_high'])}) and +{_g(impact['test_pct_points_avg'])} points on {test_name}"
+            f"+{_g(impact['exam_marks_avg'])} NEET marks per student who sat the topic ({len(rows)} of {len(subs)}; "
+            f"range {_g(impact['exam_marks_low'])}-{_g(impact['exam_marks_high'])}) and "
+            f"+{_g(impact['test_pct_points_avg'])} points on {test_name}"
         )
         scenarios.append({
             "topic": topic_label,
             "subject": meta.get("subject"),
             "chapter": meta.get("chapter"),
             "extra_hours": hours,
-            "hours_to_target": round(median(known_hours), 1) if known_hours else None,
+            "hours_to_target": r1(median(known_hours)) if known_hours else None,
             "students_assessed": len(rows),
+            # At the 85% target before the extra hours, and after them.
             "students_at_target": sum(1 for r in rows if r["at_target"]),
-            "mean_mastery_before": round(fmean(r["mastery"] for r in rows), 1),
-            "mean_mastery_after": round(fmean(min(100.0, r["mastery"] + r["delta"]) for r in rows), 1),
+            "students_at_target_after": sum(1 for r in rows if r["after"] >= analytics.TARGET_MASTERY),
+            "mean_mastery_before": r1(fmean(r["mastery"] for r in rows)),
+            "mean_mastery_after": r1(fmean(min(100.0, r["mastery"] + r["delta"]) for r in rows)),
             "impact": impact,
             "headline": headline,
             "students": [
@@ -265,8 +277,8 @@ def run(db: Session, body: Any) -> dict[str, Any]:
                     "submission_id": r["sub"].id,
                     "student_name": r["sub"].student_name,
                     "student_ref": _ref(r["sub"]),
-                    "mastery_before": round(r["mastery"], 1),
-                    "mastery_after": round(min(100.0, r["mastery"] + r["delta"]), 1),
+                    "mastery_before": r1(r["mastery"]),
+                    "mastery_after": r["after"],
                     "exam_marks_gain": round(r["gain"], 2),
                 }
                 for r in sorted(rows, key=lambda r: (-r["gain"], r["sub"].student_name))
@@ -304,8 +316,8 @@ def run(db: Session, body: Any) -> dict[str, Any]:
         "rubric_id": body.rubric_id,
         "institution_id": institution_id,
         "students_considered": len(subs),
-        "baseline_avg_pct": round(fmean(baseline), 1) if baseline else None,
-        "projected_avg_pct": round(fmean(projected), 1) if projected else None,
+        "baseline_avg_pct": r1(fmean(baseline)) if baseline else None,
+        "projected_avg_pct": r1(fmean(projected)) if projected else None,
         "scenarios": scenarios,
         "combined": _impact(list(per_student.values())),
         "calibration_factor": k,
@@ -358,8 +370,8 @@ def options(db: Session, *, batch_id: int | None = None, institution_id: int | N
             "topic": a["topic"],
             "subject": a["subject"],
             "students": len(a["m"]),
-            "mean_mastery": round(fmean(a["m"]), 1) if a["m"] else None,
-            "hours_to_target": round(median(a["h"]), 1) if a["h"] else None,
+            "mean_mastery": r1(fmean(a["m"])) if a["m"] else None,
+            "hours_to_target": r1(median(a["h"])) if a["h"] else None,
         }
         for a in topics.values()
     ]

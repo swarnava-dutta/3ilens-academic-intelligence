@@ -18,6 +18,20 @@ export type SubmissionStatus =
   | "FAILED"
   | "HUMAN_REVIEW_REQUIRED";
 
+/**
+ * Why a HUMAN_REVIEW_REQUIRED sheet was held: the sheet or a page below the OCR threshold, no rubric
+ * question answered although the pages read clearly (usually the wrong rubric), fewer than half
+ * answered, another paper / the wrong rubric (same-paper or shape check), or the same paper in
+ * another code / set.
+ */
+export type ReviewReason =
+  | "low_confidence"
+  | "low_page_confidence"
+  | "no_answers"
+  | "mostly_blank"
+  | "paper_mismatch"
+  | "paper_reordered";
+
 /** >=70% on track, 55-70% needs attention, <55% at risk; one level worse when 2+ topics < 40%. */
 export type Urgency = "on_track" | "needs_attention" | "at_risk";
 export type QuestionOutcome = "FULL" | "PARTIAL" | "ZERO" | "BLANK";
@@ -45,7 +59,7 @@ export type InvocationPurpose =
   | "llm_drill";
 export type LanguageHint = "en" | "hi" | "ta" | "kn" | "te";
 export type ReviewAction = "approve" | "correct" | "rescan";
-export type RubricSource = "text" | "pdf" | "docx" | "json";
+export type RubricSource = "text" | "pdf" | "docx" | "json" | "image";
 /** What an intake file looks like (POST /api/intake/inspect, read from its text layer, no AI). */
 export type PaperRole = "answer_key_paper" | "question_paper" | "answer_sheet" | "unknown";
 /**
@@ -174,6 +188,14 @@ export interface RubricQuestion {
   options?: string[];
   /** MCQ correct option letter (A-F). */
   correct_option?: string;
+  /**
+   * MCQ whose key accepts several options (2-6 distinct letters within its options; "2 or 3" in a
+   * publisher key): any of them scores full marks. null / absent when unused; correct_option is then
+   * null or one of these.
+   */
+  accepted_options?: string[] | null;
+  /** MCQ bonus question: full marks to every student whatever they marked (correct_option may be null). */
+  bonus?: boolean;
   /** MCQ only: overrides marking_policy.negative_marks. */
   negative_marks?: number;
   bloom_level?: BloomLevel;
@@ -232,6 +254,8 @@ export interface Submission {
   total_score: number | null;
   total_marks: number;
   rubric_id: number;
+  /** SHA-256 of the answer key (rubric_id's content); absent on older API builds. */
+  rubric_hash?: string | null;
   batch_id: number;
   /** SHA-256 of the uploaded bytes, taken while streaming (null for demo/legacy rows). */
   file_sha256: string | null;
@@ -259,6 +283,8 @@ export interface Submission {
   /** Per-question voice recording: the rubric question it answers. */
   voice_question: number | null;
   detected_languages: string[];
+  /** Set only while HUMAN_REVIEW_REQUIRED; absent on older API builds (read as null). */
+  review_reason?: ReviewReason | null;
 }
 
 // --------------------------------------------------------------------------- //
@@ -342,7 +368,19 @@ export interface QuestionEvaluation {
   correct_option: string | null;
   marking_breakdown: MarkingAward[];
   marking_note: string | null;
+  /**
+   * MCQ bonus question (full marks to everyone, attempted or not): set at read time from outcome
+   * "BONUS", a bonus flag or the bonus marking note; its outcome then reads FULL.
+   */
+  bonus?: boolean;
+  /** MCQ: every option the key accepts (["B", "C"] for a multi-answer key); correct_option is the first. */
+  accepted_options?: string[];
+  /** What happened on this question, in the paper's vocabulary (MCQ: right/wrong/blank/bonus). */
+  result_kind?: ResultKind;
 }
+
+/** right / wrong / blank / bonus on MCQ papers; partial and zero on written answers. */
+export type ResultKind = "right" | "wrong" | "blank" | "bonus" | "partial" | "zero";
 
 /** Marks awarded for one marking-scheme step (recomputed server-side). */
 export interface MarkingAward {
@@ -381,7 +419,18 @@ export interface OutcomeCounts {
   blank: number;
   mapped: number;
   total_questions: number;
+  /** Non-bonus questions scored right (FULL). */
+  right?: number;
+  /** Non-bonus MCQs answered wrong (a penalty was applied or no marks for a marked option). */
+  wrong?: number;
+  /** Bonus questions (full marks to everyone); counted inside `full`. */
+  bonus?: number;
+  /** Non-bonus MCQs answered (right + wrong). */
+  attempted?: number;
 }
+
+/** How a subject lost its marks: mostly blanks, mostly wrong answers, both, or neither (>= 70%). */
+export type SubjectDiagnosis = "skipping" | "wrong_answers" | "mixed" | "solid";
 
 export interface SubjectRollup {
   subject: string;
@@ -393,6 +442,135 @@ export interface SubjectRollup {
   score: number;
   max_marks: number;
   pct: number;
+  // --- report redesign (optional: older API builds omit them; normalize fills them) ---
+  right?: number;
+  wrong?: number;
+  /** Blank non-bonus questions. */
+  blank_scorable?: number;
+  bonus?: number;
+  bonus_marks?: number;
+  /** Non-bonus questions answered. */
+  attempted?: number;
+  /** attempted / (questions - bonus), 0-1. */
+  attempt_rate?: number | null;
+  /** right / attempted, 0-1. */
+  accuracy_attempted?: number | null;
+  /** Marks deducted by negative marking. */
+  penalty?: number;
+  /** max_marks - score. */
+  marks_dropped?: number;
+  /** max(0, 0.85 x max_marks - score). */
+  gain_to_target?: number;
+  band?: Urgency;
+  diagnosis?: SubjectDiagnosis;
+}
+
+// --------------------------------------------------------------------------- //
+// Report redesign: key insights, the score band and the focus list (server-built)
+// --------------------------------------------------------------------------- //
+export interface KeyInsightFigure {
+  key: string;
+  label: string;
+  value: number | string;
+  unit?: string | null;
+  /** How the figure was computed, e.g. "sum of max_marks over 47 non-bonus blanks = 47 x 4". */
+  formula?: string | null;
+}
+
+export type InsightEvidenceKind = "questions" | "subject" | "topic";
+export type InsightEvidenceFilter = "wrong" | "blank";
+export type InsightId = "attempts" | "subjects" | "gain";
+export type InsightTone = "good" | "warn" | "neutral";
+export type TargetSource = "on_track_line" | "batch_target";
+export type FocusLevel = "chapter" | "subject";
+
+export interface KeyInsightEvidence {
+  kind: InsightEvidenceKind;
+  filter?: InsightEvidenceFilter | null;
+  refs: number[];
+  subject?: string | null;
+  topic?: string | null;
+  /** Element id on the report page, e.g. "questions", "subject-physics", "focus-physics". */
+  anchor: string;
+}
+
+export interface KeyInsight {
+  id: InsightId | string;
+  tone: InsightTone;
+  headline: string;
+  detail: string;
+  figures: KeyInsightFigure[];
+  evidence: KeyInsightEvidence | null;
+  /** The number in `detail` to highlight ("+35", "518/720"). */
+  highlight?: string | null;
+}
+
+export interface ScoreBandRange {
+  key: Urgency;
+  label: string;
+  from_marks: number;
+  to_marks: number;
+  from_pct: number;
+  to_pct: number;
+}
+
+export interface ScoreBand {
+  key: Urgency;
+  label: string;
+  pct: number;
+  thresholds: ScoreBandRange[];
+  target_marks: number;
+  target_pct: number;
+  target_source: TargetSource;
+  marks_to_target: number;
+  right_answers_to_target: number;
+  /** Batch median (marks), only when the batch has 5 or more other graded students. */
+  batch_median_marks?: number | null;
+}
+
+/** Learn (mostly unseen), drill / fix errors (mostly wrong answers) or review (>= 70%). */
+export type FocusAction = "learn" | "drill" | "fix_errors" | "review";
+
+export interface FocusTopicRow {
+  topic: string;
+  subject: string;
+  n: number;
+  score: number;
+  max_marks: number;
+  mastery: number;
+  right: number;
+  wrong: number;
+  blank: number;
+  marks_dropped: number;
+  /** max(0, target% x max_marks - score) (FocusTopics.target_pct), the same formula as the "gain" key insight. */
+  gain: number;
+  /** From the diagnosis: skipped -> learn, wrong answers -> drill, 70%+ -> review. */
+  action: FocusAction;
+  what_to_study: string;
+  /** Blank first for "learn", else wrong first. */
+  question_refs: number[];
+  wrong_refs?: number[];
+  blank_refs?: number[];
+  /** Fewer than 3 questions behind the row. */
+  low_evidence: boolean;
+}
+
+export interface FocusKeepWarm {
+  topic: string;
+  subject: string;
+  mastery: number;
+}
+
+export interface FocusTopics {
+  level: FocusLevel;
+  chapters_available: boolean;
+  reason: string;
+  /** The score card's target (On track line or batch target) while below it, else the 85% stretch. */
+  target_pct?: number;
+  rows: FocusTopicRow[];
+  /** Areas already at the target: "keep warm". */
+  keep_warm?: FocusKeepWarm[];
+  keep_warm_more?: number;
 }
 
 export interface ScoringControls {
@@ -414,6 +592,8 @@ export interface RoiBasis {
   forecast_status: string;
   reason: string;
   calibrated: boolean;
+  /** "placeholder" when effort hours are the rubric default (1.0 h), not the chapter matrix: ROI per hour is hidden. */
+  effort_source_kind?: string | null;
 }
 
 export interface ReportMeta {
@@ -504,6 +684,10 @@ export interface HistoryEntry {
   urgency: Urgency;
   outcome_counts: OutcomeCounts;
   current: boolean;
+  /** "voice" rows are oral checks (listed apart from papers). Optional: older API builds omit it. */
+  input_kind?: InputKind;
+  /** The test (rubric) id, so repeats of the same test can be labelled. */
+  rubric_id?: number | null;
 }
 
 export interface EvaluationVersion {
@@ -565,6 +749,8 @@ export interface PlanTopic {
   allocated_hours: number;
   rank: number | null;
   question_refs: number[];
+  /** Minutes this topic gets in the weekly calendar (sum of its blocks). */
+  minutes?: number | null;
 }
 
 export interface Deprioritised {
@@ -646,6 +832,8 @@ export interface StudyPlan {
   roadmap: RoadmapStage[];
   explanation: RoiExplanation | null;
   allocation_note: string;
+  /** Sum of the weekly calendar's block minutes: the one planned-time figure on the page. */
+  planned_minutes_total?: number | null;
 }
 
 export interface Result {
@@ -694,6 +882,15 @@ export interface Result {
   superseded?: boolean;
   /** Version number that replaced this snapshot (null when unknown or current). */
   superseded_by?: number | null;
+  // --- report redesign (optional: older API builds omit them; normalize defaults them) ---
+  /** Exactly three deterministic insights (attempts, subjects, gain); [] on older payloads. */
+  key_insights?: KeyInsight[];
+  /** The one band system (urgency thresholds) with the bullet chart's ranges and target. */
+  score_band?: ScoreBand | null;
+  /** Top chapters (or subjects when no chapters were read) by expected gain. */
+  focus_topics?: FocusTopics | null;
+  /** Student-facing summary paragraphs (no OCR/coverage line, no question lists). */
+  student_summary?: string[];
 }
 
 /** Body of a 202 from GET /api/results/{id} (pending, processing, human review, failed). */
@@ -761,6 +958,8 @@ export interface ConfusionCluster {
   concept_b: string;
   count: number;
   students: string[];
+  /** Cohort page: students who sat a test on which this confusion was seen (count's denominator). */
+  denominator?: number | null;
 }
 
 export interface ExcludedStudents {
@@ -786,6 +985,332 @@ export interface Operations {
 export interface ReleaseCounts {
   provisional: number;
   released: number;
+}
+
+// --- Cohort page (GET /api/cohort?per_student=true) -------------------------- //
+/** "sitting": one test (every key version) of one batch, or of all batches; "all": each student's latest test. */
+export type CohortMode = "sitting" | "all";
+/** What put a student in their urgency band. */
+export type CohortReason = "below_55" | "below_70" | "low_chapters";
+export type CohortItemFlag = "possible_key_error" | "hard" | "often_skipped" | "weak_discrimination";
+export type CohortSummaryKind = "average" | "students" | "chapter" | "key";
+
+export interface CohortKeyVersion {
+  rubric_id: number;
+  version: string;
+  /** Completed sheets in scope graded with this key version. */
+  sheets: number;
+  latest: boolean;
+}
+
+/** One batch sitting one test (an answer-key family); each student counted once (latest sheet). */
+export interface CohortSitting {
+  batch_id: number;
+  batch_name: string;
+  /** Root id of the answer-key family. */
+  test_id: number;
+  rubric_ids: number[];
+  latest_rubric_id: number;
+  key_versions: CohortKeyVersion[];
+  test_name: string;
+  /** "Mock 09" - for mid-sentence use. */
+  short_name: string;
+  total_marks: number | null;
+  date: string;
+  students: number;
+  sheets: number;
+  average_pct: number | null;
+  median_pct: number | null;
+  urgency_counts: UrgencyCounts;
+  /** At least 3 students. */
+  is_class: boolean;
+  /** Its class average compares with the batch's previous class sitting (null: small sitting or none before). */
+  comparable_previous?: boolean | null;
+}
+
+export interface CohortScope {
+  mode: CohortMode;
+  batch_id: number | null;
+  batch_name: string | null;
+  test_id: number | null;
+  test_name: string | null;
+  short_name: string | null;
+  rubric_ids: number[];
+  latest_rubric_id: number | null;
+  total_marks: number | null;
+  date: string | null;
+  /** N: one latest sheet per student. */
+  students: number;
+  /** Completed sheets in scope (a student may have several). */
+  sheets: number;
+  key_versions: CohortKeyVersion[];
+  is_class: boolean;
+  /** Different tests (key families) among the students' sheets. */
+  tests?: number;
+  /** Every sheet in scope (any status, before the one-per-student rule). */
+  sheets_in_scope?: number;
+  /** Of sheets_in_scope, synthetic demo sheets. */
+  demo_sheets?: number;
+  /** Students whose older graded sheet in scope was replaced by their latest one. */
+  superseded?: string[];
+}
+
+export interface CohortPrevious {
+  batch_id: number;
+  test_id: number;
+  test_name: string;
+  short_name: string;
+  date: string;
+  students: number;
+  average_pct: number | null;
+  median_pct: number | null;
+  urgency_counts: UrgencyCounts;
+  negative_marks_total: number | null;
+  negative_per_student?: number | null;
+  attempt_rate: number | null;
+  accuracy_attempted: number | null;
+  blanks_per_student: number | null;
+  blank_rate?: number | null;
+  /** Same subjects and at least half the class sat both: the class averages are compared. */
+  comparable?: boolean;
+  /** Why the class averages are not compared ("different subjects", "only 4 of 12 sat both"). */
+  note?: string | null;
+  /** At risk now, not at risk on the previous test. */
+  newly_at_risk?: number;
+}
+
+export interface CohortHeadline {
+  average_pct: number | null;
+  median_pct: number | null;
+  p25_pct: number | null;
+  p75_pct: number | null;
+  /** One test with one total only. */
+  average_marks: number | null;
+  total_marks: number | null;
+  top_pct: number | null;
+  top_student: string | null;
+  top_submission_id: number | null;
+  /** Sheets below 0 marks (their percentage is clamped to 0). */
+  negative_scores: number;
+  /** Class average minus the previous class sitting's (exact, 1 dp). */
+  delta_pts?: number | null;
+  lowest_pct?: number | null;
+  lowest_student?: string | null;
+  lowest_submission_id?: number | null;
+}
+
+export interface CohortStudentTopic {
+  topic: string;
+  mastery: number;
+  right: number;
+  questions: number;
+}
+
+export interface CohortStudentRow {
+  rank: number;
+  submission_id: number;
+  student_ref: string;
+  student_name: string;
+  rubric_id: number;
+  score: number;
+  total_marks: number;
+  pct: number;
+  urgency: Urgency;
+  short_reason: CohortReason | null;
+  reasons: string[];
+  low_chapters: number;
+  weakest_topic: string | null;
+  mcq_count: number;
+  attempted: number;
+  right: number;
+  wrong: number;
+  blanks: number;
+  negative_marks: number;
+  accuracy_attempted: number | null;
+  prev_pct: number | null;
+  change_pts: number | null;
+  prev_urgency: Urgency | null;
+  newly_at_risk: boolean;
+  release_status: ReleaseStatus;
+  topics: CohortStudentTopic[];
+}
+
+export interface CohortAttemptTopic {
+  topic: string;
+  subject: string;
+  answers: number;
+  attempted: number;
+  right: number;
+  wrong: number;
+  blanks: number;
+  negative_marks: number;
+  accuracy_attempted: number | null;
+  blank_rate: number;
+  /** A whole subject (a paper tagged by subject only). */
+  subject_level?: boolean;
+}
+
+/** Pooled over every MCQ answer in the student set (0-100 percentages). */
+export interface CohortAttempt {
+  students: number;
+  mcq_answers: number;
+  questions_per_student: number;
+  attempted: number;
+  right: number;
+  wrong: number;
+  blanks: number;
+  attempt_rate: number;
+  accuracy_attempted: number | null;
+  blanks_per_student: number;
+  negative_marks_total: number;
+  negative_per_student: number;
+  /** % of MCQ answers left blank (its own 1-dp figure). */
+  blank_rate?: number | null;
+  /** Every paper has the same number of MCQs (else blanks per student means little). */
+  same_length?: boolean;
+  /** Answers to bonus questions, left out of every figure above. */
+  bonus_answers?: number;
+  by_topic: CohortAttemptTopic[];
+}
+
+export interface CohortHardestQuestion {
+  question: number;
+  correct: number;
+  n: number;
+  type?: string;
+  /** Share right, 0-1 (written answers: share of the marks). */
+  p?: number | null;
+}
+
+export interface CohortChapterStudent {
+  submission_id: number;
+  student_name: string;
+  student_ref: string;
+  mastery: number;
+}
+
+export interface CohortChapter {
+  topic: string;
+  subject: string;
+  questions: number;
+  students: number;
+  mean: number;
+  below_60: number;
+  below_40: number;
+  weightage: number;
+  /** Chapter matrix avg marks / exam total (0-1); null = not in the NEET chapter table. */
+  neet_weight?: number | null;
+  subject_level: boolean;
+  /** Fewer than 2 questions or fewer than 3 students. */
+  thin: boolean;
+  /** Ranked for a re-teach from one question (a short paper): treat as a hint. */
+  hint?: boolean;
+  prev_mean: number | null;
+  change: number | null;
+  hardest_question: CohortHardestQuestion | null;
+  below_60_students: CohortChapterStudent[];
+  /** 1 = re-teach first; null = not eligible (thin, subject-level or nobody below 60%). */
+  reteach_rank: number | null;
+}
+
+export interface CohortSubject {
+  subject: string;
+  mean: number;
+  students: number;
+  prev_mean: number | null;
+  change: number | null;
+}
+
+export interface CohortOptionCount {
+  option: string;
+  count: number;
+}
+
+export interface CohortItem {
+  question: number;
+  topic: string;
+  subject: string;
+  type: string;
+  max_marks: number;
+  key: string | null;
+  n: number;
+  correct: number;
+  partial: number;
+  wrong: number;
+  blank: number;
+  options: CohortOptionCount[];
+  top_wrong_option: string | null;
+  top_wrong_count: number;
+  /** Another wrong option was chosen as often. */
+  top_wrong_tied?: boolean;
+  top_group_size: number;
+  top_group_chose_wrong: number;
+  negative_marks: number;
+  /** Share right, 0-1 (written answers: share of the marks). */
+  p: number;
+  /** Top 27% minus bottom 27%; only from 8 answers. */
+  discrimination: number | null;
+  flags: CohortItemFlag[];
+}
+
+export interface CohortPairedRow {
+  submission_id: number;
+  student_ref: string;
+  name: string;
+  prev: number;
+  now: number;
+  change: number;
+  /** Short name of the earlier sheet's test. */
+  prev_test?: string;
+  /** False: different papers, so the change is never up / down. */
+  comparable?: boolean;
+}
+
+/** Each student against the sheet they sat just before: the same figures and counts as OwnerProgress (backend sittings.progress, comparable pairs only). */
+export interface CohortPaired {
+  /** Comparable pairs. */
+  paired: number;
+  mean_before: number | null;
+  mean_after: number | null;
+  /** mean_after - mean_before */
+  mean_change: number | null;
+  /** Pairs on papers that are not comparable. */
+  not_comparable?: number;
+  /** Up 5 points or more. */
+  improved: number;
+  /** Down 5 points or more. */
+  declined: number;
+  /** Moved less than 5 points either way. */
+  steady: number;
+  rows: CohortPairedRow[];
+}
+
+export interface CohortBatchCompare {
+  batch_id: number;
+  batch_name: string;
+  students: number;
+  average_pct: number | null;
+  date: string;
+  is_current: boolean;
+  thin: boolean;
+}
+
+export interface CohortSummaryLine {
+  kind: CohortSummaryKind;
+  text: string;
+  /** Relative query ("?tab=students&urgency=at_risk") on /cohort. */
+  href: string;
+}
+
+export interface CohortReading {
+  /** 0-1, over the student set. */
+  mean_confidence: number | null;
+  /** Live (non-demo) sheets only. */
+  avg_seconds_per_sheet: number | null;
+  live_sheets: number;
+  costed_sheets: number;
+  cost_per_live_sheet_inr: number | null;
+  live_cost_inr: number;
 }
 
 export interface Cohort {
@@ -820,6 +1345,22 @@ export interface Cohort {
   release_counts: ReleaseCounts;
   /** Exam-behaviour patterns (guarded; empty on failure). */
   patterns: CohortPatterns;
+  // Cohort page fields: sent with per_student=true (empty / null otherwise, and absent on older APIs).
+  scope?: CohortScope | null;
+  sittings?: CohortSitting[];
+  previous?: CohortPrevious | null;
+  headline?: CohortHeadline | null;
+  students_view?: CohortStudentRow[];
+  attempt?: CohortAttempt | null;
+  chapters?: CohortChapter[];
+  subjects?: CohortSubject[];
+  item_analysis?: CohortItem[] | null;
+  paired_change?: CohortPaired | null;
+  batch_comparison?: CohortBatchCompare[];
+  summary?: CohortSummaryLine[];
+  reading?: CohortReading | null;
+  interventions_logged?: number;
+  data_version?: string;
 }
 
 // --------------------------------------------------------------------------- //
@@ -858,6 +1399,9 @@ export interface StudentCard {
   release_status: ReleaseStatus | null;
   is_demo: boolean;
   created_at: string;
+  /** Why the urgency is what it is (analytics.classify_urgency); empty for ungraded sheets. */
+  urgency_reasons?: string[];
+  input_kind?: InputKind;
 }
 
 export interface TestOption {
@@ -873,6 +1417,244 @@ export interface DashboardFilters {
   tests: TestOption[];
   urgencies: Urgency[];
   topics: string[];
+}
+
+// --------------------------------------------------------------------------- //
+// Students roster (GET /api/students/roster): one row per student, not per sheet
+// --------------------------------------------------------------------------- //
+/** Change vs the previous paper: >= +5 pts improving, <= -5 pts slipping, otherwise steady. */
+export type Trend = "improving" | "steady" | "slipping";
+
+export interface SubjectScore {
+  subject: string;
+  score: number;
+  max_marks: number;
+  pct: number;
+}
+
+/** The report's attempts insight on a negatively marked paper (students roster exam technique). */
+export type TechniqueVerdict = "guessing" | "skipping" | "ok";
+
+/** patterns.negative_marking_profile of the latest paper, condensed. items = attempted + blank. */
+export interface NegativeMarkingBrief {
+  scheme: string;
+  /** 0-1 accuracy at which attempting breaks even (0.2 for +4/-1). */
+  break_even: number;
+  items: number;
+  attempted: number;
+  correct: number;
+  wrong: number;
+  blank: number;
+  /** 0-1 */
+  accuracy: number | null;
+  marks_lost: number;
+  /** Worst per-topic penalty risk (one topic is enough); shown per topic via risky_topics. */
+  risk: RiskLevel;
+  /** verdict === "skipping" (the report says blanks are holding the score back). */
+  under_attempting: boolean;
+  recommendation: string;
+  /** The report's attempts insight: guessing = wrong answers costing marks, skipping = blanks
+   * holding the score back, ok = the attempt strategy is working. */
+  verdict: TechniqueVerdict;
+  /** The report's attempts headline, word for word. */
+  headline: string;
+  /** Topics at medium / high penalty risk on this paper. */
+  risky_topics: string[];
+}
+
+export interface RosterPaper {
+  submission_id: number;
+  test_id: number;
+  test_name: string;
+  /** "Mock 09" for "NEET MCQ Practice - Mock 09 (sample)"; chapter tests stay whole. */
+  short_name: string;
+  test_version: string;
+  date: string;
+  score: number;
+  total_marks: number;
+  pct: number;
+  /** Question count of the paper. */
+  questions: number;
+  urgency: Urgency;
+  urgency_reasons: string[];
+  release_status: ReleaseStatus;
+}
+
+/** The newest sheet that is not graded yet (held, failed, processing). */
+export interface RosterPending {
+  submission_id: number;
+  status: SubmissionStatus;
+  review_reason: ReviewReason | null;
+  date: string;
+}
+
+export interface RosterPrevious {
+  submission_id: number;
+  test_name: string;
+  short_name: string;
+  date: string;
+  pct: number;
+  total_marks: number;
+  questions: number;
+  /** Same test, or both full papers (10+ Qs) over the same subjects; only then is there a trend. */
+  comparable: boolean;
+}
+
+export interface RosterSparkPoint {
+  submission_id: number;
+  date: string;
+  pct: number;
+  test_name: string;
+  short_name: string;
+}
+
+/** The student's newest graded paper outside the batch / test filter, when newer than latest. */
+export interface RosterNewer {
+  submission_id: number;
+  test_name: string;
+  short_name: string;
+  date: string;
+  pct: number;
+}
+
+export interface RosterTopicMastery {
+  topic: string;
+  subject: string;
+  mastery: number;
+  /** Questions on the topic in the latest paper. */
+  n: number;
+  /** The "topic" is a whole subject (the paper had no chapter tags). */
+  subject_level: boolean;
+}
+
+export interface RosterAction {
+  id: number;
+  topic: string;
+  kind: InterventionKind;
+  applied_at: string;
+  applied_by: string;
+  outcome_status: OutcomeStatus;
+  mastery_change: number | null;
+}
+
+export interface RosterActions {
+  count: number;
+  /** Records applied at or after the latest paper's upload. */
+  since_latest: number;
+  last: RosterAction | null;
+}
+
+/** 1 at risk, no action since latest; 2 slipping; 3 needs attention with 2+ topics < 40%, no
+ * action; 4 at risk with an action logged. null = not flagged. */
+export interface RosterPriority {
+  tier: number | null;
+  reason: string;
+}
+
+export interface RosterRow {
+  student_ref: string;
+  student_name: string;
+  is_demo: boolean;
+  batch: Batch;
+  latest: RosterPaper | null;
+  pending: RosterPending | null;
+  /** Every sheet in scope that is held, failed or being marked (older ones too), newest first. */
+  waiting: RosterPending[];
+  newer: RosterNewer | null;
+  previous: RosterPrevious | null;
+  delta_pct: number | null;
+  trend: Trend | null;
+  /** Up to 6 papers ending with latest, oldest first (oral checks excluded). */
+  spark: RosterSparkPoint[];
+  papers_count: number;
+  subjects: SubjectScore[];
+  /** Weakest first. */
+  topics: RosterTopicMastery[];
+  weak_count: number;
+  very_weak_count: number;
+  negative_marking: NegativeMarkingBrief | null;
+  nudges: TeachingNudge[];
+  /** Illustrative study focus, top 3. */
+  focus: FocusItem[];
+  actions: RosterActions;
+  priority: RosterPriority;
+}
+
+export interface RosterTopicStudent {
+  student_ref: string;
+  is_demo: boolean;
+  student_name: string;
+  mastery: number;
+}
+
+export interface RosterTopic {
+  topic: string;
+  subject: string;
+  /** Latest papers that contain the topic. */
+  tested: number;
+  below_60: number;
+  mean_mastery: number | null;
+  /** Marks lost to wrong answers on negatively marked MCQs (sum over latest papers). */
+  marks_lost: number;
+  actions_logged: number;
+  actions_improved: number;
+  /** The "topic" is a whole subject (a paper with no chapter tags). */
+  subject_level: boolean;
+  students_below: RosterTopicStudent[];
+}
+
+/** guessing_risk / under_attempting count the report's verdicts (guessing / skipping). */
+export interface RosterTechnique {
+  profiled: number;
+  guessing_risk: number;
+  under_attempting: number;
+  flagged: number;
+  marks_lost_total: number;
+  marks_lost_per_paper: number;
+  /** Students with at least one topic at medium / high penalty risk. */
+  risky_topic_students: number;
+}
+
+export interface RosterSummary {
+  students: number;
+  graded: number;
+  sheets: number;
+  urgency_counts: UrgencyCounts;
+  held: number;
+  failed: number;
+  processing: number;
+  ungraded: number;
+  improving: number;
+  slipping: number;
+  steady: number;
+  with_trend: number;
+  /** Rows with a previous paper of a different kind (no trend, delta is context only). */
+  different_test: number;
+  /** Students with at least one held / failed / processing sheet in scope. */
+  waiting_students: number;
+  /** Students with a newer graded paper outside the batch / test filter. */
+  newer_outside: number;
+  at_risk_without_action: number;
+  flagged: number;
+  provisional_latest: number;
+  released_latest: number;
+  demo_students: number;
+  real_students: number;
+  negative_marking: RosterTechnique;
+}
+
+export interface RosterScope {
+  batch_id: number | null;
+  rubric_id: number | null;
+  demo: boolean | null;
+}
+
+export interface StudentRoster {
+  scope: RosterScope;
+  summary: RosterSummary;
+  rows: RosterRow[];
+  topics: RosterTopic[];
+  generated_at: string;
 }
 
 // --------------------------------------------------------------------------- //
@@ -983,6 +1765,8 @@ export interface RubricDraft {
   warnings: string[];
   source: RubricSource;
   ai_drafted_questions: number[];
+  /** POST /api/rubrics/parse: file looked like the answer key alone, so key_file was drafted and file applied as the key. */
+  files_swapped: boolean;
 }
 
 /**
@@ -1037,10 +1821,15 @@ export interface RubricMatch {
   message: string;
 }
 
+/** Exactly one of option, accepted_options or bonus: true. */
 export interface AnswerKeyEntry {
   question: number;
-  /** One letter A-F; options printed (1)-(4) read as A-D. */
-  option: string;
+  /** One letter A-F (options printed (1)-(4) read as A-D); null for a multi-answer or bonus entry. */
+  option: string | null;
+  /** The key accepts any of 2-6 options ("2 or 3" -> ["B", "C"]), in letter order; absent otherwise. */
+  accepted_options?: string[] | null;
+  /** The key drops the question: full marks to every student; absent (false) otherwise. */
+  bonus?: boolean;
 }
 
 /**
@@ -1163,8 +1952,48 @@ export interface ReviewInput {
   note: string | null;
 }
 
+/**
+ * POST /api/submissions/{id}/reevaluate: re-grade a COMPLETED sheet from its stored transcript.
+ * rubric: an answer key drafted on the fly (validated like upload's rubric_json, stored as a new
+ * snapshot that the sheet moves to); rubric_id: an existing snapshot; neither: the sheet's current
+ * key. Both -> 422 invalid_rubric.
+ */
 export interface ReevaluateInput {
-  rubric_id: number | null;
+  rubric_id?: number | null;
+  rubric?: RubricContent | null;
+}
+
+/** A file an answer key was drafted from at upload: the question paper or a separate answer-key file. */
+export type RubricSourceKind = "paper" | "key";
+
+/**
+ * What a stored source file is (sources.json "role"; upload's rubric_source_role names the paper's):
+ * the printed question paper, a rubric as JSON / text, a teacher's marked copy whose ticks are the
+ * key, or a separate answer-key file. Older entries have none (labelled by kind).
+ */
+export type RubricSourceRole = "question_paper" | "rubric_file" | "marked_copy" | "answer_key";
+
+/** GET /api/rubrics/{id}/sources (one entry per stored file; [] when the key was pasted or JSON). */
+export interface RubricSourceFile {
+  kind: RubricSourceKind;
+  filename: string;
+  /** pdf | docx | jpeg | png | webp | text */
+  file_type: string | null;
+  /** Pages the preview can show (1 for an image or text file). */
+  pages: number | null;
+  /** What the file is (null / absent on older entries: labelled by kind). */
+  role?: RubricSourceRole | null;
+}
+
+/**
+ * POST /api/submissions/{id}/rerun: a full re-run from the stored upload. rubric: an answer key
+ * drafted on the fly (validated like upload's rubric_json; the sheet moves to a new snapshot of it);
+ * rubric_id: an existing snapshot; neither: the sheet's current key. Both -> 422 invalid_rubric.
+ */
+export interface RerunInput {
+  rubric_id?: number | null;
+  rubric?: RubricContent | null;
+  reviewer?: string | null;
 }
 
 export interface RubricCreateInput {
@@ -1324,6 +2153,35 @@ export interface NegativeMarkingProfile {
   risk: RiskLevel;
   topics: TopicRisk[];
   recommendation: string;
+  /** Bonus questions (full marks to everyone) are outside the counts above. */
+  bonus_questions?: number | number[] | null;
+  bonus_marks?: number | null;
+  /** net_answered (4R - P) + bonus_marks = total (S). */
+  reconciliation?: NegativeMarkingReconciliation | null;
+}
+
+export interface NegativeMarkingReconciliation {
+  net_answered: number;
+  bonus_marks: number;
+  total: number;
+}
+
+/** First half vs second half of one subject's section, on answered questions only. */
+export interface SubjectPacing {
+  subject: string;
+  first_from: number;
+  first_to: number;
+  second_from: number;
+  second_to: number;
+  first_right: number;
+  first_attempted: number;
+  second_right: number;
+  second_attempted: number;
+  /** 0-1, null when nothing was answered in that half. */
+  first_accuracy: number | null;
+  second_accuracy: number | null;
+  /** second - first, in percentage points. */
+  change_pts: number | null;
 }
 
 export interface QuestionAccuracy {
@@ -1349,6 +2207,12 @@ export interface FatigueProfile {
   reasons: string[];
   recommendation: string;
   series: QuestionAccuracy[];
+  /** Pacing within each subject section (answered questions only). */
+  within_subject?: SubjectPacing[] | null;
+  /** Question-weighted change across the subjects' halves, in points. */
+  within_subject_change_pts?: number | null;
+  /** True when the paper's thirds line up with its subject blocks (cross-paper figures are confounded). */
+  confounded_by_section?: boolean | null;
 }
 
 export interface ConceptTransfer {
@@ -1375,6 +2239,8 @@ export interface BloomBucket {
   marks: number;
   max_marks: number;
   accuracy: number | null;
+  /** Marks before negative-marking penalties (older builds put this figure in `marks`). */
+  marks_before_penalty?: number | null;
 }
 
 export interface StudentPatterns {
@@ -1386,6 +2252,8 @@ export interface StudentPatterns {
   transfer: TransferProfile | null;
   bloom_profile: BloomBucket[];
   notes: string[];
+  /** False when the Bloom profile tells nothing (one level, or every tag a heuristic guess): the card is hidden. */
+  bloom_informative?: boolean;
 }
 
 export interface StudentRiskRow {
@@ -1539,6 +2407,10 @@ export interface InterventionSummary {
   measured: number;
   uplift: number | null;
   calibration_factor: number | null;
+  pending?: number;
+  /** Measured records that had a predicted gain (the calibration sample). */
+  calibration_n?: number;
+  is_demo?: boolean;
 }
 
 // --- What-if (FR-4.14) - illustrative effort-response model ----------------- //
@@ -1581,7 +2453,10 @@ export interface WhatIfScenarioResult {
   extra_hours: number;
   hours_to_target: number | null;
   students_assessed: number;
+  /** Already at the 85% target before the extra hours. */
   students_at_target: number;
+  /** At the 85% target after the extra hours (absent on older APIs). */
+  students_at_target_after?: number | null;
   mean_mastery_before: number | null;
   mean_mastery_after: number | null;
   impact: WhatIfImpact;
@@ -1622,8 +2497,236 @@ export interface WhatIfOptions {
 }
 
 // --- Owner dashboard (FR-5.9) - no login in this PoC ------------------------- //
+/** act = do something now; check = look at it; good = progress; info = context. */
+export type OwnerSignalSeverity = "act" | "check" | "good" | "info";
+export type OwnerHiddenTopicReason = "subject_only" | "few_students";
+
+/** One sitting (one test in one batch); date = IST date of its newest upload. */
+export interface OwnerSittingRef {
+  rubric_id: number;
+  test_name: string;
+  students: number;
+  date: string;
+  average_pct: number | null;
+  max_marks: number | null;
+  /** previous_test only: its students who also sat the batch's main test (0 = different students). */
+  shared_students?: number | null;
+}
+
+/** Same students, previous vs latest whole-class test. mean_change = mean_after - mean_before. */
+export interface OwnerProgress {
+  students: number;
+  mean_before: number | null;
+  mean_after: number | null;
+  mean_change: number | null;
+  /** change >= +5 points */
+  improved: number;
+  /** change <= -5 points */
+  declined: number;
+  /** moved less than 5 points either way */
+  steady: number;
+  /** Pairs on papers that are not comparable (never up / down). */
+  not_comparable?: number;
+  /** The sittings the pairs' earlier results come from (students = re-tested students from it, average_pct = their mean there). */
+  before_sittings?: OwnerSittingRef[];
+  /** The sittings the pairs' later results come from. */
+  after_sittings?: OwnerSittingRef[];
+}
+
+export interface OwnerProgressStudent {
+  /** The later result of the pair. */
+  submission_id: number;
+  previous_submission_id: number;
+  student_name: string;
+  batch_id: number;
+  batch_name: string;
+  before_pct: number;
+  after_pct: number;
+  change: number;
+  before_test: string;
+  after_test: string;
+}
+
+export interface OwnerAtRiskStudent {
+  /** The student's latest result. */
+  submission_id: number;
+  student_name: string;
+  student_ref: string;
+  batch_id: number;
+  batch_name: string;
+  test_name: string;
+  pct: number;
+  change: number | null;
+  weakest_topic: string | null;
+  weakest_mastery: number | null;
+  /** An intervention logged since the latest test. */
+  actioned: boolean;
+  last_action_at: string | null;
+}
+
+export interface OwnerReleaseBatch {
+  batch_id: number;
+  batch_name: string;
+  lead: string | null;
+  awaiting: number;
+  oldest_days: number | null;
+}
+
+/** Per student: the latest report is not released yet. Sheet counts cover every completed sheet. */
+export interface OwnerRelease {
+  students_awaiting: number;
+  students_graded: number;
+  oldest_days: number | null;
+  oldest_test: string | null;
+  oldest_batch: string | null;
+  oldest_submission_id: number | null;
+  by_batch: OwnerReleaseBatch[];
+  sheets_provisional: number;
+  sheets_released: number;
+  sheets_provisional_over_7d: number;
+}
+
+/** A held (HUMAN_REVIEW_REQUIRED) or failed sheet. */
+export interface OwnerSheet {
+  submission_id: number;
+  student_name: string;
+  batch_id: number;
+  batch_name: string;
+  review_reason: string | null;
+  created_at: string;
+}
+
+export interface OwnerTopicGap {
+  topic: string;
+  subject: string | null;
+  mastery: number;
+  students: number;
+  below_40: number;
+  batches: string[];
+  batch_ids: number[];
+}
+
+export interface OwnerHiddenTopic {
+  topic: string;
+  students: number;
+  reason: OwnerHiddenTopicReason;
+}
+
+/** The same students' previous negatively-marked MCQ result. */
+export interface OwnerBehaviourPrevious {
+  test: string;
+  tests: number;
+  students: number;
+  marks_lost_per_student: number | null;
+  current_marks_lost_per_student: number | null;
+}
+
+export interface OwnerBehaviourRow {
+  /** null on the institution row */
+  batch_id: number | null;
+  batch_name: string | null;
+  test: string | null;
+  tests: number;
+  students: number;
+  mcqs: number;
+  attempted: number;
+  correct: number;
+  wrong: number;
+  blank: number;
+  attempt_rate_pct: number | null;
+  accuracy_pct: number | null;
+  blank_share_pct: number | null;
+  marks_lost: number;
+  marks_lost_per_student: number | null;
+  blank_per_student: number | null;
+  over_attempting_students: number;
+  top_over_topic: string | null;
+  top_over_topic_students: number;
+  scheme: string | null;
+  break_even: number | null;
+  previous: OwnerBehaviourPrevious | null;
+}
+
+export interface OwnerExamBehaviour {
+  overall: OwnerBehaviourRow | null;
+  by_batch: OwnerBehaviourRow[];
+}
+
+export interface SamePaperRow {
+  batch_id: number;
+  batch_name: string;
+  avg_pct: number | null;
+  students: number;
+  date: string;
+}
+
+export interface SamePaperComparison {
+  rubric_id: number;
+  test_name: string;
+  rows: SamePaperRow[];
+}
+
+export interface OwnerSignalItem {
+  label: string;
+  detail: string | null;
+  value: string | null;
+  href: string | null;
+}
+
+/** One "needs your attention" row; the text is built server-side from the same numbers. */
+export interface OwnerSignal {
+  key: string;
+  severity: OwnerSignalSeverity;
+  title: string;
+  detail: string | null;
+  count: number;
+  href: string | null;
+  cta: string | null;
+  items: OwnerSignalItem[];
+}
+
+export interface OwnerSpendPurpose {
+  purpose: string;
+  label: string;
+  cost_inr: number;
+  calls: number;
+}
+
+export interface OwnerSpend {
+  grading_inr: number;
+  grading_calls: number;
+  live_graded_sheets: number;
+  per_graded_sheet_inr: number | null;
+  target_inr: number;
+  institution_other_inr: number;
+  institution_other_by_purpose: OwnerSpendPurpose[];
+  /** Recorded without an institution or a sheet (e.g. answer-key drafting). */
+  unlinked_inr: number;
+  unlinked_by_purpose: OwnerSpendPurpose[];
+  total_inr: number;
+}
+
+/** How many sheets each operations figure covers (grading time is live-only; confidence was not). */
+export interface OwnerOpsScope {
+  latency_sheets: number;
+  confidence_sheets: number;
+  confidence_sample_sheets: number;
+  /** Mean tick-reading confidence over live sheets only (0-1). */
+  live_confidence: number | null;
+  live_confidence_sheets: number;
+}
+
+export interface OwnerPeriod {
+  first: string | null;
+  last: string | null;
+}
+
 export interface OwnerTotals {
   students: number;
+  /** Students with at least one completed result. */
+  students_graded?: number;
+  /** Urgency over every completed sheet (reconciles with the cohort and students pages). */
+  sheet_urgency_counts?: UrgencyCounts | null;
   submissions: number;
   completed: number;
   human_review: number;
@@ -1654,6 +2757,21 @@ export interface BatchSummary {
   top_gap_topic: string | null;
   cost_inr: number;
   is_demo: boolean;
+  students_graded?: number;
+  progress?: OwnerProgress | null;
+  latest_test_students?: number;
+  latest_test_avg_pct?: number | null;
+  /** false when the batch has no sitting of 3+ students (the newest small one is shown). */
+  latest_test_main?: boolean;
+  newer_small_sitting?: OwnerSittingRef | null;
+  previous_test?: OwnerSittingRef | null;
+  at_risk_unactioned?: number;
+  awaiting_release?: number;
+  oldest_awaiting_days?: number | null;
+  top_gap_mastery?: number | null;
+  top_gap_students?: number;
+  demo_count?: number;
+  real_count?: number;
 }
 
 export interface FacultySummary {
@@ -1665,6 +2783,16 @@ export interface FacultySummary {
   ocr_reviews: number;
   interventions_logged: number;
   avg_release_hours: number | null;
+  median_release_hours?: number | null;
+  students_graded?: number;
+  at_risk?: number;
+  at_risk_unactioned?: number;
+  awaiting_release?: number;
+  oldest_awaiting_days?: number | null;
+  progress_change?: number | null;
+  progress_students?: number;
+  actions_measured?: number;
+  actions_improved?: number;
 }
 
 export interface TrendPoint {
@@ -1674,6 +2802,10 @@ export interface TrendPoint {
   test_name: string;
   average_pct: number;
   students: number;
+  rubric_id?: number | null;
+  max_marks?: number | null;
+  /** 3+ students; small sittings are never joined by a line. */
+  main?: boolean;
 }
 
 export interface OwnerDashboard {
@@ -1693,6 +2825,20 @@ export interface OwnerDashboard {
   real_count: number;
   /** "Owner view - no login in this PoC". */
   role_note: string;
+  period?: OwnerPeriod | null;
+  progress?: OwnerProgress | null;
+  progress_students?: OwnerProgressStudent[];
+  at_risk_students?: OwnerAtRiskStudent[];
+  release?: OwnerRelease | null;
+  held_sheets?: OwnerSheet[];
+  failed_sheets?: OwnerSheet[];
+  topic_gaps?: OwnerTopicGap[];
+  topic_gaps_hidden?: OwnerHiddenTopic[];
+  exam_behaviour?: OwnerExamBehaviour | null;
+  same_paper?: SamePaperComparison[];
+  signals?: OwnerSignal[];
+  spend?: OwnerSpend | null;
+  operations_scope?: OwnerOpsScope | null;
 }
 
 // --- LMS export (FR-5.10) - read-only, X-API-Key ----------------------------- //

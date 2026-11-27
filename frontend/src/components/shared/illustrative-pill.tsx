@@ -26,7 +26,7 @@ export function IllustrativePill({
       )}
     >
       {label}
-      <span className="sr-only">. {title}</span>
+      <span className="sr-only"> ({title})</span>
     </span>
   );
 }

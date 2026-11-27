@@ -1,32 +1,32 @@
 // Defensive defaults for GET /api/students rows (older or partial payloads must never crash the
-// page).
+// page). The primitives and the batch / nudge / focus readers are shared with normalize-roster.ts.
 import type { Batch, FocusItem, Quadrant, RubricRef, StudentCard, TeachingNudge, TopicPoint, Urgency } from "@/lib/types";
 
 const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 const QUADRANTS: Quadrant[] = ["priority_focus", "maintain", "deprioritise", "no_action"];
 
-type Loose = Record<string, unknown> | null | undefined;
+export type Loose = Record<string, unknown> | null | undefined;
 
-function o(v: unknown): Loose {
+export function o(v: unknown): Loose {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
-function list(v: unknown): unknown[] {
+export function list(v: unknown): unknown[] {
   return Array.isArray(v) ? v.filter((x) => x !== null && x !== undefined) : [];
 }
-function num(v: unknown, fallback = 0): number {
+export function num(v: unknown, fallback = 0): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
-function numOrNull(v: unknown): number | null {
+export function numOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
-function str(v: unknown, fallback = ""): string {
+export function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
 }
-function strings(v: unknown): string[] {
+export function strings(v: unknown): string[] {
   return list(v).filter((x): x is string => typeof x === "string" && x.trim() !== "");
 }
 
-function batchOf(v: unknown): Batch {
+export function batchOf(v: unknown): Batch {
   const b = o(v);
   const mode = b?.strategy_mode;
   return {
@@ -55,7 +55,7 @@ function testOf(v: unknown): RubricRef {
   };
 }
 
-function nudgeOf(v: unknown): TeachingNudge | null {
+export function nudgeOf(v: unknown): TeachingNudge | null {
   const n = o(v);
   const text = str(n?.text).trim();
   const label = str(n?.label).trim();
@@ -75,7 +75,7 @@ function pointOf(v: unknown): TopicPoint {
   return { topic: str(t?.topic, "Topic"), subject: str(t?.subject), mastery: num(t?.mastery) };
 }
 
-function focusOf(v: unknown, i: number): FocusItem {
+export function focusOf(v: unknown, i: number): FocusItem {
   const f = o(v);
   const q = f?.quadrant;
   return {

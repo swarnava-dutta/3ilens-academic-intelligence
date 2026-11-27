@@ -1,95 +1,97 @@
 import { RefreshCw, WifiOff } from "lucide-react";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { COHORT_REFRESH_MS } from "./use-cohort";
-import { batchLabel, plural } from "./format";
+import { FOCUS_RING, fullDate, plural } from "./format";
 
-const TAG = "inline-flex items-center whitespace-nowrap rounded-sm border px-1.5 text-xs";
+/** "NEET-C (sample) · NEET MCQ Practice - Mock 10 · sat 24 Nov 2026 · 12 students". Never batch.exam_type. */
+export function scopeSentence(cohort: Cohort): string {
+  const scope = cohort.scope;
+  if (!scope) return cohort.batch?.name ?? "All batches";
+  const batch = scope.batch_name ?? "All batches";
+  const students = plural(scope.students, "student");
+  if (scope.mode === "all") return `${batch} · each student's latest test · ${students}`;
+  const parts = [batch, scope.test_name ?? "Test"];
+  if (scope.date) parts.push(`sat ${fullDate(scope.date)}`);
+  parts.push(students);
+  return parts.join(" · ");
+}
 
 export function CohortHeader({
   cohort,
   updatedLabel,
+  pollSeconds,
   refreshing,
   onRefresh,
+  announcement,
+  onOpenAbout,
+  paused = false,
 }: {
-  cohort: Cohort;
+  cohort: Cohort | null;
   updatedLabel: string | null;
+  pollSeconds: number;
   refreshing: boolean;
   onRefresh: () => void;
+  announcement: string;
+  onOpenAbout: () => void;
+  /** The last refresh failed: the dot turns grey and says "Paused". */
+  paused?: boolean;
 }) {
-  return (
-    <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-[22px] font-semibold text-brand-navy sm:text-2xl">Cohort dashboard</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          <span className="sr-only">Institution: </span>
-          {cohort.institution?.name ?? "Institution"}
-          <span aria-hidden className="mx-1.5 text-slate-300">
-            /
-          </span>
-          <span className="sr-only">Batch: </span>
-          <span className="font-medium text-slate-800">{batchLabel(cohort.batch)}</span>
-        </p>
-      </div>
+  // Every sheet in scope (any status, before the one-per-student rule); older APIs: the v1 counts.
+  const demo = cohort?.scope?.demo_sheets ?? cohort?.demo_count ?? 0;
+  const total = cohort?.scope?.sheets_in_scope ?? demo + (cohort?.real_count ?? 0);
+  const summary = (cohort?.summary ?? []).map((s) => s.text).join(" ");
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-500">
-        <ProvenancePills cohort={cohort} />
-        <span aria-live="polite" className="tabular-nums">
-          {updatedLabel ? `Updated ${updatedLabel}` : "Live"} · refreshes every {Math.round(COHORT_REFRESH_MS / 1000)} s
-        </span>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          aria-label="Refresh cohort data now"
-          title="Refresh now"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan disabled:opacity-60"
-        >
-          <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden />
-        </button>
+  return (
+    <header className="min-w-0">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-[22px] font-semibold text-brand-navy sm:text-2xl">Cohort</h1>
+        <div className="flex shrink-0 items-center gap-3 text-xs text-slate-500">
+          <span
+            className="inline-flex items-center gap-1.5 text-slate-600"
+            title={
+              paused
+                ? `Refresh failed${updatedLabel ? `; showing data from ${updatedLabel}` : ""}. Retrying on its own.`
+                : `${updatedLabel ? `Last change ${updatedLabel}. ` : ""}Checks for new results every ${pollSeconds} s.`
+            }
+          >
+            <span className={cn("h-2 w-2 rounded-full", paused ? "bg-slate-400" : "bg-brand-lime-600")} aria-hidden />
+            {paused ? "Paused" : "Live"}
+          </span>
+          <span className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </span>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-label="Refresh cohort data now"
+            title="Refresh now"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700 disabled:opacity-60"
+          >
+            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden />
+          </button>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className="mt-0.5 text-sm font-medium text-slate-800">
+          {cohort ? scopeSentence(cohort) : "Loading…"}
+          {demo > 0 ? (
+            <a
+              href="#about-data"
+              onClick={onOpenAbout}
+              title={`${demo} of ${plural(total, "sheet")} in this view ${demo === 1 ? "is" : "are"} synthetic demo data`}
+              className={cn(
+                "ml-2 inline-flex translate-y-[-1px] items-center rounded-sm border border-amber-300 px-1.5 align-middle text-xs font-normal text-amber-900 hover:bg-amber-50",
+                FOCUS_RING,
+              )}
+            >
+              {demo === total ? "Sample data" : `${demo} of ${total} sheets are sample data`}
+            </a>
+          ) : null}
+        </p>
+        {summary ? <p className="mt-1 max-w-4xl text-sm text-slate-700">{summary}</p> : null}
       </div>
     </header>
-  );
-}
-
-/** Data provenance: the client must never mistake synthetic demo data for real results. */
-export function ProvenancePills({ cohort }: { cohort: Cohort }) {
-  const demo = cohort.demo_count ?? 0;
-  const real = cohort.real_count ?? 0;
-
-  return (
-    <span className="flex flex-wrap gap-1.5" aria-label="Data provenance">
-      {demo > 0 ? (
-        <>
-          <span className={cn(TAG, "border-amber-300 text-amber-800")}>
-            Includes {plural(demo, "synthetic demo record")}
-          </span>
-          <span className={cn(TAG, "border-slate-300 text-slate-600")}>{plural(real, "live record")}</span>
-        </>
-      ) : real > 0 ? (
-        <span className={cn(TAG, "border-slate-300 text-slate-600")}>Live data only · {plural(real, "record")}</span>
-      ) : (
-        <span className={cn(TAG, "border-slate-300 text-slate-600")}>No records yet</span>
-      )}
-    </span>
-  );
-}
-
-export function DemoNotice({ cohort }: { cohort: Cohort }) {
-  const demo = cohort.demo_count ?? 0;
-  const real = cohort.real_count ?? 0;
-  if (demo <= 0) return null;
-  const total = demo + real;
-
-  return (
-    <p role="note" className="text-[13px] text-slate-600">
-      <span className={cn(TAG, "mr-1.5 border-amber-300 text-amber-800")}>Sample data</span>
-      {real === 0
-        ? "Everything on this dashboard is synthetic demo data"
-        : `${demo} of ${total} records are synthetic demo data`}
-      , inserted by the demo seed rather than graded from uploaded sheets. Live uploads are always graded by the real
-      pipeline and never fall back to sample grades.
-    </p>
   );
 }
 

@@ -156,6 +156,8 @@ def history_for(
                     [q for q in result.question_evaluations or [] if isinstance(q, dict)]
                 ),
                 "current": sub.id == current_id,
+                "input_kind": sub.input_kind or "document",
+                "rubric_id": sub.rubric_id,
             }
         )
     return entries

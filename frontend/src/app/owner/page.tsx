@@ -1,19 +1,18 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { OwnerDashboard } from "@/components/owner/owner-dashboard";
-import { CardSkeleton } from "@/components/owner/states";
+import { OwnerDashboard, OwnerSkeleton } from "@/components/owner/owner-dashboard";
 
 export const metadata: Metadata = {
-  title: "Owner dashboard",
+  title: "Owner overview",
   description:
-    "Institute-owner view: batches, faculty, trends, weakest topics, intervention effectiveness and an illustrative what-if simulator. No login in this PoC.",
+    "Institute-owner overview: what needs attention, batches, same-student progress, topics, exam behaviour, faculty follow-through, interventions, an illustrative what-if simulator and AI spend. No login in this PoC.",
 };
 
 // Server Component shell; the dashboard is a Client Component that fetches from the FastAPI backend
-// in the browser, so the prerendered shell is the loading skeleton.
+// in the browser (and reads ?tab= with useSearchParams), so the prerendered shell is the skeleton.
 export default function OwnerPage() {
   return (
-    <Suspense fallback={<CardSkeleton rows={6} label="Loading owner dashboard…" />}>
+    <Suspense fallback={<OwnerSkeleton />}>
       <OwnerDashboard />
     </Suspense>
   );

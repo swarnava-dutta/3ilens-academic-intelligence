@@ -6,8 +6,8 @@ import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { errorCode, errorMessage, errorStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/** Focus ring shared by every control on the owner / integrations / journey pages. */
-export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+/** Focus ring shared by every control on the owner / integrations / journey pages (cyan-600: 3.8:1 on white). */
+export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan-600";
 
 /** Secondary button (white, slate border). */
 export const btnQuiet = `inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`;
@@ -79,7 +79,7 @@ const CODE_HINTS: Record<string, string> = {
   invalid_api_key: "The key is wrong or has been revoked (HTTP 403).",
   invalid_since: "Use an ISO date such as 2026-11-01.",
   unknown_topic: "That topic has no results in this batch. Pick another topic.",
-  no_results: "No completed results to project from. Load the sample data or pick another batch.",
+  no_results: "No completed results in this batch yet - grade sheets on the Intake page or pick another batch.",
   unknown_batch: "That batch no longer exists. Reload the page.",
   unknown_institution: "That institution no longer exists. Reload the page.",
   unknown_key: "That key no longer exists. Reload the list.",

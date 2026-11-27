@@ -10,9 +10,9 @@ import { formatNumber, formatPct, plural } from "./format";
 
 const EDGE = 5;
 const TOGGLE =
-  "h-8 rounded-md px-2 text-[13px] font-medium text-brand-cyan-600 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "h-8 rounded-md px-2 text-[13px] font-medium text-cyan-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
 const LINK =
-  "rounded-sm font-medium text-slate-800 hover:text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "rounded-sm font-medium text-slate-800 hover:text-cyan-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
 
 function RankRow({ row }: { row: RankingRow }) {
   return (

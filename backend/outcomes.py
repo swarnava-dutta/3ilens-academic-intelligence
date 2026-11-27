@@ -15,7 +15,7 @@ from statistics import fmean
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import analytics
 import whatif
@@ -183,10 +183,6 @@ def follow_up(db: Session, rec: InterventionRecord) -> tuple[str, dict[str, Any]
     """(outcome_status, InterventionOutcome | None) from the earliest later completed test that
     covers the topic."""
     baseline_sub = db.get(StudentSubmission, rec.submission_id)
-    baseline_entry = (
-        find_topic(baseline_sub.result.topic_mastery, rec.topic)
-        if baseline_sub is not None and baseline_sub.result is not None else None
-    ) or {"topic": rec.topic}
     later = db.scalars(
         select(StudentSubmission)
         .where(
@@ -197,6 +193,50 @@ def follow_up(db: Session, rec: InterventionRecord) -> tuple[str, dict[str, Any]
         )
         .order_by(StudentSubmission.created_at, StudentSubmission.id)
     ).all()
+    return _follow_up(rec, baseline_sub, later)
+
+
+def follow_ups(db: Session, records: list[InterventionRecord]) -> list[tuple[str, dict[str, Any] | None]]:
+    """follow_up for each record (same order) with two queries in all: the baselines, and every
+    completed sheet of the records' students (results and rubrics loaded with them)."""
+    if not records:
+        return []
+    baselines = {
+        s.id: s for s in db.scalars(
+            select(StudentSubmission)
+            .where(StudentSubmission.id.in_(list({r.submission_id for r in records})))
+            .options(selectinload(StudentSubmission.result))
+        ).all()
+    }
+    sheets: dict[str, list[StudentSubmission]] = {}
+    for s in db.scalars(
+        select(StudentSubmission)
+        .where(
+            StudentSubmission.student_ref.in_(list({r.student_ref for r in records})),
+            StudentSubmission.status == SubmissionStatus.COMPLETED,
+        )
+        .options(selectinload(StudentSubmission.result), selectinload(StudentSubmission.rubric))
+        .order_by(StudentSubmission.created_at, StudentSubmission.id)
+    ).all():
+        sheets.setdefault(s.student_ref, []).append(s)
+    return [
+        _follow_up(rec, baselines.get(rec.submission_id), [
+            s for s in sheets.get(rec.student_ref, [])
+            if rec.applied_at is not None and s.created_at is not None
+            and _aware(s.created_at) > _aware(rec.applied_at) and s.id != rec.submission_id
+        ])
+        for rec in records
+    ]
+
+
+def _follow_up(
+    rec: InterventionRecord, baseline_sub: StudentSubmission | None, later: list[StudentSubmission]
+) -> tuple[str, dict[str, Any] | None]:
+    """follow_up from the baseline sheet and the student's later completed sheets (oldest first)."""
+    baseline_entry = (
+        find_topic(baseline_sub.result.topic_mastery, rec.topic)
+        if baseline_sub is not None and baseline_sub.result is not None else None
+    ) or {"topic": rec.topic}
     later = [s for s in later if s.result is not None]
     if not later:
         return "pending", None
@@ -293,7 +333,7 @@ def records_out(
     """InterventionRecord dicts, newest applied_at first."""
     rows = _records(db, batch_id=batch_id, student_ref=student_ref, submission_id=submission_id,
                     institution_id=institution_id, limit=limit)
-    return [record_out(db, row) for row in rows]
+    return [record_out(db, row, f) for row, f in zip(rows, follow_ups(db, rows))]
 
 
 def result_extras(db: Any, *, sub: Any, result: Any) -> dict[str, Any]:
@@ -327,12 +367,18 @@ def _control_changes(db: Session, measured: list[tuple[InterventionRecord, dict[
         treated_topics.setdefault(row.student_ref, set()).add(_norm(row.topic))
     out: dict[tuple[str, str], float] = {}
     seen_pairs: set[tuple[int, int]] = set()
+    ids = list({i for rec, o in measured for i in (rec.submission_id, o["follow_up_submission_id"])})
+    subs = {
+        s.id: s for s in db.scalars(
+            select(StudentSubmission).where(StudentSubmission.id.in_(ids)).options(selectinload(StudentSubmission.result))
+        ).all()
+    } if ids else {}
     for rec, outcome in measured:
         pair = (rec.submission_id, outcome["follow_up_submission_id"])
         if pair in seen_pairs:
             continue
         seen_pairs.add(pair)
-        base, follow = db.get(StudentSubmission, pair[0]), db.get(StudentSubmission, pair[1])
+        base, follow = subs.get(pair[0]), subs.get(pair[1])
         if base is None or follow is None or base.result is None or follow.result is None:
             continue
         for entry in base.result.topic_mastery or []:
@@ -399,7 +445,7 @@ def effectiveness(db: Any, *, institution_id: int | None = None, batch_id: int |
     rows = _records(db, batch_id=batch_id, institution_id=institution_id)
     if not rows:
         return _empty(institution_id, batch_id)
-    followed = [(row, *follow_up(db, row)) for row in rows]
+    followed = [(row, *f) for row, f in zip(rows, follow_ups(db, rows))]
     measured = [(row, o) for row, status, o in followed if status in MEASURED and o is not None]
     control_map = _control_changes(db, measured, rows)
     treated = _mean([o["mastery_change"] for _, o in measured])

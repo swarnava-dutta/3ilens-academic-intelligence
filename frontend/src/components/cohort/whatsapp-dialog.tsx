@@ -188,7 +188,7 @@ export function WhatsAppDialog({
                       href={downloadUrl(d.download_url)}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-brand-cyan-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+                      className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-cyan-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700"
                     >
                       Signed PDF link{expires ? ` (expires ${expires})` : ""}
                       <ExternalLink className="h-3 w-3" aria-hidden />

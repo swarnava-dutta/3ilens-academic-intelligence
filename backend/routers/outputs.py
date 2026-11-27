@@ -31,6 +31,8 @@ import provenance
 import report_meta
 import reports
 import result_view
+import roster
+import sittings
 from config import get_settings
 from database import (
     Batch,
@@ -57,6 +59,7 @@ from schemas import (
     ResultOut,
     ResultVersionOut,
     StudentCard,
+    StudentRoster,
     TestOption,
 )
 
@@ -67,7 +70,7 @@ router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
 UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
 
-RENDER_VERSION = "sair-pdf-v4"   # bump to invalidate every cached student PDF
+RENDER_VERSION = "sair-pdf-v6"   # bump to invalidate every cached student PDF (v6: "In short", the week plan, faculty lab last)
 TOPIC_GAP_MASTERY = 60.0         # topic filter: mastery below this, or the topic is in the stored top 5
 PDF_MEDIA_TYPE = "application/pdf"
 
@@ -201,8 +204,11 @@ def _submissions(
     rubric_id: int | None,
     urgency: str | None,
     topic: str | None,
+    test_id: int | None = None,
+    per_student: bool = False,
 ) -> list[StudentSubmission]:
-    """Newest first. urgency / topic keep only completed rows that match (like the cohort)."""
+    """Newest first. urgency / topic keep only completed rows that match (like the cohort).
+    test_id: every key version of that test; per_student: each student's latest completed sheet."""
     query = (
         select(StudentSubmission)
         .options(
@@ -217,6 +223,12 @@ def _submissions(
     if rubric_id is not None:
         query = query.where(StudentSubmission.rubric_id == rubric_id)
     subs = list(db.scalars(query).all())
+    if test_id is not None:
+        versions = set(sittings.Families(db).versions(test_id))
+        subs = [s for s in subs if s.rubric_id in versions]
+    if per_student:
+        keep = {s.id for s in sittings.latest_per_student(subs)}
+        subs = [s for s in subs if not result_view.is_completed(s) or s.id in keep]
     topic = (topic or "").strip() or None
     if urgency or topic:
         kept = []
@@ -239,10 +251,23 @@ def _cards(subs: list[StudentSubmission]) -> list[StudentCard]:
 
 
 def _cohort_pdf(
-    db: Session, *, batch_id: int | None, rubric_id: int | None, urgency: str | None, topic: str | None
+    db: Session,
+    *,
+    batch_id: int | None,
+    rubric_id: int | None,
+    urgency: str | None,
+    topic: str | None,
+    test_id: int | None = None,
+    per_student: bool = False,
 ) -> tuple[bytes, str]:
-    cohort = cohort_module.build_cohort(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic)
-    cards = _cards(_submissions(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic))
+    cohort = cohort_module.build_cohort(
+        db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic, test_id=test_id,
+        per_student=per_student,
+    )
+    cards = _cards(_submissions(
+        db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic, test_id=test_id,
+        per_student=per_student,
+    ))
     pdf = reports.render_cohort_pdf(cohort, students=cards)
     scope = reports.slug(cohort.batch.name if batch_id is not None else "all-batches")
     stamp = f"{report_meta.to_ist(utcnow()):%Y%m%d}"
@@ -263,13 +288,15 @@ def reports_bundle(
     rubric_id: int | None = None,
     urgency: UrgencyQuery | None = None,
     topic: str | None = None,
+    test_id: int | None = None,
+    per_student: bool = False,
 ) -> Response:
-    """Every completed student PDF in scope plus cohort.pdf, as one ZIP."""
-    subs = [
-        s for s in _submissions(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic)
-        if result_view.is_completed(s)
-    ]
-    cohort_pdf, _ = _cohort_pdf(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic)
+    """Every completed student PDF in scope plus cohort.pdf, as one ZIP (per_student: each
+    student's latest sheet only, as on the cohort page)."""
+    scope = {"batch_id": batch_id, "rubric_id": rubric_id, "urgency": urgency, "topic": topic,
+             "test_id": test_id, "per_student": per_student}
+    subs = [s for s in _submissions(db, **scope) if result_view.is_completed(s)]
+    cohort_pdf, _ = _cohort_pdf(db, **scope)
     buffer = io.BytesIO()
     used: set[str] = set()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -336,8 +363,13 @@ def cohort_pdf(
     rubric_id: int | None = None,
     urgency: UrgencyQuery | None = None,
     topic: str | None = None,
+    test_id: int | None = None,
+    per_student: bool = False,
 ) -> Response:
-    pdf, name = _cohort_pdf(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic)
+    pdf, name = _cohort_pdf(
+        db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic, test_id=test_id,
+        per_student=per_student,
+    )
     return _attachment(pdf, name)
 
 
@@ -482,6 +514,25 @@ def list_students(
     topic: str | None = None,
 ) -> list[StudentCard]:
     return _cards(_submissions(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic))
+
+
+@router.get("/api/students/roster", response_model=StudentRoster)
+def student_roster(
+    db: DbSession,
+    batch_id: int | None = None,
+    rubric_id: int | None = None,
+    demo: bool | None = None,
+    urgency: UrgencyQuery | None = None,
+    topic: str | None = None,
+) -> StudentRoster:
+    """One row per student (student_ref + is_demo) with the latest graded paper in scope, the change
+    since the previous paper, urgency with its reasons, exam technique and logged actions.
+    demo=false keeps real records only, demo=true synthetic ones only. urgency / topic narrow the
+    rows only; summary and topics always describe the batch + test + demo scope."""
+    topic = (topic or "").strip() or None
+    return StudentRoster.model_validate(
+        roster.build_roster(db, batch_id=batch_id, rubric_id=rubric_id, demo=demo, urgency=urgency, topic=topic)
+    )
 
 
 @router.get("/api/students/{student_ref}/history", response_model=list[HistoryEntry])

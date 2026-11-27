@@ -4,9 +4,9 @@ import { CohortDashboard } from "@/components/cohort/cohort-dashboard";
 import { CohortSkeleton } from "@/components/cohort/states";
 
 export const metadata: Metadata = {
-  title: "Cohort dashboard",
+  title: "Cohort",
   description:
-    "Batch ranking, at-risk students, common errors, concept confusions, class interventions, operations and rubric versions.",
+    "Class results for one test: who needs help, what to re-teach, which questions to check, and the change since the last test.",
 };
 
 // Server Component shell. The dashboard is a Client Component that reads its filters from the URL

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 import bloom
 import insights
@@ -77,6 +77,42 @@ class MarkingPolicyIn(BaseModel):
         return " ".join(v.split()) if isinstance(v, str) else v
 
 
+_BOOL = TypeAdapter(bool)
+
+
+def _flag(value: Any) -> bool:
+    """A bonus flag read the way pydantic reads a bool (None and unreadable values -> False; the
+    field validator then reports an unreadable one)."""
+    if value is None:
+        return False
+    try:
+        return _BOOL.validate_python(value)
+    except ValidationError:
+        return False
+
+
+def _accepted_letters(number: Any, raw: Any, n_options: int | None) -> list[str] | None:
+    """MCQ accepted_options -> 2-6 distinct option letters in letter order; None when unused
+    (missing, null or empty)."""
+    if raw is None or (isinstance(raw, (list, str)) and not raw) or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if not isinstance(raw, list):
+        raise ValueError(f"Q{number} accepted_options must be a list of option letters A-F")
+    letters: list[str] = []
+    for entry in raw:
+        letter = marking.normalise_option(entry, n_options) if isinstance(entry, str) else None
+        if letter in (None, marking.MULTI, marking.UNKNOWN):
+            raise ValueError(f"Q{number} accepted_options must be option letters A-F within the options")
+        letters.append(letter)
+    if len(set(letters)) != len(letters):
+        raise ValueError(f"Q{number} accepted_options must not repeat an option")
+    if not 2 <= len(letters) <= MAX_OPTIONS:
+        raise ValueError(
+            f"Q{number} accepted_options needs 2-{MAX_OPTIONS} option letters (a single answer is correct_option)"
+        )
+    return sorted(letters)
+
+
 def _fmt_marks(value: Any) -> str:
     try:
         number = float(value)
@@ -108,12 +144,18 @@ class RubricQuestionIn(BaseModel):
     marking_scheme: list[MarkingStepIn] | None = None
     partial_credit: Literal["steps", "proportional", "all_or_nothing"] | None = None
     mark_step: float | None = None
+    # MCQ keys that accept several options (letters, sorted; None when unused) or make the question
+    # a bonus (full marks to everyone). bonus is left out of dumps while false, so old hashes hold.
+    accepted_options: list[str] | None = None
+    bonus: bool = Field(default=False, exclude_if=lambda v: not v)
 
     @model_validator(mode="before")
     @classmethod
     def _v3_defaults(cls, data: Any) -> Any:
-        """MCQ: needs a correct_option; fills expected_answer / grading_criteria when missing.
-        A marking scheme without grading_criteria gets one criterion per step."""
+        """MCQ: needs a key - correct_option, accepted_options (2-6 letters; correct_option then
+        null or one of them) or bonus=true (correct_option may be null); fills expected_answer /
+        grading_criteria when missing. A marking scheme without grading_criteria gets one
+        criterion per step."""
         if not isinstance(data, dict):
             return data
         data = dict(data)
@@ -128,19 +170,35 @@ class RubricQuestionIn(BaseModel):
         )
         if qtype == "mcq":
             options = data.get("options") if isinstance(data.get("options"), list) else None
+            n_options = len(options) if options else None
+            accepted = _accepted_letters(number, data.get("accepted_options"), n_options)
+            data["accepted_options"] = accepted
+            bonus = _flag(data.get("bonus"))
             raw_correct = data.get("correct_option")
-            if raw_correct is None or not str(raw_correct).strip():
-                raise ValueError(f"Q{number} is an MCQ: correct_option is required (one option letter A-F)")
-            letter = marking.normalise_option(raw_correct, len(options) if options else None)
-            if letter in (None, marking.MULTI, marking.UNKNOWN):
-                raise ValueError(f"Q{number} correct_option must be one option letter A-F within the options")
+            letter = None
+            if raw_correct is not None and str(raw_correct).strip():
+                letter = marking.normalise_option(raw_correct, n_options)
+                if letter in (None, marking.MULTI, marking.UNKNOWN):
+                    raise ValueError(f"Q{number} correct_option must be one option letter A-F within the options")
+                if accepted and letter not in accepted:
+                    raise ValueError(
+                        f"Q{number} correct_option {letter} must be one of accepted_options ({marking.or_join(accepted)})"
+                    )
+            elif not accepted and not bonus:
+                raise ValueError(
+                    f"Q{number} is an MCQ: correct_option is required (one option letter A-F), unless it has "
+                    "accepted_options or is a bonus"
+                )
             data["correct_option"] = letter
+            key = {"correct_option": letter, "accepted_options": accepted, "bonus": bonus}
             expected = data.get("expected_answer")
             if not isinstance(expected, str) or not expected.strip():
-                data["expected_answer"] = f"Option {letter}"
+                data["expected_answer"] = marking.mcq_expected_answer(key)
             if no_criteria:
+                marks = _fmt_marks(data.get("max_marks"))
                 data["grading_criteria"] = [
-                    f"{_fmt_marks(data.get('max_marks'))} marks for option {letter}; a wrong option follows the "
+                    f"{marks} marks to every student (bonus question)" if bonus else
+                    f"{marks} marks for option {marking.key_label(key)}; a wrong option follows the "
                     "negative-marking rule; 0 if blank"
                 ]
         elif isinstance(data.get("marking_scheme"), list) and data["marking_scheme"] and no_criteria:
@@ -228,6 +286,18 @@ class RubricQuestionIn(BaseModel):
             raise ValueError("each option must be at most 500 characters")
         return cleaned
 
+    @field_validator("accepted_options", mode="before")
+    @classmethod
+    def _accepted_options(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, (list, str)) and not v) or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
+    @field_validator("bonus", mode="before")
+    @classmethod
+    def _bonus(cls, v: Any) -> Any:
+        return False if v is None else v
+
     @field_validator("bloom_level", mode="before")
     @classmethod
     def _bloom_level(cls, v: Any) -> Any:
@@ -250,9 +320,11 @@ class RubricQuestionIn(BaseModel):
         n = self.question
         is_mcq = self.question_type == "mcq"
         if not is_mcq:
-            for name in ("options", "correct_option", "negative_marks"):
+            for name in ("options", "correct_option", "negative_marks", "accepted_options"):
                 if getattr(self, name) is not None:
                     raise ValueError(f"Q{n} {name} is only allowed when question_type is 'mcq'")
+            if self.bonus:
+                raise ValueError(f"Q{n} bonus is only allowed when question_type is 'mcq'")
         else:
             if self.marking_scheme:
                 raise ValueError(f"Q{n} marking_scheme is only allowed on descriptive questions")
@@ -346,7 +418,7 @@ InvocationPurposeLit = Literal[
 ]
 LanguageHintLit = Literal["en", "hi", "ta", "kn", "te"]
 ReviewActionLit = Literal["approve", "correct", "rescan"]
-RubricSourceLit = Literal["text", "pdf", "docx", "json"]
+RubricSourceLit = Literal["text", "pdf", "docx", "json", "image"]
 DemoSetLit = Literal["genetics", "mixed", "all", "insights"]
 # --- contract v3 ---
 QuestionTypeLit = Literal["descriptive", "mcq"]
@@ -360,6 +432,21 @@ InterventionKindLit = Literal["nudge", "study_focus", "class_intervention", "cus
 OutcomeStatusLit = Literal["pending", "improved", "flat", "declined", "not_assessed"]
 BloomDetectModeLit = Literal["ai", "heuristic"]
 LlmRoleLit = Literal["primary", "fallback"]
+# --- student report redesign ---
+ResultKindLit = Literal["right", "wrong", "blank", "bonus", "partial", "zero"]
+InsightIdLit = Literal["attempts", "subjects", "gain"]
+InsightToneLit = Literal["good", "warn", "neutral"]
+EvidenceKindLit = Literal["questions", "subject", "topic"]
+EvidenceFilterLit = Literal["wrong", "blank"]
+TargetSourceLit = Literal["on_track_line", "batch_target"]
+FocusLevelLit = Literal["chapter", "subject"]
+FocusActionLit = Literal["learn", "drill", "review"]
+SubjectDiagnosisLit = Literal["skipping", "wrong_answers", "mixed", "solid"]
+EffortSourceKindLit = Literal["matrix", "rubric", "placeholder"]
+# Why a HUMAN_REVIEW_REQUIRED sheet was held (pipeline.review_decision).
+ReviewReasonLit = Literal[
+    "low_confidence", "low_page_confidence", "no_answers", "mostly_blank", "paper_mismatch", "paper_reordered"
+]
 
 URGENCIES: tuple[str, ...] = get_args(UrgencyLit)
 LANGUAGE_HINTS: tuple[str, ...] = get_args(LanguageHintLit)
@@ -447,6 +534,7 @@ class SubmissionOut(BaseModel):
     total_score: float | None
     total_marks: float
     rubric_id: int
+    rubric_hash: str | None = None  # the rubric row's content hash: send it back with rubric_id on the next upload
     batch_id: int
     file_sha256: str | None = None
     file_size: int | None = None
@@ -469,6 +557,7 @@ class SubmissionOut(BaseModel):
     audio_seconds: float | None = None
     voice_question: int | None = None
     detected_languages: list[str] = Field(default_factory=list)
+    review_reason: ReviewReasonLit | None = None  # why a HUMAN_REVIEW_REQUIRED sheet is held
 
 
 class TopicMasteryOut(BaseModel):
@@ -521,7 +610,10 @@ class UncertainWordOut(BaseModel):
 
 
 def question_outcome(item: dict[str, Any]) -> str:
-    """FULL / PARTIAL / ZERO / BLANK for a stored question evaluation (old rows lack 'outcome')."""
+    """FULL / PARTIAL / ZERO / BLANK for a stored question evaluation (old rows lack 'outcome'). A
+    bonus question scored at full marks (marking.bonus_scored) is FULL, blank or not."""
+    if marking.bonus_scored(item):
+        return "FULL"
     if not str(item.get("student_answer") or "").strip():
         return "BLANK"
     try:
@@ -568,12 +660,26 @@ class QuestionEvaluationOut(BaseModel):
     correct_option: str | None = None
     marking_breakdown: list[MarkingAward] = Field(default_factory=list)
     marking_note: str | None = None
+    # an MCQ the key made a bonus (full marks to everyone): read from its marking note when not stored
+    bonus: bool = False
+    # --- report redesign (defaults so old rows validate) ---
+    # every option letter the key accepts (['B', 'C'] for "B or C"); correct_option stays the first one
+    accepted_options: list[str] = Field(default_factory=list)
+    # the one student vocabulary: MCQ right / wrong / blank / bonus; descriptive right / partial / zero / blank
+    result_kind: ResultKindLit = "blank"
 
     @model_validator(mode="before")
     @classmethod
     def _default_outcome(cls, data: Any) -> Any:
-        if isinstance(data, dict) and not data.get("outcome"):
+        # filled when missing; a bonus question at full marks is FULL (older rows stored BLANK)
+        if isinstance(data, dict) and (not data.get("outcome") or marking.bonus_scored(data)):
             data = {**data, "outcome": question_outcome(data)}
+        if isinstance(data, dict) and data.get("bonus") is None:
+            data = {**data, "bonus": marking.bonus_note(data)}
+        if isinstance(data, dict) and not isinstance(data.get("accepted_options"), list):
+            data = {**data, "accepted_options": [data["correct_option"]] if data.get("correct_option") else []}
+        if isinstance(data, dict) and data.get("result_kind") not in marking.RESULT_KINDS:
+            data = {**data, "result_kind": marking.result_kind(data)}
         return data
 
 
@@ -628,8 +734,13 @@ class OutcomeCounts(BaseModel):
     partial: int = 0
     zero: int = 0
     blank: int = 0
-    mapped: int = 0
+    mapped: int = 0  # answers read off the sheet (faculty view only)
     total_questions: int = 0
+    # --- report redesign: result_kind counts (right + wrong + blank + bonus = questions on an MCQ paper) ---
+    right: int = 0
+    wrong: int = 0
+    bonus: int = 0
+    attempted: int = 0  # answered, non-bonus questions (right + wrong on an MCQ paper)
 
 
 class SubjectRollup(BaseModel):
@@ -641,7 +752,21 @@ class SubjectRollup(BaseModel):
     blank: int
     score: float
     max_marks: float
-    pct: float
+    pct: float  # 0-100, 1 decimal, from the unrounded score / max
+    # --- report redesign (result_kind counts; percentages 0-100 with 1 decimal) ---
+    right: int = 0
+    wrong: int = 0
+    blank_scorable: int = 0  # blank, non-bonus questions
+    bonus: int = 0
+    bonus_marks: float = 0.0
+    attempted: int = 0
+    attempt_rate: float | None = None  # attempted / (questions - bonus), fraction 0-1
+    accuracy_attempted: float | None = None  # right / attempted, fraction 0-1
+    penalty: float = 0.0  # marks lost to wrong answers (negative marking)
+    marks_dropped: float = 0.0  # max_marks - score
+    gain_to_target: float = 0.0  # max(0, 0.85 x max_marks - score)
+    band: UrgencyLit = "at_risk"
+    diagnosis: SubjectDiagnosisLit = "mixed"
 
 
 class ScoringControls(BaseModel):
@@ -663,6 +788,9 @@ class RoiBasis(BaseModel):
     forecast_status: str
     reason: str
     calibrated: bool = False
+    # 'placeholder' when a focus topic's effort is the rubric default (1 h) or a whole subject, not the
+    # matrix: the UI then hides ROI per hour
+    effort_source_kind: EffortSourceKindLit = "matrix"
 
 
 class ReportMeta(BaseModel):
@@ -752,6 +880,9 @@ class HistoryEntry(BaseModel):
     urgency: UrgencyLit
     outcome_counts: OutcomeCounts
     current: bool
+    # --- students roster (additive): oral checks are listed apart; same-test repeats share rubric_id ---
+    input_kind: InputKindLit = "document"
+    rubric_id: int | None = None
 
 
 class EvaluationVersionOut(BaseModel):
@@ -811,6 +942,7 @@ class PlanTopic(BaseModel):
     allocated_hours: float
     rank: int | None = None
     question_refs: list[int] = Field(default_factory=list)
+    minutes: int = 0  # minutes this topic gets in weekly_calendar (sum of its blocks)
 
 
 class Deprioritised(BaseModel):
@@ -892,6 +1024,7 @@ class StudyPlan(BaseModel):
     roadmap: list[RoadmapStage] = Field(default_factory=list)
     explanation: RoiExplanation | None = None
     allocation_note: str = ""
+    planned_minutes_total: int = 0  # sum of every weekly_calendar block, checkpoint included
 
 
 # --------------------------------------------------------------------------- #
@@ -934,6 +1067,15 @@ class TopicRisk(BaseModel):
     advice: str
 
 
+class NegativeMarkingReconciliation(BaseModel):
+    """How the paper total is built: net_answered (right x marks - penalties) + bonus_marks (+ any
+    questions outside the negatively-marked MCQs) = total."""
+
+    net_answered: float = 0.0
+    bonus_marks: float = 0.0
+    total: float = 0.0
+
+
 class NegativeMarkingProfile(BaseModel):
     scheme: str
     break_even: float
@@ -947,6 +1089,10 @@ class NegativeMarkingProfile(BaseModel):
     risk: RiskLevelLit
     topics: list[TopicRisk] = Field(default_factory=list)
     recommendation: str
+    # --- report redesign ---
+    bonus_questions: list[int] = Field(default_factory=list)
+    bonus_marks: float = 0.0
+    reconciliation: NegativeMarkingReconciliation | None = None
 
 
 class QuestionAccuracy(BaseModel):
@@ -957,10 +1103,27 @@ class QuestionAccuracy(BaseModel):
     blank: bool
 
 
+class SubjectPacing(BaseModel):
+    """First half vs second half of one subject section, on ANSWERED (non-bonus) questions only."""
+
+    subject: str
+    first_from: int
+    first_to: int
+    second_from: int
+    second_to: int
+    first_right: int
+    first_attempted: int
+    second_right: int
+    second_attempted: int
+    first_accuracy: float | None = None  # fraction 0-1, null when nothing was answered in that half
+    second_accuracy: float | None = None
+    change_pts: float | None = None  # (second - first) x 100; positive = accuracy rose
+
+
 class FatigueProfile(BaseModel):
     questions: int
     final_third_from: int
-    early_accuracy: float
+    early_accuracy: float  # answered questions only (blanks are reported as blank rates)
     late_accuracy: float
     drop_pts: float
     adjusted_drop_pts: float | None = None
@@ -972,6 +1135,10 @@ class FatigueProfile(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     recommendation: str
     series: list[QuestionAccuracy] = Field(default_factory=list)
+    # --- report redesign: pacing within each subject section ---
+    within_subject: list[SubjectPacing] = Field(default_factory=list)
+    within_subject_change_pts: float | None = None  # question-weighted; positive = accuracy rose
+    confounded_by_section: bool = False  # subjects sit in fixed blocks, so early vs late compares subjects
 
 
 class ConceptTransfer(BaseModel):
@@ -995,9 +1162,10 @@ class TransferProfile(BaseModel):
 class BloomBucket(BaseModel):
     level: BloomLevelLit
     questions: int
-    marks: float
+    marks: float  # net marks (penalties included)
     max_marks: float
     accuracy: float | None = None
+    marks_before_penalty: float | None = None  # wrong MCQs counted as 0, not -1
 
 
 class StudentPatterns(BaseModel):
@@ -1006,6 +1174,8 @@ class StudentPatterns(BaseModel):
     transfer: TransferProfile | None = None
     bloom_profile: list[BloomBucket] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # 2+ Bloom levels and not every tag heuristic: otherwise the UI hides the Bloom card
+    bloom_informative: bool = False
 
 
 class StudentRiskRow(BaseModel):
@@ -1101,6 +1271,97 @@ class InterventionRecordOut(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Student report redesign: key insights, score band, focus topics (analytics.result_extras)
+# --------------------------------------------------------------------------- #
+class KeyInsightFigure(BaseModel):
+    key: str
+    label: str
+    value: float
+    unit: str  # 'marks' | 'questions' | '%'
+    formula: str  # 'How is this calculated?' - the arithmetic with this result's numbers
+
+
+class KeyInsightEvidence(BaseModel):
+    kind: EvidenceKindLit
+    filter: EvidenceFilterLit | None = None  # question-grid filter to apply ('blank', 'wrong')
+    refs: list[int] = Field(default_factory=list)
+    subject: str | None = None
+    topic: str | None = None
+    anchor: str  # element id on the report page: 'questions', 'subject-physics', 'focus-physics'
+
+
+class KeyInsight(BaseModel):
+    id: InsightIdLit
+    tone: InsightToneLit
+    headline: str  # <= 90 characters
+    detail: str
+    figures: list[KeyInsightFigure] = Field(default_factory=list)
+    evidence: KeyInsightEvidence
+    highlight: str | None = None  # the number in `detail` to highlight ('+35', '518/720')
+
+
+class ScoreBandRange(BaseModel):
+    key: UrgencyLit
+    label: str
+    from_marks: float
+    to_marks: float
+    from_pct: float
+    to_pct: float
+
+
+class ScoreBand(BaseModel):
+    """The one band system (analytics.classify_urgency) with the bullet-chart geometry."""
+
+    key: UrgencyLit
+    label: str
+    pct: float  # 1 decimal, from the unrounded score / total
+    thresholds: list[ScoreBandRange] = Field(default_factory=list)
+    target_marks: float
+    target_pct: float
+    target_source: TargetSourceLit = "on_track_line"
+    marks_to_target: float = 0.0
+    right_answers_to_target: int = 0  # ceil(marks_to_target / the paper's usual question marks)
+    batch_median_marks: float | None = None  # only with 5+ other graded students on the same test
+
+
+class FocusTopicRow(BaseModel):
+    topic: str
+    subject: str
+    n: int
+    score: float
+    max_marks: float
+    mastery: float  # 1 decimal, from the unrounded score / max
+    right: int = 0
+    wrong: int = 0
+    blank: int = 0
+    marks_dropped: float = 0.0
+    gain: float = 0.0  # max(0, target% x max_marks - score) on this paper's marks (FocusTopics.target_pct)
+    action: FocusActionLit  # from the diagnosis: skipped -> learn, wrong answers -> drill, 70%+ -> review
+    what_to_study: str
+    question_refs: list[int] = Field(default_factory=list)  # blank first for 'learn', else wrong first
+    wrong_refs: list[int] = Field(default_factory=list)
+    blank_refs: list[int] = Field(default_factory=list)
+    low_evidence: bool = False  # fewer than 3 questions
+
+
+class FocusKeepWarm(BaseModel):
+    topic: str
+    subject: str = ""
+    mastery: float = 0.0
+
+
+class FocusTopics(BaseModel):
+    level: FocusLevelLit = "subject"
+    chapters_available: bool = False
+    reason: str = ""
+    # The score card's target (On track line or batch target) while below it, else the 85% stretch.
+    target_pct: float = 85.0
+    rows: list[FocusTopicRow] = Field(default_factory=list)
+    keep_warm: list[FocusKeepWarm] = Field(default_factory=list)  # areas already at the target
+    keep_warm_more: int = 0
+
+
+# --------------------------------------------------------------------------- #
 # Result / pending
 # --------------------------------------------------------------------------- #
 class ResultOut(BaseModel):
@@ -1143,6 +1404,11 @@ class ResultOut(BaseModel):
     voice: VoiceInfo | None = None
     superseded: bool = False  # true on an archived snapshot (GET /api/results/{id}/versions/{v})
     superseded_by: int | None = None  # the version that replaced it
+    # --- student report redesign (analytics.result_extras; defaults for older payloads) ---
+    key_insights: list[KeyInsight] = Field(default_factory=list)  # exactly 3 when built
+    score_band: ScoreBand | None = None
+    focus_topics: FocusTopics = Field(default_factory=FocusTopics)
+    student_summary: list[str] = Field(default_factory=list)  # no OCR / coverage, no question lists
 
 
 class ResultPendingOut(BaseModel):
@@ -1218,6 +1484,8 @@ class ConfusionCluster(BaseModel):
     concept_b: str
     count: int
     students: list[str] = Field(default_factory=list)
+    # Cohort page: students who sat a test on which this confusion was seen (count's denominator).
+    denominator: int | None = None
 
 
 class ExcludedStudents(BaseModel):
@@ -1243,6 +1511,295 @@ class Operations(BaseModel):
 class ReleaseCounts(BaseModel):
     provisional: int = 0
     released: int = 0
+
+
+# --- Cohort page (per_student=true): one test sitting of one batch, one row per student ------ #
+CohortModeLit = Literal["sitting", "all"]
+CohortReasonLit = Literal["below_55", "below_70", "low_chapters"]
+CohortItemFlagLit = Literal["possible_key_error", "hard", "often_skipped", "weak_discrimination"]
+CohortSummaryKindLit = Literal["average", "students", "chapter", "key"]
+
+
+class CohortKeyVersion(BaseModel):
+    rubric_id: int
+    version: str
+    sheets: int  # completed sheets in scope graded with this key version
+    latest: bool  # the family's newest version
+
+
+class CohortSitting(BaseModel):
+    """One batch sitting one test (an answer-key family); each student counted once."""
+    batch_id: int
+    batch_name: str
+    test_id: int  # root of the key family
+    rubric_ids: list[int]
+    latest_rubric_id: int
+    key_versions: list[CohortKeyVersion]
+    test_name: str
+    short_name: str
+    total_marks: float | None = None
+    date: datetime
+    students: int
+    sheets: int
+    average_pct: float | None = None
+    median_pct: float | None = None
+    urgency_counts: UrgencyCounts
+    is_class: bool  # at least 3 students
+    # Its class average compares with the batch's previous class sitting (sittings.comparable);
+    # None for a small sitting or the batch's first class sitting.
+    comparable_previous: bool | None = None
+
+
+class CohortScope(BaseModel):
+    mode: CohortModeLit
+    batch_id: int | None = None
+    batch_name: str | None = None
+    test_id: int | None = None
+    test_name: str | None = None
+    short_name: str | None = None
+    rubric_ids: list[int] = Field(default_factory=list)
+    latest_rubric_id: int | None = None
+    total_marks: float | None = None
+    date: datetime | None = None
+    students: int = 0
+    sheets: int = 0
+    key_versions: list[CohortKeyVersion] = Field(default_factory=list)
+    is_class: bool = False
+    tests: int = 0  # different tests (key families) among the students' sheets
+    sheets_in_scope: int = 0  # every sheet in scope, any status, before the one-per-student rule
+    demo_sheets: int = 0  # of sheets_in_scope, synthetic demo sheets
+    superseded: list[str] = Field(default_factory=list)  # students whose older graded sheet was replaced
+
+
+class CohortPrevious(BaseModel):
+    batch_id: int
+    test_id: int
+    test_name: str
+    short_name: str
+    date: datetime
+    students: int
+    average_pct: float | None = None
+    median_pct: float | None = None
+    urgency_counts: UrgencyCounts
+    negative_marks_total: float | None = None
+    negative_per_student: float | None = None
+    attempt_rate: float | None = None
+    accuracy_attempted: float | None = None
+    blanks_per_student: float | None = None
+    blank_rate: float | None = None
+    comparable: bool = True  # comparable papers (sittings.comparable) and half the class sat both
+    note: str | None = None  # why the class averages are not compared
+    newly_at_risk: int = 0  # at risk now, not at risk on the previous test
+
+
+class CohortHeadline(BaseModel):
+    average_pct: float | None = None
+    median_pct: float | None = None
+    p25_pct: float | None = None
+    p75_pct: float | None = None
+    average_marks: float | None = None  # one test with one total only
+    total_marks: float | None = None
+    top_pct: float | None = None
+    top_student: str | None = None
+    top_submission_id: int | None = None
+    negative_scores: int = 0  # sheets below 0 marks (their % is clamped to 0)
+    delta_pts: float | None = None  # class average minus the previous class sitting's (exact, 1 dp)
+    lowest_pct: float | None = None
+    lowest_student: str | None = None
+    lowest_submission_id: int | None = None
+
+
+class CohortStudentTopic(BaseModel):
+    topic: str
+    mastery: float
+    right: int
+    questions: int
+
+
+class CohortStudentRow(BaseModel):
+    rank: int
+    submission_id: int
+    student_ref: str
+    student_name: str
+    rubric_id: int
+    score: float
+    total_marks: float
+    pct: float
+    urgency: UrgencyLit
+    short_reason: CohortReasonLit | None = None
+    reasons: list[str] = Field(default_factory=list)
+    low_chapters: int = 0
+    weakest_topic: str | None = None
+    mcq_count: int = 0
+    attempted: int = 0
+    right: int = 0
+    wrong: int = 0
+    blanks: int = 0
+    negative_marks: float = 0.0
+    accuracy_attempted: float | None = None
+    prev_pct: float | None = None
+    change_pts: float | None = None
+    prev_urgency: UrgencyLit | None = None
+    newly_at_risk: bool = False
+    release_status: ReleaseStatusLit = "PROVISIONAL"
+    topics: list[CohortStudentTopic] = Field(default_factory=list)
+
+
+class CohortAttemptTopic(BaseModel):
+    topic: str
+    subject: str
+    answers: int
+    attempted: int
+    right: int
+    wrong: int
+    blanks: int
+    negative_marks: float
+    accuracy_attempted: float | None = None
+    blank_rate: float
+    subject_level: bool = False  # a whole subject (a paper tagged by subject only)
+
+
+class CohortAttempt(BaseModel):
+    """Pooled over every MCQ answer in the student set."""
+    students: int
+    mcq_answers: int
+    questions_per_student: float
+    attempted: int
+    right: int
+    wrong: int
+    blanks: int
+    attempt_rate: float  # % of MCQ answers attempted
+    accuracy_attempted: float | None = None  # % right of those attempted
+    blanks_per_student: float
+    negative_marks_total: float
+    negative_per_student: float
+    blank_rate: float | None = None  # % of MCQ answers left blank (its own figure, 1 dp)
+    same_length: bool = True  # every paper has the same number of MCQs (else blanks per student means little)
+    bonus_answers: int = 0  # answers to bonus questions, left out of every figure above
+    by_topic: list[CohortAttemptTopic] = Field(default_factory=list)
+
+
+class CohortHardestQuestion(BaseModel):
+    question: int
+    correct: int
+    n: int
+    type: str = "mcq"
+    p: float | None = None  # share right (written answers: share of the marks)
+
+
+class CohortChapterStudent(BaseModel):
+    submission_id: int
+    student_name: str
+    student_ref: str
+    mastery: float
+
+
+class CohortChapter(BaseModel):
+    topic: str
+    subject: str
+    questions: int
+    students: int
+    mean: float
+    below_60: int
+    below_40: int
+    weightage: float
+    neet_weight: float | None = None  # chapter matrix avg marks / exam total (0-1); None = not in the matrix
+    subject_level: bool
+    thin: bool  # fewer than 2 questions or fewer than 3 students
+    hint: bool = False  # ranked for a re-teach from one question (a short paper)
+    prev_mean: float | None = None
+    change: float | None = None
+    hardest_question: CohortHardestQuestion | None = None
+    below_60_students: list[CohortChapterStudent] = Field(default_factory=list)
+    reteach_rank: int | None = None  # 1 = re-teach first; None = not eligible
+
+
+class CohortSubject(BaseModel):
+    subject: str
+    mean: float
+    students: int
+    prev_mean: float | None = None
+    change: float | None = None
+
+
+class CohortOptionCount(BaseModel):
+    option: str
+    count: int
+
+
+class CohortItem(BaseModel):
+    question: int
+    topic: str
+    subject: str
+    type: str
+    max_marks: float
+    key: str | None = None
+    n: int
+    correct: int
+    partial: int
+    wrong: int
+    blank: int
+    options: list[CohortOptionCount] = Field(default_factory=list)
+    top_wrong_option: str | None = None
+    top_wrong_count: int = 0
+    top_wrong_tied: bool = False  # another wrong option was chosen as often
+    top_group_size: int = 0
+    top_group_chose_wrong: int = 0
+    negative_marks: float = 0.0
+    p: float  # share right (written answers: share of marks)
+    discrimination: float | None = None  # top 27% minus bottom 27%; only from 8 answers
+    flags: list[CohortItemFlagLit] = Field(default_factory=list)
+
+
+class CohortPairedRow(BaseModel):
+    submission_id: int
+    student_ref: str
+    name: str
+    prev: float
+    now: float
+    change: float
+    prev_test: str = ""  # short name of the earlier sheet's test
+    comparable: bool = True  # sittings.comparable; otherwise the change is never up / down
+
+
+class CohortPaired(BaseModel):
+    """sittings.progress of each student against the sheet they sat just before (the owner page's
+    OwnerProgress figures): the comparable pairs; rows list every pair."""
+
+    paired: int  # comparable pairs
+    mean_before: float | None = None
+    mean_after: float | None = None
+    mean_change: float | None = None  # mean_after - mean_before
+    improved: int  # up 5+ points
+    declined: int  # down 5+ points
+    steady: int  # the rest
+    not_comparable: int = 0  # pairs on papers that are not comparable (never up / down)
+    rows: list[CohortPairedRow] = Field(default_factory=list)
+
+
+class CohortBatchCompare(BaseModel):
+    batch_id: int
+    batch_name: str
+    students: int
+    average_pct: float | None = None
+    date: datetime
+    is_current: bool
+    thin: bool
+
+
+class CohortSummaryLine(BaseModel):
+    kind: CohortSummaryKindLit
+    text: str
+    href: str
+
+
+class CohortReading(BaseModel):
+    mean_confidence: float | None = None  # 0-1, over the student set
+    avg_seconds_per_sheet: float | None = None  # live sheets only
+    live_sheets: int = 0
+    costed_sheets: int = 0  # live sheets with traced AI calls
+    cost_per_live_sheet_inr: float | None = None
+    live_cost_inr: float = 0.0
 
 
 class CohortOut(BaseModel):
@@ -1275,6 +1832,22 @@ class CohortOut(BaseModel):
     operations: Operations
     release_counts: ReleaseCounts = Field(default_factory=ReleaseCounts)
     patterns: CohortPatterns = Field(default_factory=CohortPatterns)  # guarded hook
+    # Cohort page fields (GET /api/cohort?per_student=true); empty / null otherwise.
+    scope: CohortScope | None = None
+    sittings: list[CohortSitting] = Field(default_factory=list)
+    previous: CohortPrevious | None = None
+    headline: CohortHeadline | None = None
+    students_view: list[CohortStudentRow] = Field(default_factory=list)
+    attempt: CohortAttempt | None = None
+    chapters: list[CohortChapter] = Field(default_factory=list)
+    subjects: list[CohortSubject] = Field(default_factory=list)
+    item_analysis: list[CohortItem] | None = None
+    paired_change: CohortPaired | None = None
+    batch_comparison: list[CohortBatchCompare] = Field(default_factory=list)
+    summary: list[CohortSummaryLine] = Field(default_factory=list)
+    reading: CohortReading | None = None
+    interventions_logged: int = 0
+    data_version: str = ""
 
 
 class DemoSeedOut(BaseModel):
@@ -1322,6 +1895,9 @@ class StudentCard(BaseModel):
     release_status: ReleaseStatusLit | None = None
     is_demo: bool
     created_at: datetime
+    # --- students roster (additive) ---
+    urgency_reasons: list[str] = Field(default_factory=list)
+    input_kind: InputKindLit = "document"
 
 
 class TestOption(BaseModel):
@@ -1339,6 +1915,213 @@ class DashboardFilters(BaseModel):
     tests: list[TestOption] = Field(default_factory=list)
     urgencies: list[UrgencyLit] = Field(default_factory=lambda: list(URGENCIES))
     topics: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Students roster (GET /api/students/roster): one row per student (roster.py)
+# --------------------------------------------------------------------------- #
+TrendLit = Literal["improving", "steady", "slipping"]
+
+
+class SubjectScore(BaseModel):
+    subject: str
+    score: float
+    max_marks: float
+    pct: float
+
+
+class NegativeMarkingBrief(BaseModel):
+    scheme: str
+    break_even: float
+    items: int
+    attempted: int
+    correct: int
+    wrong: int
+    blank: int
+    accuracy: float | None = None
+    marks_lost: float
+    risk: RiskLevelLit
+    under_attempting: bool
+    recommendation: str
+    # --- students roster (additive): the report's attempts insight, so the flag never contradicts it ---
+    verdict: Literal["guessing", "skipping", "ok"] = "ok"
+    headline: str = ""
+    risky_topics: list[str] = Field(default_factory=list)
+
+
+class RosterPaper(BaseModel):
+    submission_id: int
+    test_id: int
+    test_name: str
+    short_name: str = ""
+    test_version: str
+    date: datetime
+    score: float
+    total_marks: float
+    pct: float
+    questions: int
+    urgency: UrgencyLit
+    urgency_reasons: list[str] = Field(default_factory=list)
+    release_status: ReleaseStatusLit
+
+
+class RosterPending(BaseModel):
+    submission_id: int
+    status: str
+    review_reason: ReviewReasonLit | None = None
+    date: datetime
+
+
+class RosterPrevious(BaseModel):
+    submission_id: int
+    test_name: str
+    short_name: str = ""
+    date: datetime
+    pct: float
+    total_marks: float
+    questions: int = 0
+    # Same test, or both full papers over the same subjects: only then is the change a trend.
+    comparable: bool = True
+
+
+class RosterSparkPoint(BaseModel):
+    submission_id: int
+    date: datetime
+    pct: float
+    test_name: str
+    short_name: str = ""
+
+
+class RosterNewer(BaseModel):
+    """A newer graded paper of the student outside the batch / test filter."""
+    submission_id: int
+    test_name: str
+    short_name: str = ""
+    date: datetime
+    pct: float
+
+
+class RosterTopicMastery(BaseModel):
+    topic: str
+    subject: str
+    mastery: float
+    n: int
+    subject_level: bool = False
+
+
+class RosterAction(BaseModel):
+    id: int
+    topic: str
+    kind: InterventionKindLit
+    applied_at: datetime
+    applied_by: str
+    outcome_status: OutcomeStatusLit
+    mastery_change: float | None = None
+
+
+class RosterActions(BaseModel):
+    count: int
+    since_latest: int
+    last: RosterAction | None = None
+
+
+class RosterPriority(BaseModel):
+    tier: int | None = None
+    reason: str = ""
+
+
+class RosterRow(BaseModel):
+    student_ref: str
+    student_name: str
+    is_demo: bool
+    batch: BatchOut
+    latest: RosterPaper | None = None
+    pending: RosterPending | None = None
+    waiting: list[RosterPending] = Field(default_factory=list)
+    newer: RosterNewer | None = None
+    previous: RosterPrevious | None = None
+    delta_pct: float | None = None
+    trend: TrendLit | None = None
+    spark: list[RosterSparkPoint] = Field(default_factory=list)
+    papers_count: int
+    subjects: list[SubjectScore] = Field(default_factory=list)
+    topics: list[RosterTopicMastery] = Field(default_factory=list)
+    weak_count: int
+    very_weak_count: int
+    negative_marking: NegativeMarkingBrief | None = None
+    nudges: list[TeachingNudge] = Field(default_factory=list)
+    focus: list[FocusItem] = Field(default_factory=list)
+    actions: RosterActions
+    priority: RosterPriority
+
+
+class RosterTopicStudent(BaseModel):
+    student_ref: str
+    is_demo: bool
+    student_name: str
+    mastery: float
+
+
+class RosterTopic(BaseModel):
+    topic: str
+    subject: str
+    tested: int
+    below_60: int
+    mean_mastery: float | None = None
+    marks_lost: float
+    actions_logged: int
+    actions_improved: int
+    subject_level: bool = False
+    students_below: list[RosterTopicStudent] = Field(default_factory=list)
+
+
+class RosterTechnique(BaseModel):
+    profiled: int
+    guessing_risk: int
+    under_attempting: int
+    flagged: int
+    marks_lost_total: float
+    marks_lost_per_paper: float = 0.0
+    risky_topic_students: int = 0
+
+
+class RosterSummary(BaseModel):
+    students: int
+    graded: int
+    sheets: int
+    urgency_counts: UrgencyCounts
+    held: int
+    failed: int
+    processing: int
+    ungraded: int
+    improving: int
+    slipping: int
+    steady: int
+    with_trend: int
+    different_test: int = 0
+    waiting_students: int = 0
+    newer_outside: int = 0
+    at_risk_without_action: int
+    flagged: int
+    provisional_latest: int
+    released_latest: int
+    demo_students: int
+    real_students: int
+    negative_marking: RosterTechnique
+
+
+class RosterScope(BaseModel):
+    batch_id: int | None = None
+    rubric_id: int | None = None
+    demo: bool | None = None
+
+
+class StudentRoster(BaseModel):
+    scope: RosterScope
+    summary: RosterSummary
+    rows: list[RosterRow] = Field(default_factory=list)
+    topics: list[RosterTopic] = Field(default_factory=list)
+    generated_at: datetime
 
 
 # --------------------------------------------------------------------------- #
@@ -1448,6 +2231,7 @@ class RubricDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     source: RubricSourceLit
     ai_drafted_questions: list[int] = Field(default_factory=list)
+    files_swapped: bool = False  # parse route: file looked like the key alone, so key_file was drafted
 
 
 PaperRoleLit = Literal["answer_key_paper", "question_paper", "answer_sheet", "unknown"]
@@ -1495,8 +2279,36 @@ class PaperInspection(BaseModel):
 
 
 class AnswerKeyEntry(BaseModel):
+    """One answer-key entry, exactly one of: option (one letter A-F; options printed (1)-(4) read
+    as A-D), accepted_options (the key accepts any of 2-6 options, "2 or 3" -> ["B", "C"], letter
+    order; option null) or bonus=true (the key drops the question: full marks to everyone; option
+    null). accepted_options and bonus are left out of the JSON while unused, so a single-letter
+    entry reads {question, option} as before."""
+
     question: int
-    option: str                         # one letter A-F; options printed (1)-(4) read as A-D
+    option: str | None = None
+    accepted_options: list[str] | None = Field(default=None, exclude_if=lambda v: v is None)
+    bonus: bool = Field(default=False, exclude_if=lambda v: not v)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_key(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        number = data.get("question")
+        accepted = _accepted_letters(number, data.get("accepted_options"), None)
+        data["accepted_options"] = accepted
+        raw = data.get("option")
+        letter = None
+        if raw is not None and str(raw).strip():
+            letter = marking.normalise_option(raw)
+            if letter in (None, marking.MULTI, marking.UNKNOWN):
+                raise ValueError(f"Q{number} option must be one option letter A-F")
+        data["option"] = letter
+        if (letter is not None) + (accepted is not None) + (_flag(data.get("bonus")) is True) != 1:
+            raise ValueError(f"Q{number} answer-key entry needs exactly one of option, accepted_options or bonus=true")
+        return data
 
 
 AnswerKeyMethodLit = Literal["parsed", "ai"]
@@ -1702,6 +2514,9 @@ class InterventionSummary(BaseModel):
     measured: int = 0
     uplift: float | None = None
     calibration_factor: float | None = None
+    pending: int = 0
+    calibration_n: int = 0  # measured records that had a predicted gain (the calibration sample)
+    is_demo: bool = False
 
 
 class WhatIfImpact(BaseModel):
@@ -1728,7 +2543,8 @@ class WhatIfScenarioResult(BaseModel):
     extra_hours: float
     hours_to_target: float | None = None
     students_assessed: int
-    students_at_target: int
+    students_at_target: int  # already at the 85% target before the extra hours
+    students_at_target_after: int | None = None  # at the target after them (older APIs: absent)
     mean_mastery_before: float | None = None
     mean_mastery_after: float | None = None
     impact: WhatIfImpact
@@ -1770,8 +2586,231 @@ class WhatIfOptions(BaseModel):
 # --------------------------------------------------------------------------- #
 # Owner dashboard (FR-5.9)
 # --------------------------------------------------------------------------- #
+OwnerSignalSeverity = Literal["act", "check", "good", "info"]
+
+
+class OwnerSittingRef(BaseModel):
+    """One sitting (one test in one batch); date = IST date of its newest upload."""
+
+    rubric_id: int
+    test_name: str
+    students: int
+    date: str
+    average_pct: float | None = None
+    max_marks: float | None = None
+    # previous_test only: its students who also sat the batch's main test (0 = different students).
+    shared_students: int | None = None
+
+
+class OwnerProgress(BaseModel):
+    """Same students, the sheet before vs the latest whole-class test, comparable pairs only
+    (sittings.comparable). mean_change = mean_after - mean_before."""
+
+    students: int = 0
+    mean_before: float | None = None
+    mean_after: float | None = None
+    mean_change: float | None = None
+    improved: int = 0  # change >= +5 points (sittings.progress: up 5+ / down 5+ / steady)
+    declined: int = 0  # change <= -5 points
+    steady: int = 0  # the rest
+    not_comparable: int = 0  # pairs on papers that are not comparable (never up / down)
+    # Per batch and institution: the sittings the pairs' earlier / later results come from
+    # (students = re-tested students from that sitting, average_pct = their mean there).
+    before_sittings: list[OwnerSittingRef] = Field(default_factory=list)
+    after_sittings: list[OwnerSittingRef] = Field(default_factory=list)
+
+
+class OwnerProgressStudent(BaseModel):
+    submission_id: int  # the later result of the pair
+    previous_submission_id: int
+    student_name: str
+    batch_id: int
+    batch_name: str
+    before_pct: float
+    after_pct: float
+    change: float
+    before_test: str
+    after_test: str
+
+
+class OwnerAtRiskStudent(BaseModel):
+    submission_id: int  # the student's latest result
+    student_name: str
+    student_ref: str
+    batch_id: int
+    batch_name: str
+    test_name: str
+    pct: float
+    change: float | None = None
+    weakest_topic: str | None = None
+    weakest_mastery: float | None = None
+    actioned: bool = False  # an intervention since the latest test
+    last_action_at: datetime | None = None
+
+
+class OwnerReleaseBatch(BaseModel):
+    batch_id: int
+    batch_name: str
+    lead: str | None = None
+    awaiting: int = 0
+    oldest_days: float | None = None
+
+
+class OwnerRelease(BaseModel):
+    """Per student: latest report not released yet. Sheet counts cover every completed sheet."""
+
+    students_awaiting: int = 0
+    students_graded: int = 0
+    oldest_days: float | None = None
+    oldest_test: str | None = None
+    oldest_batch: str | None = None
+    oldest_submission_id: int | None = None
+    by_batch: list[OwnerReleaseBatch] = Field(default_factory=list)
+    sheets_provisional: int = 0
+    sheets_released: int = 0
+    sheets_provisional_over_7d: int = 0
+
+
+class OwnerSheet(BaseModel):
+    """A held (HUMAN_REVIEW_REQUIRED) or failed sheet."""
+
+    submission_id: int
+    student_name: str
+    batch_id: int
+    batch_name: str
+    review_reason: str | None = None
+    created_at: datetime
+
+
+class OwnerTopicGap(BaseModel):
+    topic: str
+    subject: str | None = None
+    mastery: float
+    students: int
+    below_40: int = 0
+    batches: list[str] = Field(default_factory=list)
+    batch_ids: list[int] = Field(default_factory=list)
+
+
+class OwnerHiddenTopic(BaseModel):
+    topic: str
+    students: int
+    reason: Literal["subject_only", "few_students"]
+
+
+class OwnerBehaviourPrevious(BaseModel):
+    """The same students' previous negatively-marked MCQ result."""
+
+    test: str
+    tests: int = 1
+    students: int
+    marks_lost_per_student: float | None = None
+    current_marks_lost_per_student: float | None = None
+
+
+class OwnerBehaviourRow(BaseModel):
+    batch_id: int | None = None  # null on the institution row
+    batch_name: str | None = None
+    test: str | None = None
+    tests: int = 0
+    students: int = 0
+    mcqs: int = 0
+    attempted: int = 0
+    correct: int = 0
+    wrong: int = 0
+    blank: int = 0
+    attempt_rate_pct: float | None = None
+    accuracy_pct: float | None = None
+    blank_share_pct: float | None = None
+    marks_lost: float = 0.0
+    marks_lost_per_student: float | None = None
+    blank_per_student: float | None = None
+    over_attempting_students: int = 0
+    top_over_topic: str | None = None
+    top_over_topic_students: int = 0
+    scheme: str | None = None
+    break_even: float | None = None
+    previous: OwnerBehaviourPrevious | None = None
+
+
+class OwnerExamBehaviour(BaseModel):
+    overall: OwnerBehaviourRow | None = None
+    by_batch: list[OwnerBehaviourRow] = Field(default_factory=list)
+
+
+class SamePaperRow(BaseModel):
+    batch_id: int
+    batch_name: str
+    avg_pct: float | None = None
+    students: int
+    date: str
+
+
+class SamePaperComparison(BaseModel):
+    rubric_id: int
+    test_name: str
+    rows: list[SamePaperRow] = Field(default_factory=list)
+
+
+class OwnerSignalItem(BaseModel):
+    label: str
+    detail: str | None = None
+    value: str | None = None
+    href: str | None = None
+
+
+class OwnerSignal(BaseModel):
+    """One 'needs your attention' row; the text is built server-side from the same numbers."""
+
+    key: str
+    severity: OwnerSignalSeverity
+    title: str
+    detail: str | None = None
+    count: int = 0
+    href: str | None = None
+    cta: str | None = None
+    items: list[OwnerSignalItem] = Field(default_factory=list)
+
+
+class OwnerSpendPurpose(BaseModel):
+    purpose: str
+    label: str
+    cost_inr: float = 0.0
+    calls: int = 0
+
+
+class OwnerSpend(BaseModel):
+    grading_inr: float = 0.0
+    grading_calls: int = 0
+    live_graded_sheets: int = 0
+    per_graded_sheet_inr: float | None = None
+    target_inr: float = 5.0
+    institution_other_inr: float = 0.0
+    institution_other_by_purpose: list[OwnerSpendPurpose] = Field(default_factory=list)
+    unlinked_inr: float = 0.0  # recorded without an institution or a sheet
+    unlinked_by_purpose: list[OwnerSpendPurpose] = Field(default_factory=list)
+    total_inr: float = 0.0
+
+
+class OwnerPeriod(BaseModel):
+    first: str | None = None
+    last: str | None = None
+
+
+class OwnerOpsScope(BaseModel):
+    """How many sheets each operations figure covers (latency is live-only; confidence was not)."""
+
+    latency_sheets: int = 0  # live completed sheets with a measured grading time
+    confidence_sheets: int = 0  # completed sheets with a tick-reading confidence (live + sample)
+    confidence_sample_sheets: int = 0
+    live_confidence: float | None = None  # mean over live sheets only (0-1)
+    live_confidence_sheets: int = 0
+
+
 class OwnerTotals(BaseModel):
     students: int = 0
+    students_graded: int = 0
+    sheet_urgency_counts: UrgencyCounts | None = None
     submissions: int = 0
     completed: int = 0
     human_review: int = 0
@@ -1802,6 +2841,20 @@ class BatchSummary(BaseModel):
     top_gap_topic: str | None = None
     cost_inr: float = 0.0
     is_demo: bool = False
+    students_graded: int = 0
+    progress: OwnerProgress | None = None
+    latest_test_students: int = 0
+    latest_test_avg_pct: float | None = None
+    latest_test_main: bool = False
+    newer_small_sitting: OwnerSittingRef | None = None
+    previous_test: OwnerSittingRef | None = None
+    at_risk_unactioned: int = 0
+    awaiting_release: int = 0
+    oldest_awaiting_days: float | None = None
+    top_gap_mastery: float | None = None
+    top_gap_students: int = 0
+    demo_count: int = 0
+    real_count: int = 0
 
 
 class FacultySummary(BaseModel):
@@ -1813,6 +2866,16 @@ class FacultySummary(BaseModel):
     ocr_reviews: int = 0
     interventions_logged: int = 0
     avg_release_hours: float | None = None
+    median_release_hours: float | None = None
+    students_graded: int = 0
+    at_risk: int = 0
+    at_risk_unactioned: int = 0
+    awaiting_release: int = 0
+    oldest_awaiting_days: float | None = None
+    progress_change: float | None = None
+    progress_students: int = 0
+    actions_measured: int = 0
+    actions_improved: int = 0
 
 
 class TrendPoint(BaseModel):
@@ -1822,6 +2885,9 @@ class TrendPoint(BaseModel):
     test_name: str
     average_pct: float
     students: int
+    rubric_id: int | None = None
+    max_marks: float | None = None
+    main: bool = True  # >= 3 students; small sittings are never joined by a line
 
 
 class OwnerDashboard(BaseModel):
@@ -1840,6 +2906,20 @@ class OwnerDashboard(BaseModel):
     demo_count: int = 0
     real_count: int = 0
     role_note: str = "Owner view - no login in this PoC"
+    period: OwnerPeriod | None = None
+    progress: OwnerProgress | None = None
+    progress_students: list[OwnerProgressStudent] = Field(default_factory=list)
+    at_risk_students: list[OwnerAtRiskStudent] = Field(default_factory=list)
+    release: OwnerRelease | None = None
+    held_sheets: list[OwnerSheet] = Field(default_factory=list)
+    failed_sheets: list[OwnerSheet] = Field(default_factory=list)
+    topic_gaps: list[OwnerTopicGap] = Field(default_factory=list)
+    topic_gaps_hidden: list[OwnerHiddenTopic] = Field(default_factory=list)
+    exam_behaviour: OwnerExamBehaviour | None = None
+    same_paper: list[SamePaperComparison] = Field(default_factory=list)
+    signals: list[OwnerSignal] = Field(default_factory=list)
+    spend: OwnerSpend | None = None
+    operations_scope: OwnerOpsScope | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -1953,7 +3033,48 @@ class ReviewInput(BaseModel):
 
 
 class ReevaluateInput(BaseModel):
+    """POST /api/submissions/{id}/reevaluate: re-grade a COMPLETED sheet from its stored transcript
+    (no OCR) against rubric_id, or against `rubric` - an inline RubricContentIn object validated like
+    upload's rubric_json (422 invalid_rubric) and stored as a new rubric snapshot row (the edited
+    answer key, one call). Both -> 422 invalid_rubric; neither = the sheet's current rubric."""
+
     rubric_id: int | None = None
+    # Typed loosely on purpose, as RerunInput.rubric: the handler answers the coded 422 invalid_rubric.
+    rubric: Any = Field(default=None, description="Inline rubric (RubricContentIn object) or null.")
+
+
+class RubricSourceFile(BaseModel):
+    """GET /api/rubrics/{id}/sources: a file an intake's answer key was drafted from (the question
+    paper "paper" or a separate answer-key file "key"), kept so the report can preview it. role says
+    what the file is, for its label: the paper is a question_paper, a rubric_file (JSON / text
+    rubric) or a marked_copy (ticks are the key) - upload's rubric_source_role; the key file is an
+    answer_key. Entries kept before roles existed get their kind's default."""
+
+    kind: Literal["paper", "key"]
+    role: Literal["question_paper", "rubric_file", "marked_copy", "answer_key"]
+    filename: str
+    file_type: str  # pdf | docx | jpeg | png | webp | text (as X-File-Type)
+    pages: int
+
+
+class RerunInput(BaseModel):
+    """POST /api/submissions/{id}/rerun: full re-run of a held or failed sheet from its stored
+    upload, against rubric_id, or against `rubric` - an inline RubricContentIn object validated
+    like upload's rubric_json (422 invalid_rubric) and stored as a new rubric snapshot row. Both
+    -> 422 invalid_rubric; neither = the sheet's current rubric."""
+
+    rubric_id: int | None = None
+    # Typed loosely on purpose: the handler validates it with RubricContentIn so a bad rubric
+    # answers the coded 422 invalid_rubric (same detail format as upload), not a generic 422.
+    rubric: Any = Field(default=None, description="Inline rubric (RubricContentIn object) or null.")
+    reviewer: str | None = Field(default=None, max_length=120)
+
+
+class RenameInput(BaseModel):
+    """PATCH /api/submissions/{id}: the student's name, checked like upload's student_name
+    (whitespace collapsed, 1-120 characters; 422 invalid_student_name)."""
+
+    student_name: str
 
 
 class RubricCreateInput(BaseModel):

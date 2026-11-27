@@ -126,7 +126,7 @@ export function FilterBar({ show = ALL_FILTERS, className }: { show?: FilterKey[
             <option value="">All batches</option>
             {(options.batches ?? []).map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name} · {b.exam_type}
+                {b.name}
               </option>
             ))}
           </select>

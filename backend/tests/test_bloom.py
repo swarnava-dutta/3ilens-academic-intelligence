@@ -68,3 +68,11 @@ def test_concept_key_order_and_transfer():
     assert [bloom.is_transfer(level) for level in bloom.LEVELS] == [False, False, True, True, True]
     assert bloom.label("k4") == "K4 Analyse" and bloom.label("x") == ""
     assert set(bloom.GUIDANCE) == set(bloom.LEVELS)
+
+
+def test_heuristic_is_cached_per_normalised_prompt():
+    bloom._heuristic_for_prompt.cache_clear()
+    first = bloom.heuristic_level({"prompt": "Calculate  the\nratio."})
+    assert bloom.heuristic_level({"prompt": "Calculate the ratio.", "question": 9}) == first
+    info = bloom._heuristic_for_prompt.cache_info()
+    assert (info.hits, info.misses) == (1, 1) and first[0] == "K3"

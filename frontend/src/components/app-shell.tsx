@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   createContext,
   Suspense,
@@ -10,12 +10,13 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { errorMessage, getHealth } from "@/lib/api";
-import type { Health } from "@/lib/types";
+import { errorMessage, getFilters, getHealth } from "@/lib/api";
+import type { Batch, Health } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { batchLabel, FALLBACK_BATCH, FALLBACK_INSTITUTION } from "@/components/workspace/format";
+import { batchLabel, FALLBACK_INSTITUTION } from "@/components/workspace/format";
 
 /* ------------------------------------------------------------------ */
 /* Health context: one GET /api/health poller shared by the whole app  */
@@ -28,6 +29,9 @@ export interface HealthState {
   error: string | null;
   /** True until the first health check settles. */
   loading: boolean;
+  /** Every batch (GET /api/filters): null while loading, [] when unavailable. */
+  batches: Batch[] | null;
+  /** Re-read health and the batch list now (e.g. after saving a batch's exam date). */
   refresh: () => Promise<void>;
 }
 
@@ -35,10 +39,11 @@ const HealthContext = createContext<HealthState>({
   health: null,
   error: null,
   loading: true,
+  batches: null,
   refresh: async () => {},
 });
 
-/** Read the shared API health (AI readiness, institution, batch) from any client component. */
+/** Read the shared API health (AI readiness, institution, batches) from any client component. */
 export function useHealth(): HealthState {
   return useContext(HealthContext);
 }
@@ -55,14 +60,24 @@ export function useOcrThreshold(): number {
 const HEALTH_POLL_MS = 10_000;
 
 function useHealthPolling(): HealthState {
-  const [state, setState] = useState<Omit<HealthState, "refresh">>({
+  const [state, setState] = useState<Omit<HealthState, "batches" | "refresh">>({
     health: null,
     error: null,
     loading: true,
   });
+  const [batches, setBatches] = useState<Batch[] | null>(null);
   const inFlight = useRef(false);
 
-  const refresh = useCallback(async () => {
+  // Loaded once and on refresh(), not on every poll (GET /api/filters also scans the results).
+  const loadBatches = useCallback(async () => {
+    try {
+      setBatches((await getFilters()).batches ?? []);
+    } catch {
+      setBatches((prev) => prev ?? []);
+    }
+  }, []);
+
+  const refreshHealth = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
@@ -76,14 +91,19 @@ function useHealthPolling(): HealthState {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void refreshHealth();
+    void loadBatches();
     const id = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") void refresh();
+      if (document.visibilityState !== "hidden") void refreshHealth();
     }, HEALTH_POLL_MS);
     return () => window.clearInterval(id);
-  }, [refresh]);
+  }, [refreshHealth, loadBatches]);
 
-  return { ...state, refresh };
+  const refresh = useCallback(async () => {
+    await Promise.all([refreshHealth(), loadBatches()]);
+  }, [refreshHealth, loadBatches]);
+
+  return { ...state, batches, refresh };
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,21 +211,97 @@ function AiStatus({ health, error, loading }: Pick<HealthState, "health" | "erro
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const healthState = useHealthPolling();
-  const { health, error, loading } = healthState;
-  const institution = health?.institution?.name || FALLBACK_INSTITUTION;
-  const batch = batchLabel(health?.batch) ?? FALLBACK_BATCH;
-  const exam = health?.batch?.exam || health?.batch?.exam_type || null;
-  const days = health?.batch?.days_to_exam;
-  const assumed = health?.batch?.exam_date_assumed ?? false;
+/** Pages filtered by ?batch_id (none = every batch), and pages that always span every batch. */
+const BATCH_FILTERED = ["/cohort", "/students"];
+const EVERY_BATCH = ["/owner"];
+
+/** The batch a page shows: its id, "all", or null on pages that are not about batches. */
+function pageBatch(pathname: string | null, batchId: string | null): number | "all" | null {
+  if (pathname && EVERY_BATCH.includes(pathname)) return "all";
+  if (!pathname || !BATCH_FILTERED.includes(pathname)) return null;
+  const id = Number(batchId);
+  return Number.isInteger(id) && id > 0 ? id : "all";
+}
+
+function Sep({ at }: { at: "md" | "lg" }) {
+  return (
+    <span className={cn("hidden text-slate-300", at === "md" ? "md:inline" : "lg:inline")} aria-hidden>
+      /
+    </span>
+  );
+}
+
+/**
+ * "Institution / batch in view / NEET in N days". The batch is the one the page is filtered to
+ * ("All batches" without a filter, and on /owner); other pages name no batch. The countdown is that
+ * batch's, or with no single batch in view the one every batch shares (none when their dates differ).
+ */
+const noSubscribe = () => () => {};
+
+function Crumb({ scope }: { scope: number | "all" | null }) {
+  // The server HTML has no API data, and this Suspense leaf can hydrate after health/batches load,
+  // so it hydrates empty (matching the server) and fills in right after.
+  const hydrated = useSyncExternalStore(noSubscribe, () => true, () => false);
+  const live = useHealth();
+  const { health, batches } = hydrated ? live : { health: null, batches: null };
+  // The placeholder institution ("Instit-42") is never shown as if it were a real name.
+  const institution = health?.institution?.name && health.institution.name !== FALLBACK_INSTITUTION ? health.institution.name : null;
+  const pool = batches?.length ? batches : health?.batch ? [health.batch] : [];
+  const inView = typeof scope === "number" ? pool.find((b) => b.id === scope) ?? null : null;
+  const label = scope === "all" ? "All batches" : batchLabel(inView);
+  const shared = pool.every((b) => b.exam === pool[0].exam && b.exam_date === pool[0].exam_date) ? pool[0] ?? null : null;
+  const examBatch = typeof scope === "number" ? inView : shared;
+  const exam = examBatch?.exam || null;
+  const days = examBatch?.days_to_exam;
+  const assumed = examBatch?.exam_date_assumed ?? false;
   const examTitle =
-    exam && health?.batch?.exam_date
-      ? `${exam} on ${health.batch.exam_date}${assumed ? " (assumed date - set it on the Cohort page)" : ""}`
+    exam && examBatch?.exam_date
+      ? `${exam} on ${examBatch.exam_date}${assumed ? " (assumed date - set it on the Cohort page)" : ""}`
       : undefined;
 
   return (
+    <p
+      className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
+      title={[institution ? "Institution" : null, label ? "batch in view" : null, examTitle].filter(Boolean).join(" · ")}
+    >
+      {institution ? <span className="hidden truncate lg:inline">{institution}</span> : null}
+      {label ? (
+        <>
+          {institution ? <Sep at="lg" /> : null}
+          <span className="hidden truncate font-medium text-brand-navy md:inline">{label}</span>
+        </>
+      ) : null}
+      {exam && typeof days === "number" ? (
+        <>
+          {label ? <Sep at="md" /> : institution ? <Sep at="lg" /> : null}
+          <span title={examTitle} className="text-slate-600">
+            {exam} in {assumed ? "~" : ""}
+            {days} {days === 1 ? "day" : "days"}
+            {assumed ? <span className="hidden sm:inline"> (date assumed)</span> : null}
+          </span>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+/** usePathname / useSearchParams suspend under cacheComponents, so the page scope is read in a leaf. */
+function PageCrumb() {
+  return <Crumb scope={pageBatch(usePathname(), useSearchParams().get("batch_id"))} />;
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const healthState = useHealthPolling();
+  const { health, error, loading } = healthState;
+
+  return (
     <HealthContext value={healthState}>
+      <a
+        href="#main-content"
+        className="sr-only z-50 rounded-md bg-white px-3 py-2 text-sm font-medium text-[#1E40AF] focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:outline-2 focus:outline-[#1E40AF]"
+      >
+        Skip to content
+      </a>
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white print:hidden">
         <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
           <Link
@@ -218,41 +314,26 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
 
           <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-slate-600">
-            <p
-              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
-              title={examTitle ? `Institution · active batch · ${examTitle}` : "Institution · active batch"}
-            >
-              <span className="hidden truncate lg:inline">{institution}</span>
-              <span className="hidden text-slate-300 lg:inline" aria-hidden>
-                /
-              </span>
-              <span className="hidden truncate font-medium text-brand-navy md:inline">{batch}</span>
-              {exam && typeof days === "number" ? (
-                <>
-                  <span className="hidden text-slate-300 md:inline" aria-hidden>
-                    /
-                  </span>
-                  <span title={examTitle}>
-                    {exam} in {days} d{assumed ? <span className="text-slate-400">*</span> : null}
-                  </span>
-                </>
-              ) : null}
-            </p>
+            <Suspense fallback={<Crumb scope={null} />}>
+              <PageCrumb />
+            </Suspense>
             <span className="h-4 w-px bg-slate-200" aria-hidden />
             <AiStatus health={health} error={error} loading={loading} />
           </div>
         </div>
 
-        <nav aria-label="Primary" className="mx-auto w-full max-w-7xl px-1 sm:px-3 lg:px-5">
+        <nav aria-label="Primary" className="sair-staff-only mx-auto w-full max-w-7xl px-1 sm:px-3 lg:px-5">
           <Suspense fallback={<NavList pathname={null} />}>
             <ActiveNavList />
           </Suspense>
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8">
+        {children}
+      </main>
 
-      <footer className="border-t border-slate-200 print:hidden">
+      <footer className="sair-staff-only border-t border-slate-200 print:hidden">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:justify-between sm:px-6 lg:px-8">
           <p>Proof of concept · local pipeline (SQLite, local storage) · WhatsApp delivery simulated</p>
           <p>3iLens Academic Intelligence</p>

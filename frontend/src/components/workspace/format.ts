@@ -2,7 +2,7 @@ import type { Batch, Submission, SubmissionStatus } from "@/lib/types";
 
 /** Shown when GET /api/health is unavailable (matches the seeded mock data). */
 export const FALLBACK_INSTITUTION = "Instit-42";
-export const FALLBACK_BATCH = "NEET-A Mock-07";
+export const FALLBACK_BATCH = "NEET-A";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 /** Health.max_pdf_pages when the API has not answered yet (backend MAX_PDF_PAGES default). */
@@ -42,15 +42,9 @@ export function formatClock(seconds: number | null | undefined): string | null {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** "NEET-A" + "Mock-07" -> "NEET-A Mock-07" (tolerates either field already holding the full label). */
+/** A batch's name ("NEET-A"). Never batch.exam_type: a legacy label ("Mock-07") that matches no test. */
 export function batchLabel(batch: Batch | null | undefined): string | null {
-  if (!batch) return null;
-  const name = (batch.name ?? "").trim();
-  const exam = (batch.exam_type ?? "").trim();
-  if (!name) return exam || null;
-  if (!exam || name.toLowerCase().includes(exam.toLowerCase())) return name;
-  if (exam.toLowerCase().includes(name.toLowerCase())) return exam;
-  return `${name} ${exam}`;
+  return batch?.name?.trim() || null;
 }
 
 export function formatBytes(bytes: number): string {

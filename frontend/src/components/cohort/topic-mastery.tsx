@@ -42,7 +42,7 @@ export function TopicMastery({
 
       {rows.length === 0 ? (
         <p className="mt-4 text-sm text-slate-500">
-          Topic mastery appears once evaluated sheets cover at least one rubric topic.
+          Chapter mastery appears once graded sheets cover at least one chapter.
         </p>
       ) : (
         <ol className="mt-3 divide-y divide-slate-100">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { CheckCircle2, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +66,7 @@ export function Dialog({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700"
               aria-label="Close"
             >
               <X className="h-4 w-4" aria-hidden />
@@ -80,13 +81,18 @@ export function Dialog({
 }
 
 export const btnPrimary =
-  "inline-flex h-9 items-center justify-center gap-2 rounded-md bg-brand-navy px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-navy-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "inline-flex h-9 items-center justify-center gap-2 rounded-md bg-brand-navy px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-navy-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
 export const btnSecondary =
-  "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan";
+  "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
 export const fieldClass =
   "h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:bg-slate-50";
 
-export type ToastMessage = { kind: "success" | "error"; message: string };
+export type ToastMessage = {
+  kind: "success" | "error";
+  message: string;
+  /** onClick runs as well (e.g. scroll the tab it opens into view). */
+  action?: { label: string; href: string; onClick?: () => void };
+};
 
 /** Bottom-right toast that hides itself after a few seconds (or on close). */
 export function Toast({ toast, onClose }: { toast: ToastMessage | null; onClose: () => void }) {
@@ -113,12 +119,30 @@ export function Toast({ toast, onClose }: { toast: ToastMessage | null; onClose:
       ) : (
         <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
       )}
-      <p className="min-w-0 flex-1">{toast.message}</p>
+      <p className="min-w-0 flex-1">
+        {toast.message}
+        {toast.action ? (
+          <>
+            {" "}
+            <Link
+              href={toast.action.href}
+              scroll={false}
+              onClick={() => {
+                toast.action?.onClick?.();
+                onClose();
+              }}
+              className="rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-cyan-700"
+            >
+              {toast.action.label}
+            </Link>
+          </>
+        ) : null}
+      </p>
       <button
         type="button"
         onClick={onClose}
         className={cn(
-          "rounded-sm p-1 transition-colors focus-visible:outline-2 focus-visible:outline-brand-cyan",
+          "rounded-sm p-1 transition-colors focus-visible:outline-2 focus-visible:outline-cyan-700",
           toast.kind === "success" ? "text-white/70 hover:bg-white/10 hover:text-white" : "text-red-600 hover:bg-red-100",
         )}
         aria-label="Dismiss"

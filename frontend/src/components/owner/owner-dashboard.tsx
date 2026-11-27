@@ -1,77 +1,72 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { Loader2, RotateCw } from "lucide-react";
-import { getOwnerDashboard, seedDemoCohort, updateBatch } from "@/lib/api";
-import type { DemoSet, OwnerDashboard as OwnerData } from "@/lib/types";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useRef, useState, type ReactNode } from "react";
+import { RotateCw } from "lucide-react";
+import { IllustrativePill } from "@/components/shared/illustrative-pill";
+import { getOwnerDashboard, updateBatch } from "@/lib/api";
+import type { OwnerDashboard as OwnerData } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { AttentionList, type AttentionHandle } from "./attention-list";
 import { BatchesTable } from "./batches-table";
 import { EffectivenessCard } from "./effectiveness-card";
-import { FacultyTable } from "./faculty-table";
-import { fmtDateTime } from "./format";
-import { OwnerKpis, OwnerUrgencyStrip } from "./kpis";
-import { btnQuiet, CardSkeleton, ErrorNote, focusRing, PageHeader, SamplePill } from "./states";
-import { TrendChart } from "./trend-chart";
+import { OwnerKpis, stripCls } from "./kpis";
+import { clockText, periodText } from "./owner-ui";
+import { OwnerTabs, parseOwnerTab, type OwnerTab, type OwnerTabsHandle } from "./owner-tabs";
+import { btnQuiet, ErrorNote, focusRing } from "./states";
 import { useAsync } from "./use-async";
-import { WeakestTopics } from "./weakest-topics";
 import { WhatIfSimulator } from "./what-if";
 
-const SEEDS: { set: DemoSet; label: string; busy: string }[] = [
-  { set: "all", label: "Load sample cohorts", busy: "Loading sample cohorts…" },
-  { set: "insights", label: "Load insights sample (MCQ papers, interventions)", busy: "Loading insights sample…" },
-];
-
-/** Seed buttons: set=all (Genetics + mixed), then set=insights (NEET-C, MCQ papers, interventions). */
-export function SeedButtons({ onSeeded, only }: { onSeeded: () => Promise<void>; only?: DemoSet[] }) {
-  const [busy, setBusy] = useState<DemoSet | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<unknown>(null);
-
-  async function seed(set: DemoSet) {
-    setBusy(set);
-    setMessage(null);
-    setError(null);
-    try {
-      const res = await seedDemoCohort(set);
-      setMessage(res?.message || "Sample data loaded.");
-      await onSeeded();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div>
-      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        {SEEDS.filter((s) => !only || only.includes(s.set)).map((s) => (
-          <button
-            key={s.set}
-            type="button"
-            onClick={() => void seed(s.set)}
-            disabled={busy !== null}
-            className={cn(btnQuiet, "h-10 sm:h-8")}
-          >
-            {busy === s.set ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-            {busy === s.set ? s.busy : s.label}
-          </button>
-        ))}
-      </div>
-      <div aria-live="polite" className="mt-2 min-h-5 text-sm">
-        {error ? <ErrorNote error={error} prefix="Could not load the sample" /> : null}
-        {message && !error ? <p className="text-lime-800">{message}</p> : null}
-      </div>
-    </div>
-  );
+function Bone({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-sm bg-slate-100 motion-reduce:animate-none", className)} />;
 }
 
-function OwnerSkeleton() {
+/** Loading placeholder shaped like the page: header, 4 tiles, 5 attention rows, 3 batch rows. */
+export function OwnerSkeleton() {
   return (
-    <div className="space-y-6">
-      <CardSkeleton rows={1} label="Loading owner dashboard…" />
-      <div className="h-20 animate-pulse rounded-md border border-slate-200 bg-white motion-reduce:animate-none" aria-hidden />
-      <CardSkeleton rows={4} label="Loading batches…" />
+    <div aria-busy="true" className="space-y-6">
+      <span role="status" className="sr-only">
+        Loading owner overview…
+      </span>
+      <div aria-hidden className="space-y-6">
+        <div className="border-b border-slate-200 pb-4">
+          <Bone className="h-3 w-28" />
+          <Bone className="mt-2 h-7 w-64 max-w-full" />
+          <Bone className="mt-2 h-3 w-96 max-w-full" />
+        </div>
+        <div className={cn(stripCls, "grid-cols-2 md:grid-cols-4")}>
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="bg-white px-4 py-3">
+              <Bone className="h-3 w-20" />
+              <Bone className="mt-2 h-6 w-16" />
+              <Bone className="mt-2 h-3 w-28" />
+            </div>
+          ))}
+        </div>
+        <div className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+          <div className="px-4 py-3">
+            <Bone className="h-4 w-44" />
+          </div>
+          {Array.from({ length: 5 }, (_, i) => (
+            <div key={i} className="flex items-center gap-3 border-l-[3px] border-l-slate-200 px-4 py-3">
+              <Bone className="h-4 w-4" />
+              <div className="flex-1">
+                <Bone className="h-3 w-80 max-w-full" />
+                <Bone className="mt-1.5 h-3 w-48 max-w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5">
+          <Bone className="h-4 w-24" />
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 3 }, (_, i) => (
+              <Bone key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -84,14 +79,63 @@ function patchLead(data: OwnerData | null, batchId: number, lead: string | null)
   };
 }
 
+function OwnerHeader({
+  title,
+  meta,
+  actions,
+}: {
+  title: string;
+  meta?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
+        {title !== "Owner overview" ? (
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Owner overview</p>
+        ) : null}
+        <h1 className="mt-0.5 text-[22px] font-semibold leading-tight text-brand-navy sm:text-2xl">{title}</h1>
+        {meta ? <p className="mt-1 text-sm text-slate-600">{meta}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </header>
+  );
+}
+
 /**
- * Institute-owner dashboard (FR-5.9): totals, batches, faculty, trend, weakest topics,
- * intervention effectiveness (FR-4.13) and the what-if simulator (FR-4.14). No login in this PoC.
+ * Institute-owner overview (FR-5.9): 4 figures, what needs attention, batches, then detail tabs
+ * (progress, topics, exam behaviour, faculty, interventions, what-if, cost). Every count is of
+ * students by their latest test unless it says sheets. No login in this PoC.
  */
 export function OwnerDashboard() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tab = parseOwnerTab(searchParams.get("tab"));
   const [institutionId, setInstitutionId] = useState<number | null>(null);
   const fetcher = useCallback(() => getOwnerDashboard(institutionId), [institutionId]);
   const { data, error, loading, reload, setData } = useAsync(fetcher);
+  const attention = useRef<AttentionHandle>(null);
+  const tabs = useRef<OwnerTabsHandle>(null);
+
+  const setTab = useCallback(
+    (next: OwnerTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "progress") params.delete("tab");
+      else params.set("tab", next);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const openTab = useCallback(
+    (next: OwnerTab) => {
+      setTab(next);
+      tabs.current?.focus(next);
+    },
+    [setTab],
+  );
 
   const saveLead = useCallback(
     async (batchId: number, lead: string | null) => {
@@ -112,10 +156,10 @@ export function OwnerDashboard() {
     if (error) {
       return (
         <div className="space-y-4">
-          <PageHeader title="Owner dashboard" />
+          <OwnerHeader title="Owner overview" />
           <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Could not load the owner dashboard" />
           {/* These two sections have their own endpoints, so they still work when the dashboard call fails. */}
-          <EffectivenessCard institutionId={institutionId} />
+          <EffectivenessCard institutionId={institutionId} variant="owner" hideCalibration />
           <WhatIfSimulator institutionId={institutionId} />
         </div>
       );
@@ -123,56 +167,59 @@ export function OwnerDashboard() {
     return <OwnerSkeleton />;
   }
 
-  const empty = (data.totals?.submissions ?? 0) === 0;
-  // The badge already says it; drop the same sentence from the start of the API's role note.
-  const roleNote = (data.role_note ?? "").replace(/^owner view - no login in this poc[.\s]*/i, "");
+  const t = data.totals;
+  const empty = (t?.completed ?? 0) === 0;
   const instId = data.institution?.id ?? institutionId;
+  const period = periodText(data.period?.first, data.period?.last);
+  const signals = data.signals ?? [];
+  // "from N tests" only when the API sends it and something is graded (older APIs lack tests).
+  const tests = typeof t.tests === "number" && t.tests > 0 && t.completed > 0 ? t.tests : null;
+  const meta = [
+    `${t.batches} batch${t.batches === 1 ? "" : "es"}`,
+    `${t.students} student${t.students === 1 ? "" : "s"}`,
+    `${t.completed} graded sheet${t.completed === 1 ? "" : "s"}` +
+      (tests !== null ? ` from ${tests} test${tests === 1 ? "" : "s"}` : ""),
+    period,
+    `updated ${clockText(data.generated_at)}`,
+  ].filter(Boolean);
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <OwnerHeader
         title={data.institution?.name ?? "Institution"}
-        description={
-          <>
-            <p>
-              Owner dashboard · generated {fmtDateTime(data.generated_at)} ·{" "}
-              <span className="tabular-nums">
-                {data.real_count} live · {data.demo_count} sample results
-              </span>
-            </p>
-            <p className="mt-0.5 text-[13px] text-slate-500">
-              No login in this PoC: anyone with the link sees the owner view.{roleNote ? ` ${roleNote}` : ""}
-            </p>
-          </>
-        }
+        meta={<span className="tabular-nums">{meta.join(" · ")}</span>}
         actions={
           <>
-          {data.is_demo ? <SamplePill /> : null}
-          {data.institutions?.length > 1 ? (
-            <label className="text-sm">
-              <span className="sr-only">Institution</span>
-              <select
-                value={instId ?? ""}
-                onChange={(e) => setInstitutionId(e.target.value ? Number(e.target.value) : null)}
-                className={cn("h-10 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 sm:h-8", focusRing)}
-              >
-                {data.institutions.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void reload()}
-            disabled={loading}
-            className={cn(btnQuiet, "h-10 sm:h-8")}
-          >
-            <RotateCw className={cn("h-4 w-4", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />
-            Refresh
-          </button>
+            {data.institutions?.length > 1 ? (
+              <label className="text-sm">
+                <span className="sr-only">Institution</span>
+                <select
+                  value={instId ?? ""}
+                  onChange={(e) => setInstitutionId(e.target.value ? Number(e.target.value) : null)}
+                  className={cn("h-10 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 sm:h-8", focusRing)}
+                >
+                  {data.institutions.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {data.is_demo ? (
+              <IllustrativePill
+                label={`${data.demo_count} of ${t.submissions} sheets are sample data`}
+                title="Synthetic sample records (is_demo), generated locally without AI calls - not real students."
+                className="h-8 whitespace-normal"
+              />
+            ) : null}
+            <button type="button" onClick={() => void reload()} disabled={loading} className={cn(btnQuiet, "h-10 sm:h-8")}>
+              <RotateCw className={cn("h-4 w-4", loading && "motion-safe:animate-spin")} aria-hidden />
+              Refresh
+            </button>
+            <span aria-live="polite" className="sr-only">
+              {loading ? "Refreshing" : `Updated ${clockText(data.generated_at)}`}
+            </span>
           </>
         }
       />
@@ -180,42 +227,49 @@ export function OwnerDashboard() {
       {error ? <ErrorNote error={error} onRetry={() => void reload()} retrying={loading} prefix="Refresh failed (showing the last data)" /> : null}
 
       {empty ? (
-        <section className="rounded-md border border-slate-200 bg-white px-4 py-6 sm:px-5">
-          <h2 className="text-[15px] font-semibold text-brand-navy">No submissions in this institution yet</h2>
-          <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            Upload answer sheets on the Intake page, or load the labelled sample data: first the sample cohorts, then
-            the insights sample (NEET MCQ papers, batch NEET-C (sample) and logged interventions). Both are synthetic and
-            make no AI calls.
-          </p>
-          <div className="mt-4">
-            <SeedButtons onSeeded={reload} />
-          </div>
-        </section>
+        <>
+          <section className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-brand-navy">No graded sheets in this institution yet</h2>
+              <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                Upload the answer key and the ticked papers on Intake. Progress, topics and faculty figures appear here once
+                sheets are graded; you can set each batch&apos;s faculty lead below now.
+              </p>
+            </div>
+            <Link href="/" className={cn(btnQuiet, "h-10 shrink-0 sm:h-8")}>
+              Go to Intake
+            </Link>
+          </section>
+          {(data.batches ?? []).length ? (
+            <BatchesTable batches={data.batches ?? []} samePaper={[]} onSaveLead={saveLead} />
+          ) : null}
+        </>
       ) : (
         <>
-          <OwnerKpis data={data} />
-          <OwnerUrgencyStrip data={data} />
-          {data.interventions?.records === 0 ? (
-            <div className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-              <p className="mb-2">
-                No interventions logged yet, so effectiveness and calibration are empty. The insights sample adds NEET-C
-                (sample) with MCQ papers and logged interventions.
-              </p>
-              <SeedButtons onSeeded={reload} only={["insights"]} />
-            </div>
+          <OwnerKpis
+            data={data}
+            onJump={(key) => attention.current?.open(key)}
+            canJump={(key) => signals.some((s) => s.key === key)}
+          />
+          {data.signals ? (
+            <AttentionList
+              ref={attention}
+              signals={signals}
+              atRisk={data.at_risk_students ?? []}
+              release={data.release ?? null}
+              generatedAt={data.generated_at}
+              onOpenTab={openTab}
+            />
           ) : null}
-          <BatchesTable batches={data.batches ?? []} onSaveLead={saveLead} />
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div className="min-w-0 xl:col-span-2">
-              <TrendChart trend={data.trend ?? []} />
-            </div>
-            <WeakestTopics topics={data.weakest_topics ?? []} />
-          </div>
-          <FacultyTable faculty={data.faculty ?? []} />
-          <EffectivenessCard institutionId={instId} />
-          <WhatIfSimulator key={instId ?? "all"} institutionId={instId} />
+          <BatchesTable batches={data.batches ?? []} samePaper={data.same_paper ?? []} onSaveLead={saveLead} />
+          <OwnerTabs ref={tabs} data={data} institutionId={instId} tab={tab} onTab={setTab} />
         </>
       )}
+
+      <p className="text-xs text-slate-500">
+        No login in this PoC: anyone with the link sees the owner view. Counts are students by their latest test unless
+        they say sheets.
+      </p>
     </div>
   );
 }

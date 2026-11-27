@@ -1,5 +1,5 @@
 // Cohort-only presentation helpers. Shared formatters live in @/lib/utils.
-import type { Batch, Cohort } from "@/lib/types";
+import type { Cohort } from "@/lib/types";
 import { masteryTone } from "@/lib/utils";
 
 /** Finite number or null (guards against NaN / undefined from an evolving backend). */
@@ -49,16 +49,6 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** "NEET-A" + "Mock-07" -> "NEET-A Mock-07" without duplicating when the name already includes it. */
-export function batchLabel(batch: Batch | null | undefined): string {
-  const name = batch?.name?.trim() ?? "";
-  const exam = batch?.exam_type?.trim() ?? "";
-  if (!exam) return name || "Active batch";
-  if (!name) return exam;
-  if (name.toLowerCase().includes(exam.toLowerCase())) return name;
-  return `${name} ${exam}`; // "NEET-A Mock-07", as in the spec and the app shell
-}
-
 /** True when there is at least one evaluated result to chart. */
 export function hasResults(cohort: Cohort): boolean {
   return (cohort.total_submissions ?? 0) > 0 && num(cohort.average_score) !== null;
@@ -99,3 +89,117 @@ export function toneFor(mastery: number | null | undefined) {
 
 /** Threshold used for the "strong" reference line (matches masteryTone in @/lib/utils). */
 export const MASTERY_TARGET = 75;
+
+// --------------------------------------------------------------------------- //
+// Cohort page formatting (one decimal in tiles and sentences, whole numbers in tables)
+// --------------------------------------------------------------------------- //
+export const MINUS = "−";
+
+/** 62.6 -> "62.6%" (always one decimal). */
+export function pct1(value: number | null | undefined): string {
+  const v = num(value);
+  return v === null ? "—" : `${v.toFixed(1)}%`;
+}
+
+/** 5.9 -> "+5.9", -1.5 -> "−1.5" (real minus sign). */
+export function signed1(value: number | null | undefined): string {
+  const v = num(value);
+  if (v === null) return "—";
+  const text = Math.abs(v).toFixed(1);
+  return v > 0 ? `+${text}` : v < 0 ? `${MINUS}${text}` : text;
+}
+
+/** Signed change in percentage points: "+5.9 pts". */
+export function pts(value: number | null | undefined): string {
+  const v = num(value);
+  return v === null ? "—" : `${signed1(v)} pts`;
+}
+
+/** Marks lost as a negative number with the real minus: 39 -> "−39". */
+export function lost(value: number | null | undefined): string {
+  const v = num(value);
+  if (v === null) return "—";
+  return v === 0 ? "0" : `${MINUS}${formatNumber(Math.abs(v))}`;
+}
+
+const IST: Intl.DateTimeFormatOptions = { timeZone: "Asia/Kolkata" };
+
+function parseIso(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** "24 Nov" (IST, like the owner page). */
+export function dayMonth(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  return d ? d.toLocaleDateString("en-IN", { ...IST, day: "numeric", month: "short" }) : "—";
+}
+
+/** "24 Nov 2026" (IST). */
+export function fullDate(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  return d ? d.toLocaleDateString("en-IN", { ...IST, day: "numeric", month: "short", year: "numeric" }) : "—";
+}
+
+/** "n of N students". */
+export function nOf(n: number, total: number, word = "student"): string {
+  return `${n} of ${total} ${total === 1 ? word : `${word}s`}`;
+}
+
+/** Bins of the class distribution: [0,20) [20,40) [40,60) [60,80) [80,100]. */
+export const BINS = [
+  { label: "<20%", lo: 0, hi: 20 },
+  { label: "20–39%", lo: 20, hi: 40 },
+  { label: "40–59%", lo: 40, hi: 60 },
+  { label: "60–79%", lo: 60, hi: 80 },
+  { label: "80%+", lo: 80, hi: 101 },
+] as const;
+
+export function binOf(pct: number): number {
+  return BINS.findIndex((b) => pct >= b.lo && pct < b.hi);
+}
+
+export const RETEACH_LINE = 60;
+
+/** The urgency rule in the page's words (chapters, not topics). */
+export const COHORT_URGENCY_RULE =
+  "70% or more: on track · 55% to under 70%: needs attention · below 55%: at risk. One level worse when 2 or more chapters are below 40%";
+
+/** At least a third of the students who sat a chapter (2 or more) below the re-teach line. */
+export const RETEACH_RULE = `a third or more of the students who sat it (2 or more) below ${RETEACH_LINE}%`;
+
+/** Link text with AA contrast on white and on cyan-50 (brand-cyan-600 is 3.8:1 - fills only). */
+export const LINK_TEXT = "text-cyan-700 hover:text-cyan-800";
+export const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
+
+export const LOW_CHAPTER = 40;
+
+export type ChapterTone = "low" | "under" | "ok";
+
+/**
+ * Chapter colours on the cohort page follow the re-teach line, so a 58% chapter reads as "below
+ * the line" (red below 40%, amber 40-59%, lime 60% and above). The 50 / 75 mastery bands stay on
+ * the student report.
+ */
+export const CHAPTER_TONES: Record<ChapterTone, { label: string; bar: string; chip: string }> = {
+  low: { label: `Below ${LOW_CHAPTER}%`, bar: "bg-red-600", chip: "bg-red-50 text-red-800 ring-red-200" },
+  under: { label: `${LOW_CHAPTER}–${RETEACH_LINE - 1}%`, bar: "bg-amber-500", chip: "bg-amber-50 text-amber-900 ring-amber-200" },
+  ok: { label: `${RETEACH_LINE}% or more`, bar: "bg-brand-lime-600", chip: "bg-brand-lime-50 text-lime-800 ring-brand-lime/50" },
+};
+
+
+export function chapterToneKey(value: number | null | undefined): ChapterTone {
+  const v = clampPct(value);
+  return v < LOW_CHAPTER ? "low" : v < RETEACH_LINE ? "under" : "ok";
+}
+
+export function chapterTone(value: number | null | undefined) {
+  return CHAPTER_TONES[chapterToneKey(value)];
+}
+
+/** NEET chapter weight (0-1 share of the exam) as "3.3%"; "—" when not in the chapter table. */
+export function neetWeight(value: number | null | undefined): string {
+  const v = num(value);
+  return v === null ? "—" : `${(v * 100).toFixed(1)}%`;
+}

@@ -25,7 +25,7 @@ export function ScoreDistribution({
       <CardHeader
         id="cohort-dist-title"
         title="Score distribution"
-        subtitle={`${plural(total, "evaluated sheet")} by score band`}
+        subtitle={`${plural(total, "graded sheet")} by score band`}
       />
 
       {rows.length === 0 ? (
@@ -43,7 +43,7 @@ export function ScoreDistribution({
                   title={`${b.label}: ${plural(b.count, "submission")} (${share})`}
                 >
                   <span className="sr-only">
-                    {b.label}: {plural(b.count, "submission")}, {share} of evaluated sheets
+                    {b.label}: {plural(b.count, "submission")}, {share} of graded sheets
                   </span>
                   <div
                     aria-hidden
