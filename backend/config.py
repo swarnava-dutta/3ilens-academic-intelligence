@@ -71,7 +71,6 @@ DEFAULT_TRANSCRIBE_MODEL = "gpt-transcribe"
 # Cross-vendor fallback (FR-3.10). openai 3.57 lists gpt-4o with an announced shutdown of
 # 2027-01-14, so the model is env-configurable (LLM_FALLBACK_MODEL).
 DEFAULT_FALLBACK_MODEL = "gpt-4o"
-GPT4O_SHUTDOWN = "2027-01-14"
 # Every OpenAI route (fallback grading, voice transcription) is labelled with this note.
 RESIDENCY_NOTE = "Not residency-approved - PoC only (OpenAI, US-hosted)"
 

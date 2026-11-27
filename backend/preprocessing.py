@@ -47,13 +47,9 @@ from config import DOCX_MIME, Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-# v1 log line. Kept exported for compatibility (older fakes/tests import it); the real
-# pipeline now logs the measured values instead and never says "Simulating".
-SIMULATION_MESSAGE = "Simulating Deskew and 300 DPI Contrast Enhancement."
 ENHANCEMENT_DISABLED_MESSAGE = "Enhancement disabled (PREPROCESS_ENHANCE=0)"
 DOCX_CONVERTED_MESSAGE = "Converted typed DOCX to PDF ({pages} page{s}) - same vision path"
 
-MAX_LONG_EDGE_PX = 2000  # default VISION_MAX_EDGE_PX; the effective cap is settings.vision_max_edge_px
 # Master images are capped at ~A4 @ 300 DPI worth of pixels (+10%) so a huge photo or an
 # oversized PDF page cannot blow up memory.
 MAX_MASTER_PIXELS = int(2480 * 3508 * 1.1)
@@ -236,15 +232,6 @@ def render_review_pages(file_path: Path, mime_type: str, artifact_dir: Path) -> 
     finally:
         source.close()
     return paths
-
-
-def page_count(file_path: Path, mime_type: str) -> int:
-    """Pages a stored upload will produce (PDF/DOCX pages; 1 for an image). Raises PreprocessingError."""
-    source = _open_source(Path(file_path), mime_type, get_settings(), lambda _message: None)
-    try:
-        return source.page_count
-    finally:
-        source.close()
 
 
 def _intro_message(settings: Settings) -> str:
@@ -450,7 +437,7 @@ def estimate_skew(image: Image.Image) -> float:
         # Ties go to the angle closest to 0 (never rotate without evidence).
         return max(((_row_profile_variance(gray, a), -abs(a), a) for a in angles))[0::2]
 
-    coarse_var, coarse = best([float(a) for a in range(-DESKEW_RANGE_DEG, DESKEW_RANGE_DEG + 1)])
+    _, coarse = best([float(a) for a in range(-DESKEW_RANGE_DEG, DESKEW_RANGE_DEG + 1)])
     steps = int(round(1 / DESKEW_FINE_STEP_DEG))
     fine_var, fine = best([coarse + k * DESKEW_FINE_STEP_DEG for k in range(-steps, steps + 1)])
     gray.close()

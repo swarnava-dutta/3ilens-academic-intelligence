@@ -91,12 +91,10 @@ SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 OPENAI_MAX_COMPLETION_TOKENS = 8000
 
-# Bumped whenever a prompt or output schema changes; part of the OCR cache key.
+# Bumped whenever the prompt or output schema changes: the OCR version is part of the OCR cache
+# key; the evaluation version is recorded with each consistency check.
 OCR_PROMPT_VERSION = "ocr-v4"
 EVALUATION_PROMPT_VERSION = "eval-v3"
-RUBRIC_PARSE_PROMPT_VERSION = "rubric-v3"
-RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v3"
-BLOOM_DETECT_PROMPT_VERSION = "bloom-v1"
 
 # Post-processing caps (structured outputs cannot enforce maxItems / minLength).
 MAX_UNCERTAIN_WORDS = insights.MAX_UNCERTAIN_WORDS  # per answer
@@ -848,7 +846,7 @@ def run_ocr(
 
     pages = sorted(pages, key=lambda page: page.page_number)
     hints = clean_language_hints(language_hints)
-    per_call = ocr_pages_per_call(settings, rubric_content)
+    per_call = settings.ocr_pages_per_call
     if len(pages) > per_call:
         return _run_ocr_chunked(settings, provider, pages, rubric_content, hints, on_usage, per_call=per_call)
     instruction = _ocr_instruction(rubric_content, len(pages), hints)
@@ -993,17 +991,17 @@ def _run_ocr_chunked(
     hints: list[str],
     on_usage: UsageCallback | None,
     *,
-    per_call: int | None = None,
+    per_call: int,
 ) -> OcrResult:
-    """OCR for a sheet longer than ocr_pages_per_call() pages: consecutive page chunks, read in
-    parallel (AI_CHUNK_CONCURRENCY), each with its own fallback, merged into one OcrResult.
+    """OCR for a sheet longer than per_call (OCR_PAGES_PER_CALL) pages: consecutive page chunks,
+    read in parallel (AI_CHUNK_CONCURRENCY), each with its own fallback, merged into one OcrResult.
     Every chunk after the first also gets the previous page as context only, so a tick or an
     answer continuing at the top of its first page is mapped to the question that started on
     the previous page; only the chunk's own pages are transcribed and assessed.
     Any chunk that still fails after its fallback fails the whole call (the pipeline's retry /
     dead-letter logic then handles the sheet)."""
     total = len(pages)
-    chunks = chunk_pages(pages, per_call or ocr_pages_per_call(settings, rubric_content))
+    chunks = chunk_pages(pages, per_call)
     previous = {page.page_number: before for before, page in zip(pages, pages[1:])}
 
     def read(chunk: list[PreparedPage], record_usage: UsageCallback) -> _OcrChunk:
@@ -1036,7 +1034,7 @@ def _run_ocr_chunked(
         raise AIServiceError("Part of the answer sheet could not be transcribed.", code="ai_error")
 
     threshold = settings.ocr_confidence_threshold
-    answers, review_pages = _merge_ocr_chunks(done, _mcq_option_counts(rubric_content), threshold)
+    answers, review_pages = _merge_ocr_chunks(done, marking.mcq_option_counts(rubric_content), threshold)
     assessed: dict[int, float] = {}
     for chunk in done:
         for item in chunk.page_assessments:
@@ -1077,17 +1075,6 @@ def _run_ocr_chunked(
         dropped_questions=dropped,
         language_hints=hints,
     )
-
-
-def _mcq_option_counts(rubric_content: dict) -> dict[int, int | None]:
-    """MCQ number -> its number of options (None when the rubric lists none)."""
-    out: dict[int, int | None] = {}
-    for question in _rubric_questions(rubric_content):
-        number = _question_number(question)
-        if number is not None and marking.question_type(question) == "mcq":
-            options = question.get("options") if isinstance(question.get("options"), list) else []
-            out[number] = len(options) or None
-    return out
 
 
 def _joined(existing: OcrAnswer, answer: OcrAnswer) -> OcrAnswer:
@@ -2117,10 +2104,6 @@ def _require_openai_key(settings: Settings) -> None:
         )
 
 
-def _provider_label(provider: str) -> str:
-    return "Claude" if provider == "anthropic" else "OpenAI"
-
-
 # --------------------------------------------------------------------------- #
 # Prompt building
 # --------------------------------------------------------------------------- #
@@ -2299,10 +2282,6 @@ def strip_examiner_notes(text: str) -> str:
     return NOTE_TO_EXAMINER.sub(NOTE_REMOVED, text or "")
 
 
-def has_examiner_note(text: Any) -> bool:
-    return bool(NOTE_TO_EXAMINER.search(str(text or "")))
-
-
 def _evaluation_answers_block(answers: list[OcrAnswer], answer_medium: str = "handwriting") -> str:
     answers_view = [
         {"question": a.question, "answer": strip_examiner_notes(a.answer)}
@@ -2310,11 +2289,6 @@ def _evaluation_answers_block(answers: list[OcrAnswer], answer_medium: str = "ha
     ]
     block = EVALUATION_ANSWERS_TEMPLATE.format(answers_json=json.dumps(answers_view, indent=2, ensure_ascii=False))
     return f"{SPEECH_ANSWERS_NOTE}\n\n{block}" if answer_medium == "speech" else block
-
-
-def _evaluation_instruction(answers: list[OcrAnswer], rubric_content: dict, answer_medium: str = "handwriting") -> str:
-    """Both blocks joined (for inspection; the request sends them as two content blocks)."""
-    return f"{_evaluation_rubric_block(rubric_content)}\n\n{_evaluation_answers_block(answers, answer_medium)}"
 
 
 def _json_schema_format(model: type[BaseModel]) -> dict[str, Any]:

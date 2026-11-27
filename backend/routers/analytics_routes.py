@@ -36,15 +36,17 @@ import paper_pages
 import pipeline
 import provenance
 import result_view
+import results_store
 import rubric_store
 import uploads
-from ai_schemas import ModelUsage, OcrAnswer, OcrResult
+from ai_schemas import ModelUsage, OcrAnswer
 from config import get_settings
 from database import (
     Batch,
     Rubric,
     RubricStatus,
     StudentSubmission,
+    append_log,
     get_db,
     ist_today,
     utcnow,
@@ -73,7 +75,6 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 CONSISTENCY_TOLERANCE = 2.0  # marks (FR-3.5)
 CONSISTENCY_FILE = "consistency.json"
-TRANSCRIPT_FILES = ("ocr_reviewed.json", "ocr.json")  # faculty-reviewed transcript first
 MIN_PDF_TEXT_CHARS = 200  # a PDF with at least this much text is sent as text, else as a scan
 MAX_RUBRIC_PDF_PAGES = 40
 # A PDF with at least this many pages is a full printed paper: drafted from page images, a few
@@ -211,20 +212,12 @@ def patch_batch(batch_id: int, body: BatchPatchInput, db: DbSession) -> BatchOut
 # --------------------------------------------------------------------------- #
 # Consistency check (FR-3.5)
 # --------------------------------------------------------------------------- #
-def _artifact_dir(sub: StudentSubmission) -> Path:
-    return get_settings().artifact_dir / str(sub.id)
-
-
 def _consistency_answers(sub: StudentSubmission) -> tuple[list[OcrAnswer], str]:
     """The transcript the stored result was graded from: the faculty-reviewed or raw OCR artifact,
     else the student answers stored on the result (demo / legacy rows)."""
-    directory = _artifact_dir(sub)
-    for name in TRANSCRIPT_FILES:
-        try:
-            data = json.loads((directory / name).read_text(encoding="utf-8"))
-            return OcrResult.model_validate(data).answers, name
-        except (OSError, ValueError, ValidationError):
-            continue
+    ocr, name, _raw = pipeline.stored_transcript(sub.id)
+    if ocr is not None:
+        return ocr.answers, name
     answers = []
     for item in sub.result.question_evaluations or []:
         if not isinstance(item, dict):
@@ -312,7 +305,7 @@ def consistency_check(submission_id: int, db: DbSession) -> ConsistencyCheck:
         checked_at=utcnow(),
     )
     try:
-        directory = _artifact_dir(sub)
+        directory = results_store.job_dir(sub.id)
         directory.mkdir(parents=True, exist_ok=True)
         payload = {**check.model_dump(mode="json"), "transcript_source": source, "rubric_id": rubric.id,
                    "rubric_version": rubric.version, "prompt_version": ai.EVALUATION_PROMPT_VERSION}
@@ -323,7 +316,7 @@ def consistency_check(submission_id: int, db: DbSession) -> ConsistencyCheck:
         f"within +/-{CONSISTENCY_TOLERANCE:g}" if check.within_tolerance
         else f"outside +/-{CONSISTENCY_TOLERANCE:g} - review the grading before release"
     )
-    pipeline.append_log(
+    append_log(
         sub, "Consistency check",
         f"Re-grade delta {abs(delta_total):g} marks ({total_regrade:g} vs {total_original:g}) - {verdict}.",
     )

@@ -1,9 +1,9 @@
 """What an intake file looks like, read locally from its text layer (no AI call, nothing stored).
 
 Used by POST /api/intake/inspect (routers/intake_routes.py) before upload, and by POST /api/upload
-for one Ingestion log line. The result is a hint for faculty only: it never rejects a file or
-changes how it is processed. The upload hint names the selected rubric when the printed paper does
-not fit it (the pipeline holds such a sheet: paper_match.compare / shape_check).
+for one Ingestion log line (paper_notice). The result is a hint for faculty only: it never rejects a
+file or changes how it is processed. The upload hint names the selected rubric when the printed paper
+does not fit it (the pipeline holds such a sheet: paper_match.compare / shape_check).
 
 Heuristics (all counts come from the PDF / DOCX text layer; images and audio have none):
 
@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 import pymupdf
 
@@ -52,8 +53,10 @@ import marking
 import mcq_marks
 import paper_match
 import preprocessing
+import rubric_store
 import uploads
 from config import DOCX_MIME, MIME_LABELS, Settings
+from database import Rubric, SessionLocal, StudentSubmission, append_log
 from errors import ApiError
 from schemas import PaperInspection, RubricMatch
 
@@ -587,3 +590,35 @@ def ingestion_hint(
         why = hold[1]
         return f"{keyed} {why[0].upper()}{why[1:]}"
     return keyed
+
+
+def _selected_rubric(sub: StudentSubmission, rubric: Rubric | None) -> tuple[dict | None, str | None]:
+    """(content, "'name' (version)") of the sheet's rubric: the one given, the loaded relation, else
+    a short read by sub.rubric_id (POST /api/upload builds the row before adding it to its session).
+    (None, None) when unknown."""
+    if rubric is None:
+        rubric = sub.rubric
+    if rubric is None and sub.rubric_id is not None:
+        with SessionLocal() as db:  # closing detaches the row; its loaded columns stay readable
+            rubric = db.get(Rubric, sub.rubric_id)
+    if rubric is None:
+        return None, None
+    return rubric.content, rubric_store.rubric_label(rubric)
+
+
+def paper_notice(
+    sub: StudentSubmission, path: Path, mime_type: str, settings: Settings, rubric: Rubric | None = None
+) -> None:
+    """One Ingestion log line when a PDF / DOCX looks like a printed MCQ paper or a question paper
+    with its answer key (ingestion_hint, text layer only), naming the selected rubric (`rubric`, else
+    the sheet's) when the paper does not fit it. A hint only: processing never changes."""
+    if mime_type not in ("application/pdf", DOCX_MIME):
+        return
+    try:
+        content, label = _selected_rubric(sub, rubric)
+        hint = ingestion_hint(path.read_bytes(), mime_type, settings, rubric_content=content, rubric_label=label)
+    except Exception as exc:  # noqa: BLE001 - a hint must never fail the upload
+        logger.debug("Paper detection skipped for %s: %s", path.name, exc)
+        return
+    if hint:
+        append_log(sub, "Ingestion", hint)

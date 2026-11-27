@@ -31,6 +31,7 @@ import provenance
 import report_meta
 import reports
 import result_view
+import results_store
 import roster
 import sittings
 from config import get_settings
@@ -41,8 +42,8 @@ from database import (
     Rubric,
     StudentSubmission,
     SubmissionStatus,
+    append_log,
     get_db,
-    utc_iso,
     utcnow,
 )
 from errors import ApiError
@@ -77,12 +78,6 @@ PDF_MEDIA_TYPE = "application/pdf"
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _append_log(sub: StudentSubmission, step: str, message: str) -> None:
-    """Append a {step, message, timestamp} audit entry (re-assigned so the JSON column is dirty)."""
-    sub.processing_log = [*(sub.processing_log or []), {"step": step, "message": message, "timestamp": utc_iso()}]
-    sub.updated_at = utcnow()
-
-
 def _load(db: Session, submission_id: int) -> StudentSubmission:
     sub = db.get(
         StudentSubmission,
@@ -163,7 +158,7 @@ def student_pdf(db: Session, sub: StudentSubmission) -> tuple[bytes, str]:
     result = _require_completed(sub)
     out = result_view.build_result(db, sub)
     status = result.release_status or "PROVISIONAL"
-    path = get_settings().artifact_dir / str(sub.id) / f"report_r{result.id}_{status}.pdf"
+    path = results_store.job_dir(sub.id) / f"report_r{result.id}_{status}.pdf"
     pdf = _cached_render(path, _render_key(out), lambda: reports.render_student_pdf(out))
     return pdf, reports.student_pdf_filename(sub.student_name, sub.rubric.name, sub.rubric.version)
 
@@ -175,7 +170,7 @@ def archived_pdf(db: Session, sub: StudentSubmission, version: int) -> tuple[byt
     result, rubric = result_view.archived_result(db, archived, sub)
     out = result_view.build_result_for(db, sub, result, rubric=rubric)
     label = result_view.superseded_label(db, archived)
-    path = get_settings().artifact_dir / str(sub.id) / f"report_v{archived.id}_SUPERSEDED.pdf"
+    path = results_store.job_dir(sub.id) / f"report_v{archived.id}_SUPERSEDED.pdf"
     pdf = _cached_render(path, _render_key(out, label), lambda: reports.render_student_pdf(out, superseded_by=label))
     name = reports.student_pdf_filename(sub.student_name, rubric.name, f"{rubric.version}-superseded-v{version}")
     return pdf, name
@@ -377,7 +372,7 @@ def release_result(submission_id: int, body: ReleaseInput, db: DbSession) -> Rel
     result.reviewed_by = name
     result.reviewed_at = utcnow()
     result.review_note = note
-    _append_log(
+    append_log(
         sub, "Faculty sign-off",
         f"Released by {name} - faculty sign-off recorded; the report is no longer provisional"
         + (f". Note: {note}" if note else "."),
@@ -397,7 +392,7 @@ def revoke_result(submission_id: int, body: ReleaseInput, db: DbSession) -> Rele
     result.reviewed_by = name
     result.reviewed_at = utcnow()
     result.review_note = note
-    _append_log(
+    append_log(
         sub, "Faculty sign-off",
         f"Release revoked by {name} - the report is PROVISIONAL again (teacher review pending)"
         + (f". Note: {note}" if note else "."),
@@ -454,7 +449,7 @@ def create_deliveries(body: DeliveryInput, db: DbSession) -> list[DeliveryOut]:
         )
         db.add(row)
         rows.append(row)
-        _append_log(
+        append_log(
             sub, "Delivery",
             f"WhatsApp {status}: message NOT sent (simulated channel; template {report_meta.TEMPLATE_NAME} "
             f"pending Meta approval). Recipient {masked or 'not provided'}. Signed download link issued, expires "

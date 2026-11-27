@@ -199,6 +199,12 @@ class StudentSubmission(Base):
     )
 
 
+def append_log(sub: StudentSubmission, step: str, message: str) -> None:
+    """Append a {step, message, timestamp} entry (re-assigned so the JSON column is flagged dirty)."""
+    entry = {"step": step, "message": message, "timestamp": utc_iso()}
+    sub.processing_log = [*(sub.processing_log or []), entry]
+
+
 class EvaluationResult(Base):
     __tablename__ = "evaluation_results"
 

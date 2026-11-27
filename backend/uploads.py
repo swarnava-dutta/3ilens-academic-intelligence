@@ -24,11 +24,10 @@ from sqlalchemy.orm import Session
 
 import docx_reader
 import hashing
-import pipeline
 import preprocessing
 import voice
 from config import AUDIO_MIME_TYPES, DOCX_MIME, Settings, get_settings
-from database import Rubric, SessionLocal, StudentSubmission
+from database import StudentSubmission, append_log
 from errors import ApiError
 
 logger = logging.getLogger("3ilens.uploads")
@@ -367,43 +366,8 @@ def duplicate_notice(db: Session, sub: StudentSubmission) -> None:
         "OCR cache will be reused" if get_settings().ocr_cache_enabled
         else "OCR cache is off (OCR_CACHE=0) - the sheet will be read again"
     )
-    pipeline.append_log(
+    append_log(
         sub, "Ingestion",
         f"Same file bytes as submission #{other} (SHA-256 {hashing.short_hash(sub.file_hash)}) - {reuse}.",
     )
 
-
-def _selected_rubric(sub: StudentSubmission, rubric: Rubric | None) -> tuple[dict | None, str | None]:
-    """(content, "'name' (version)") of the sheet's rubric: the one given, the loaded relation, else
-    a short read by sub.rubric_id (POST /api/upload builds the row before adding it to its session).
-    (None, None) when unknown."""
-    if rubric is None:
-        rubric = sub.rubric
-    if rubric is None and sub.rubric_id is not None:
-        with SessionLocal() as db:  # closing detaches the row; its loaded columns stay readable
-            rubric = db.get(Rubric, sub.rubric_id)
-    if rubric is None:
-        return None, None
-    return rubric.content, f"'{rubric.name}' ({rubric.version})"
-
-
-def paper_notice(
-    sub: StudentSubmission, path: Path, mime_type: str, settings: Settings, rubric: Rubric | None = None
-) -> None:
-    """One Ingestion log line when a PDF / DOCX looks like a printed MCQ paper or a question paper
-    with its answer key (paper_detect, text layer only), naming the selected rubric (`rubric`, else
-    the sheet's) when the paper does not fit it. A hint only: processing never changes."""
-    if mime_type not in ("application/pdf", DOCX_MIME):
-        return
-    import paper_detect  # local import: paper_detect uses this module's sniffing helpers
-
-    try:
-        content, label = _selected_rubric(sub, rubric)
-        hint = paper_detect.ingestion_hint(
-            path.read_bytes(), mime_type, settings, rubric_content=content, rubric_label=label
-        )
-    except Exception as exc:  # noqa: BLE001 - a hint must never fail the upload
-        logger.debug("Paper detection skipped for %s: %s", path.name, exc)
-        return
-    if hint:
-        pipeline.append_log(sub, "Ingestion", hint)

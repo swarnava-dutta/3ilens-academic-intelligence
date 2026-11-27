@@ -18,9 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
 import preprocessing  # noqa: E402
 from preprocessing import (  # noqa: E402
     ENHANCEMENT_DISABLED_MESSAGE,
-    MAX_LONG_EDGE_PX,
     MAX_PAGE_BYTES,
-    SIMULATION_MESSAGE,
     PreprocessingError,
     enhance_page,
     estimate_skew,
@@ -152,15 +150,10 @@ def test_contrast_factor_is_configurable(tmp_path, log, monkeypatch):
     assert "contrast x1.8" in log[0]
 
 
-def test_simulation_message_is_still_exported_for_compatibility():
-    assert SIMULATION_MESSAGE == "Simulating Deskew and 300 DPI Contrast Enhancement."
-
-
 def test_huge_image_is_downscaled(tmp_path, log):
     source = _write_image(tmp_path / "huge.jpg", _sheet((5000, 3000)), "JPEG", quality=85)
     pages = preprocess_document(source, "image/jpeg", tmp_path / "out", log)
     decoded = _open_page(pages[0])
-    assert max(decoded.size) == MAX_LONG_EDGE_PX
     assert decoded.size == (2000, 1200)
     assert any("Downscaled from 5000x3000" in line for line in log)
 
@@ -269,7 +262,7 @@ def test_multi_page_pdf_is_rendered_at_300_dpi_in_order(tmp_path, log):
         decoded = _open_page(page)
         assert decoded.mode == "RGB"
         # A4 (595x842 pt) at 300 DPI = 2480x3508 px master -> 1414x2000 for the model.
-        assert max(decoded.size) == MAX_LONG_EDGE_PX
+        assert max(decoded.size) == 2000
         assert abs(decoded.size[0] - 1414) <= 2
         assert len(page.data) <= MAX_PAGE_BYTES
     assert any("3 page(s)" in line for line in log)
@@ -337,12 +330,7 @@ def test_render_review_pages_writes_unenhanced_model_sized_pages(tmp_path):
     assert [p.name for p in paths] == ["page_1.png", "page_2.png"]
     assert not any("_original" in p.name for p in artifacts.iterdir())
     with Image.open(paths[0]) as image:
-        assert max(image.size) == MAX_LONG_EDGE_PX
-
-
-def test_page_count_helper(tmp_path):
-    assert preprocessing.page_count(_make_pdf(tmp_path / "s.pdf", pages=4, size=(300, 400)), "application/pdf") == 4
-    assert preprocessing.page_count(_write_image(tmp_path / "p.png", _sheet(), "PNG"), "image/png") == 1
+        assert max(image.size) == 2000
 
 
 # --------------------------------------------------------------------------- #

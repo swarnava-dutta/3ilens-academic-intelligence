@@ -42,16 +42,14 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable
 from datetime import datetime
 from statistics import fmean
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 import analytics
-import hashing
 import marking
 import outcomes
 import patterns
@@ -129,37 +127,6 @@ def subject_level(topic: str, subject: str) -> bool:
     """A topic row that is really a whole subject ('Physics' on a paper with no chapter tags)."""
     name = _norm(topic)
     return name in SUBJECT_NAMES or (bool(subject) and name == _norm(subject))
-
-
-def latest_paper_per_student(subs: Iterable[StudentSubmission]) -> dict[StudentKey, StudentSubmission]:
-    """The newest COMPLETED non-voice sheet per (student_ref, is_demo), by sittings.order.
-    A re-graded older sheet or an oral sample never becomes 'latest'."""
-    latest: dict[StudentKey, StudentSubmission] = {}
-    for sub in subs:
-        if not _graded_paper(sub):
-            continue
-        key = sittings.person_key(sub)
-        current = latest.get(key)
-        if current is None or _order(sub) > _order(current):
-            latest[key] = sub
-    return latest
-
-
-def previous_paper(db: Session, sub: StudentSubmission) -> StudentSubmission | None:
-    """The student's COMPLETED non-voice sheet immediately before `sub` by sittings.order, in
-    any batch or test (same is_demo)."""
-    ref = hashing.student_key(sub)
-    rows = db.scalars(
-        select(StudentSubmission)
-        .options(selectinload(StudentSubmission.result))
-        .where(
-            StudentSubmission.status == SubmissionStatus.COMPLETED,
-            StudentSubmission.is_demo.is_(bool(sub.is_demo)),
-            or_(StudentSubmission.student_ref == ref, StudentSubmission.student_ref.is_(None)),
-        )
-    ).all()
-    earlier = [s for s in rows if hashing.student_key(s) == ref and _graded_paper(s) and _order(s) < _order(sub)]
-    return max(earlier, key=_order, default=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -352,7 +319,7 @@ def _action_out(rec: InterventionRecord, followed: tuple[str, dict[str, Any] | N
 # --------------------------------------------------------------------------- #
 # Rows
 # --------------------------------------------------------------------------- #
-def _priority(row: dict[str, Any], latest_sub: StudentSubmission | None) -> dict[str, Any]:
+def _priority(row: dict[str, Any]) -> dict[str, Any]:
     latest = row["latest"]
     if latest is None:
         return {"tier": None, "reason": ""}
@@ -513,7 +480,7 @@ def _row(
         result=result, rubric=latest_sub.rubric, batch=latest_sub.batch, limit=FOCUS_LIMIT
     )
     row["actions"]["since_latest"] = sum(1 for r in records if r.applied_at >= latest_sub.created_at)
-    row["priority"] = _priority(row, latest_sub)
+    row["priority"] = _priority(row)
     return row
 
 

@@ -344,4 +344,3 @@ def test_complete_mcq_draft_validates_and_saves(client, monkeypatch):
     assert "do not solve it yourself" in fake.calls[0]["system"]
     saved = client.post("/api/rubrics", json={"content": draft, "approved": False})
     assert saved.status_code == 201, saved.text
-    assert ai.RUBRIC_PARSE_PROMPT_VERSION == "rubric-v3"

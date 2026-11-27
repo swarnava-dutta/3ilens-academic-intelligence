@@ -173,12 +173,12 @@ def test_a_password_protected_paper_is_refused(client, forbid_ai, png_bytes):
 
 def test_a_failed_upload_leaves_no_source_folder(client, fake_ai, png_bytes, tmp_path, db_session, monkeypatch):
     """The sources are written once the snapshot row exists; an error before the commit removes them."""
-    import uploads
+    import paper_detect
 
     def broken(*_args, **_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(uploads, "paper_notice", broken)
+    monkeypatch.setattr(paper_detect, "paper_notice", broken)
     before = rubric_count(db_session)
     response = upload_with_sources(client, png_bytes, paper=("paper.pdf", paper_pdf(1), "application/pdf"))
     assert response.status_code == 500

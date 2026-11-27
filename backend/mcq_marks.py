@@ -48,10 +48,6 @@ logger = logging.getLogger("3ilens.mcq_marks")
 MARKS_PROMPT_VERSION = "marks-v4"  # v3: chapters for a key without question text; v4: NCERT chapter list
 MARKS_EFFORT = "medium"
 READER = "marks"
-# A rubric is "MCQ-heavy" (read with this reader) when at least this share of at least this many
-# questions are MCQs.
-MCQ_HEAVY_SHARE = 0.8
-MCQ_HEAVY_MIN_QUESTIONS = 10
 MAX_STEM_WORDS = 20      # a longer stem is cut (the reader is asked for about 12 words)
 MAX_STEM_CHARS = 200
 MAX_CODE_CHARS = 60
@@ -190,32 +186,12 @@ def _number(value: Any) -> int | None:
     return number if number > 0 else None
 
 
-def mcq_heavy(rubric_content: dict | None) -> bool:
-    """At least 10 questions and at least 80% of them MCQs (a printed objective paper)."""
-    questions = _questions(rubric_content)
-    if len(questions) < MCQ_HEAVY_MIN_QUESTIONS:
-        return False
-    mcqs = sum(1 for q in questions if marking.question_type(q) == "mcq")
-    return mcqs / len(questions) >= MCQ_HEAVY_SHARE
-
-
 def reads_ticks(rubric_content: dict | None) -> bool:
-    """The answer keys this (printed-MCQ) reader takes: MCQ-heavy and every question an MCQ. It
-    skips written questions, so a key with any goes to the handwriting reader (ticks and text).
-    One rule for pipeline.ocr_reader and the upload hint (paper_detect.ingestion_hint)."""
+    """The answer keys this (printed-MCQ) reader takes: MCQ-heavy (marking.mcq_heavy) and every
+    question an MCQ. It skips written questions, so a key with any goes to the handwriting reader
+    (ticks and text). One rule for pipeline.ocr_reader and the upload hint (paper_detect.ingestion_hint)."""
     questions = _questions(rubric_content)
-    return mcq_heavy(rubric_content) and all(marking.question_type(q) == "mcq" for q in questions)
-
-
-def _mcq_options(rubric_content: dict | None) -> dict[int, int | None]:
-    """MCQ number -> option count (None when the rubric lists no options)."""
-    out: dict[int, int | None] = {}
-    for question in _questions(rubric_content):
-        number = _number(question.get("question"))
-        if number is not None and marking.question_type(question) == "mcq":
-            options = question.get("options") if isinstance(question.get("options"), list) else []
-            out[number] = len(options) or None
-    return out
+    return marking.mcq_heavy(rubric_content) and all(marking.question_type(q) == "mcq" for q in questions)
 
 
 def _rubric_numbers(rubric_content: dict | None) -> set[int]:
@@ -265,10 +241,9 @@ def _model_page(page: PreparedPage) -> PreparedPage:
         return page
 
 
-def _ordered_images(chunk: list[PreparedPage], before: PreparedPage | None, after: PreparedPage | None):
-    """[(page, is_context)] in page order: previous context page, the chunk, next context page."""
-    images = [(before, True)] if before is not None else []
-    images += [(page, False) for page in chunk]
+def _ordered_images(chunk: list[PreparedPage], after: PreparedPage | None):
+    """[(page, is_context)] in page order: the chunk, then the next page as context."""
+    images = [(page, False) for page in chunk]
     if after is not None:
         images.append((after, True))
     return images
@@ -280,16 +255,10 @@ def _label(page: PreparedPage, total: int, context: bool) -> str:
     return f"Page {page.page_number} of {total}:"
 
 
-def _instruction(rubric_content: dict, chunk: list[PreparedPage], total: int,
-                 before: PreparedPage | None, after: PreparedPage | None) -> str:
+def _instruction(rubric_content: dict, chunk: list[PreparedPage], total: int, after: PreparedPage | None) -> str:
     first, last = chunk[0].page_number, chunk[-1].page_number
     numbers = sorted(_rubric_numbers(rubric_content)) or [1]
-    notes = []
-    if before is not None:
-        notes.append(f"page {before.page_number}")
-    if after is not None:
-        notes.append(f"page {after.page_number}")
-    context_note = f" (with {' and '.join(notes)} as context only)" if notes else ""
+    context_note = f" (with page {after.page_number} as context only)" if after is not None else ""
     name = str((rubric_content or {}).get("name") or "Exam paper") if isinstance(rubric_content, dict) else "Exam paper"
     instruction = MARKS_INSTRUCTION_TEMPLATE.format(
         span=ai._page_span(first, last), total=total, name=" ".join(name.split())[:200],
@@ -324,7 +293,7 @@ def _claude_request(settings: Settings, images, total: int, instruction: str) ->
     return ai._claude_request(settings, MARKS_SYSTEM_PROMPT, content, MarkedOptionsWire, MARKS_EFFORT)
 
 
-def _openai_request(settings: Settings, images, total: int, instruction: str, model: str) -> dict[str, Any]:
+def _openai_request(images, total: int, instruction: str, model: str) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
     for page, context in images:
         encoded = base64.standard_b64encode(page.data).decode("ascii")
@@ -345,33 +314,25 @@ def _openai_request(settings: Settings, images, total: int, instruction: str, mo
 
 
 def _read_call(settings: Settings, provider: str, images, total: int, instruction: str,
-               on_usage: ai.UsageCallback) -> tuple[_MarkedOptionsParse, str, str, str]:
-    """One chunk: Claude with the OpenAI fallback (FR-3.10), or OpenAI as the primary when
-    VISION_PROVIDER=openai. Returns (parsed reply, raw text, served provider, model used)."""
+               on_usage: ai.UsageCallback) -> tuple[_MarkedOptionsParse, str, str]:
+    """One chunk on Claude, or on OpenAI when VISION_PROVIDER=openai. Returns (parsed reply,
+    raw text, model used)."""
     count = len(images)
-
-    def openai_call(model: str, fell_back: bool) -> tuple[_MarkedOptionsParse, str, str, str]:
-        parsed, text, used = ai._openai_json_call(
-            settings, _openai_request(settings, images, total, instruction, model), model=model, step="OCR",
-            usage_purpose="ocr", parse_model=_MarkedOptionsParse, on_usage=on_usage, image_count=count,
-            fell_back=fell_back,
-        )
-        return parsed, text, "openai", used
-
     if provider == "anthropic":
-        def primary() -> tuple[_MarkedOptionsParse, str, str, str]:
-            parsed, response, text = ai._claude_structured(
-                settings, _claude_request(settings, images, total, instruction), step="OCR", usage_purpose="ocr",
-                on_usage=on_usage, image_count=count, parse_model=_MarkedOptionsParse,
-            )
-            model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
-            return parsed, text, "anthropic", model
-
         # No cross-vendor fallback for ticks: a live run on gpt-4o moved ticks and filled blanks
         # (304/720 vs 402) at 0.95 confidence. A transient Claude error goes to the pipeline's
         # retry with backoff instead, and a sheet that still fails shows Retry - never wrong marks.
-        return primary()
-    return openai_call(settings.openai_vision_model, False)
+        parsed, response, text = ai._claude_structured(
+            settings, _claude_request(settings, images, total, instruction), step="OCR", usage_purpose="ocr",
+            on_usage=on_usage, image_count=count, parse_model=_MarkedOptionsParse,
+        )
+        model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
+        return parsed, text, model
+    model = settings.openai_vision_model
+    return ai._openai_json_call(
+        settings, _openai_request(images, total, instruction, model), model=model, step="OCR",
+        usage_purpose="ocr", parse_model=_MarkedOptionsParse, on_usage=on_usage, image_count=count,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -392,7 +353,6 @@ class _MarksChunk:
     readings: list[_Reading]
     page_assessments: list[PageAssessment]
     raw_text: str
-    provider: str
     model: str
     dropped: list[int] = field(default_factory=list)
     stems: dict[int, str] = field(default_factory=dict)
@@ -448,8 +408,7 @@ def _page_mapper(parsed: _MarkedOptionsParse, own: list[int], image_pages: list[
 
 
 def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_pages: list[int],
-                  rubric_numbers: set[int], mcq_numbers: set[int], raw_text: str, provider: str,
-                  model: str) -> _MarksChunk:
+                  rubric_numbers: set[int], mcq_numbers: set[int], raw_text: str, model: str) -> _MarksChunk:
     own = [page.page_number for page in chunk]
     to_own = _page_mapper(parsed, own, image_pages)
     readings: list[_Reading] = []
@@ -484,7 +443,7 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
     return _MarksChunk(
         first=own[0], last=own[-1], readings=readings,
         page_assessments=[PageAssessment(page=p, legibility_confidence=v) for p, v in sorted(assessments.items())],
-        raw_text=raw_text, provider=provider, model=model, dropped=sorted(set(dropped)), stems=stems,
+        raw_text=raw_text, model=model, dropped=sorted(set(dropped)), stems=stems,
         paper_code=_paper_code(parsed.paper_code), chapters=chapters,
     )
 
@@ -554,8 +513,8 @@ def read_marked_options(
 ) -> OcrResult:
     """Read the option the student marked for every printed MCQ, MCQ_OCR_PAGES_PER_CALL pages per
     call (each with the next page as context only), AI_CHUNK_CONCURRENCY calls at a time.
-    on_usage is only ever called on the calling thread. A chunk that still fails after its
-    fallback fails the whole read (the pipeline's retry / dead-letter logic handles the sheet)."""
+    on_usage is only ever called on the calling thread. A chunk that fails fails the whole read
+    (the pipeline's retry / dead-letter logic handles the sheet)."""
     settings = get_settings()
     provider = settings.vision_provider
     if provider not in ai.VALID_VISION_PROVIDERS:
@@ -573,23 +532,22 @@ def read_marked_options(
     ordered = _model_pages(sorted(pages, key=lambda page: page.page_number), settings.preprocess_workers)
     total = len(ordered)
     hints = ai.clean_language_hints(language_hints)
-    mcq_options = _mcq_options(rubric_content)
+    mcq_options = marking.mcq_option_counts(rubric_content)
     rubric_numbers = _rubric_numbers(rubric_content)
     chunks = ai.chunk_pages(ordered, settings.mcq_ocr_pages_per_call)
     index = {page.page_number: i for i, page in enumerate(ordered)}
 
     def read(chunk: list[PreparedPage], record_usage: ai.UsageCallback) -> _MarksChunk:
-        start, end = index[chunk[0].page_number], index[chunk[-1].page_number]
+        end = index[chunk[-1].page_number]
         # Only the NEXT page as context: a question's number is on the chunk's own pages, and its
         # options may run onto the next page; the previous page never holds a mark for these questions.
-        before = None
         after = ordered[end + 1] if end + 1 < total else None
-        images = _ordered_images(chunk, before, after)
-        instruction = _instruction(rubric_content, chunk, total, before, after)
-        parsed, raw_text, served, model = _read_call(settings, provider, images, total, instruction, record_usage)
+        images = _ordered_images(chunk, after)
+        instruction = _instruction(rubric_content, chunk, total, after)
+        parsed, raw_text, model = _read_call(settings, provider, images, total, instruction, record_usage)
         return _chunk_result(
             parsed, chunk, [page.page_number for page, _context in images], rubric_numbers, set(mcq_options),
-            raw_text, served, model,
+            raw_text, model,
         )
 
     outcomes = ai._run_chunks(
@@ -608,8 +566,6 @@ def read_marked_options(
         for item in chunk.page_assessments:
             assessed[item.page] = min(assessed.get(item.page, 1.0), item.legibility_confidence)
     page_assessments = [PageAssessment(page=p, legibility_confidence=assessed[p]) for p in sorted(assessed)]
-    fallback_chunks = [chunk for chunk in done if chunk.provider != provider]
-    served_by = fallback_chunks[0] if fallback_chunks else done[0]
     overall = round(sum(a.confidence for a in answers) / len(answers), 4) if answers else 0.0
     dropped = sorted({n for chunk in done for n in chunk.dropped})
     # A question that runs across two requests may be read twice: the longer stem wins. The paper
@@ -636,7 +592,7 @@ def read_marked_options(
         {
             "reader": MARKS_PROMPT_VERSION,
             "chunks": [
-                {"pages": [chunk.first, chunk.last], "provider": chunk.provider, "model": chunk.model,
+                {"pages": [chunk.first, chunk.last], "provider": provider, "model": chunk.model,
                  "response": chunk.raw_text}
                 for chunk in done
             ],
@@ -644,19 +600,16 @@ def read_marked_options(
         ensure_ascii=False,
     )
     logger.info(
-        "Marked-option reader: %d marked answer(s) from %d page(s) in %d call(s) via %s/%s%s; overall confidence "
+        "Marked-option reader: %d marked answer(s) from %d page(s) in %d call(s) via %s/%s; overall confidence "
         "%.2f; dropped question number(s): %s; %d question stem(s); %d chapter(s); paper code %s",
-        len(answers), total, len(done), served_by.provider, served_by.model,
-        f" ({len(fallback_chunks)} chunk(s) served by the fallback)" if fallback_chunks else "",
+        len(answers), total, len(done), provider, done[0].model,
         overall, dropped or "none", len(stems), len(chapters), "seen" if paper_code else "not seen",
     )
     return OcrResult(
         answers=answers,
         overall_confidence=overall,
-        # Any chunk served by the fallback labels the whole result with it, so the pipeline never
-        # stores a mixed reading under the primary model's OCR cache key.
-        provider=served_by.provider,
-        model=served_by.model,
+        provider=provider,
+        model=done[0].model,
         raw_response=raw_response,
         page_assessments=page_assessments,
         dropped_questions=dropped,

@@ -1,4 +1,5 @@
-"""Result persistence (pipeline and seed both use this module).
+"""Result persistence (pipeline and seed both use this module) and the submission's artifact folder
+(job_dir / read_artifact: pipeline, provenance, voice and the routers).
 
 evaluation_results.submission_id stays UNIQUE: before a re-run replaces a result, the
 current row is archived into evaluation_versions (archive_current_result), so the report's
@@ -6,12 +7,15 @@ version history and older PDFs remain available.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from config import get_settings
 from database import EvaluationResult, EvaluationVersion, ReleaseStatus, Rubric, StudentSubmission, utcnow
 
 # ReportPayload fields copied verbatim from insights.build_evaluation_report.
@@ -19,6 +23,20 @@ REPORT_FIELDS = (
     "total_score", "total_marks", "overall_mastery", "topic_mastery", "roi_recommendations",
     "strengths_gaps", "question_evaluations",
 )
+
+
+def job_dir(submission_id: int) -> Path:
+    """artifact_dir/<submission id>/: a submission's artifacts (the local S3 mock)."""
+    return get_settings().artifact_dir / str(submission_id)
+
+
+def read_artifact(submission_id: int, name: str) -> dict[str, Any] | None:
+    """A JSON artifact of a submission, or None when missing/unreadable."""
+    try:
+        data = json.loads((job_dir(submission_id) / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def build_evaluation_result(

@@ -810,7 +810,6 @@ def test_examiner_notes_never_reach_the_grader(monkeypatch):
     assert ai.strip_examiner_notes("a [Note to the Examiner: x] b [note to examiner:y]") == (
         "a [note to examiner - removed before grading] b [note to examiner - removed before grading]"
     )
-    assert ai.has_examiner_note(note) and not ai.has_examiner_note("no note here [?]")
 
 
 def test_ocr_pages_words_and_page_assessments_are_normalised(monkeypatch):

@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
 import paper_detect
+import rubric_store
 from config import get_settings
 from database import Rubric, get_db
 from errors import ApiError
@@ -67,7 +68,7 @@ def inspect_intake_file(
     if rubric is not None:
         # None unless a printed paper: a typed answer sheet's text would read as a different paper.
         match = paper_detect.rubric_check(
-            inspection, texts, rubric.content, rubric_label=f"'{rubric.name}' ({rubric.version})"
+            inspection, texts, rubric.content, rubric_label=rubric_store.rubric_label(rubric)
         )
         if match is not None:
             inspection = inspection.model_copy(update={"rubric_match": match})

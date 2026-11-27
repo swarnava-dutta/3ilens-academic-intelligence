@@ -24,6 +24,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import cohort
 import costing
+import paper_detect
 import pipeline
 import result_view
 import rubric_sources
@@ -43,6 +44,7 @@ from database import (
     SessionLocal,
     StudentSubmission,
     SubmissionStatus,
+    append_log,
     get_db,
     init_db,
 )
@@ -151,11 +153,7 @@ app.add_middleware(  # added last = outermost, so even error responses carry COR
 # Helpers
 # --------------------------------------------------------------------------- #
 def _context(db: Session) -> tuple[Institution, Batch]:
-    institution = db.scalar(select(Institution).order_by(Institution.id))
-    batch = db.scalar(select(Batch).order_by(Batch.id))
-    if institution is None or batch is None:
-        institution, batch, _ = seed.seed_base(db)
-    return institution, batch
+    return cohort._context(db, None)
 
 
 def _validate_roll_no(raw: str | None) -> str | None:
@@ -460,19 +458,16 @@ def upload_answer_sheet(
                 f"Received {original_filename} ({description}, {uploads.human_size(size)}) and stored it in the "
                 f"local S3 mock (uploads/). SHA-256 {sha256[:12]}... recorded for chain of custody."
             )
-        pipeline.append_log(sub, "Ingestion", received)
+        append_log(sub, "Ingestion", received)
         uploads.duplicate_notice(db, sub)
-        uploads.paper_notice(sub, path, mime_type, settings, rubric=rubric)
+        paper_detect.paper_notice(sub, path, mime_type, settings, rubric=rubric)
         if kept_sources is not None:
-            pipeline.append_log(
+            append_log(
                 sub, "Ingestion",
-                f"Answer key drafted from {rubric_sources.describe(sources)} - kept with rubric '{rubric.name}' "
-                f"({rubric.version}) for preview.",
+                f"Answer key drafted from {rubric_sources.describe(sources)} - kept with rubric "
+                f"{rubric_store.rubric_label(rubric)} for preview.",
             )
-        pipeline.append_log(
-            sub, "Queue",
-            f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric '{rubric.name}' ({rubric.version}).",
-        )
+        pipeline.log_queued(sub, rubric)
         db.add(sub)
         db.commit()
     except BaseException:

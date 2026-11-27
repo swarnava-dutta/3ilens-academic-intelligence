@@ -11,7 +11,6 @@ mapped onto the rubric questions by ai.structure_transcript). The transcript tex
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -19,6 +18,7 @@ import wave
 from pathlib import Path
 from typing import Any, Callable
 
+import results_store
 from ai_schemas import ModelUsage, Transcript
 from config import get_settings
 from database import INPUT_VOICE
@@ -194,12 +194,8 @@ def is_voice(sub: Any) -> bool:
 
 def read_transcript(submission_id: int) -> dict[str, Any] | None:
     """artifacts/<id>/transcript.json, or None when missing / unreadable."""
-    path = get_settings().artifact_dir / str(submission_id) / TRANSCRIPT_FILE
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) and isinstance(data.get("text"), str) else None
+    data = results_store.read_artifact(submission_id, TRANSCRIPT_FILE)
+    return data if data is not None and isinstance(data.get("text"), str) else None
 
 
 def audio_path(sub: Any) -> Path | None:
@@ -256,7 +252,7 @@ def result_extras(db: Any, *, sub: Any) -> dict[str, Any]:
     }
 
 
-def transcript_out(db: Any, sub: Any) -> dict[str, Any] | None:
+def transcript_out(sub: Any) -> dict[str, Any] | None:
     """A VoiceTranscript dict, or None (not a voice row, or no transcript yet)."""
     if not is_voice(sub):
         return None

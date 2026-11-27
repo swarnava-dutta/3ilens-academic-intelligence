@@ -51,14 +51,18 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 import ai
+import costing
 import hashing
 import insights
 import preprocessing
 import marking
 import mcq_marks
+import paper_detect
 import paper_match
 import provenance
 import results_store
+import rubric_store
+import typed_sheets
 import voice
 from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, OcrResult, QuestionGrade, Transcript
 from config import DOCX_MIME, Settings, get_settings
@@ -70,10 +74,11 @@ from database import (
     SessionLocal,
     StudentSubmission,
     SubmissionStatus,
+    append_log,
     utc_iso,
     utcnow,
 )
-from schemas import ReportPayload, RubricMatch
+from schemas import LANGUAGE_HINTS, ReportPayload, RubricMatch
 
 logger = logging.getLogger("3ilens.pipeline")
 
@@ -111,10 +116,6 @@ REVIEW_NO_ANSWERS = "no_answers"                    # no rubric question answere
 REVIEW_MOSTLY_BLANK = "mostly_blank"                # fewer than half the rubric questions answered
 REVIEW_PAPER_MISMATCH = "paper_mismatch"            # another paper / not this paper's rubric
 REVIEW_PAPER_REORDERED = "paper_reordered"          # the same paper, another code / set
-REVIEW_REASONS = (
-    REVIEW_LOW_CONFIDENCE, REVIEW_LOW_PAGE_CONFIDENCE, REVIEW_NO_ANSWERS, REVIEW_MOSTLY_BLANK,
-    REVIEW_PAPER_MISMATCH, REVIEW_PAPER_REORDERED,
-)
 RECHECK_PREFIX = "Re-checked with the updated review rules (no AI call): "
 TEXT_LAYER_MIME_TYPES = ("application/pdf", DOCX_MIME)        # uploads with a text layer to check
 
@@ -135,8 +136,6 @@ REPORT_FILE = "report.json"
 RUN_FILE = "run.json"
 DEAD_LETTER_FILE = "dead_letter.json"
 
-LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
-
 
 class CustodyError(RuntimeError):
     """The stored upload no longer matches the SHA-256 recorded at ingestion (permanent)."""
@@ -153,12 +152,6 @@ class TranscriptMissingError(RuntimeError):
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def append_log(sub: StudentSubmission, step: str, message: str) -> None:
-    """Append a {step, message, timestamp} entry (re-assigned so the JSON column is flagged dirty)."""
-    entry = {"step": step, "message": message, "timestamp": utc_iso()}
-    sub.processing_log = [*(sub.processing_log or []), entry]
-
-
 def _record(db: Session, sub: StudentSubmission, step: str, message: str, **changes: Any) -> None:
     for name, value in changes.items():
         setattr(sub, name, value)
@@ -168,6 +161,14 @@ def _record(db: Session, sub: StudentSubmission, step: str, message: str, **chan
     logger.info("[submission %s] %s: %s", sub.id, step, message)
 
 
+def log_queued(sub: StudentSubmission, rubric: Rubric) -> None:
+    """The Queue line of a sheet handed to the worker (POST /api/upload, rescan)."""
+    append_log(
+        sub, "Queue",
+        f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric {rubric_store.rubric_label(rubric)}.",
+    )
+
+
 def _write_artifact(directory: Path, name: str, payload: Any) -> None:
     """Best effort: an artifact write failure must never fail the job."""
     try:
@@ -175,20 +176,6 @@ def _write_artifact(directory: Path, name: str, payload: Any) -> None:
         (directory / name).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     except Exception:  # noqa: BLE001
         logger.exception("Could not write artifact %s/%s", directory, name)
-
-
-def read_artifact(submission_id: int, name: str) -> dict[str, Any] | None:
-    """A JSON artifact of a submission, or None when missing/unreadable."""
-    path = get_settings().artifact_dir / str(submission_id) / name
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def write_artifact(submission_id: int, name: str, payload: Any) -> None:
-    _write_artifact(get_settings().artifact_dir / str(submission_id), name, payload)
 
 
 def _scrub(message: str) -> str:
@@ -268,7 +255,7 @@ def _rubric_numbers(content: dict[str, Any] | None) -> list[int]:
 
 
 def _language_hints(sub: StudentSubmission) -> list[str]:
-    return sorted({h for h in (sub.language_hints or []) if h in LANGUAGE_CODES}) or ["en"]
+    return sorted({h for h in (sub.language_hints or []) if h in LANGUAGE_HINTS}) or ["en"]
 
 
 def vision_model(settings: Settings | None = None) -> tuple[str, str]:
@@ -356,7 +343,7 @@ def _log_call(job: _Job, step: str, label: str, seconds: float) -> None:
     cache_read = sum(u.cache_read_input_tokens for u, _ in entries)
     cache_write = sum(u.cache_creation_input_tokens for u, _ in entries)
     costs = [c for _, c in entries if c is not None]
-    cost_text = f"Rs {sum(costs):.2f}" if costs else "cost unknown (model not in the price table)"
+    cost_text = costing.format_inr(sum(costs) if costs else None)
     cache = f"cache read {cache_read:,}" + (f", cache write {cache_write:,}" if cache_write else "")
     rid = _request_id(None, entries) or "n/a"
     calls = f"; {len(entries)} provider calls" if len(entries) > 1 else ""
@@ -486,7 +473,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
 
     settings = get_settings()
     job = _Job(
-        db=db, sub=sub, job_dir=settings.artifact_dir / str(sub.id), mode=mode, reason=reason,
+        db=db, sub=sub, job_dir=results_store.job_dir(sub.id), mode=mode, reason=reason,
         max_attempts=settings.max_job_attempts,
     )
     sub.attempts = int(sub.attempts or 0) + 1
@@ -570,7 +557,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
         _record(
             db, sub, step,
             f"{ALL_MCQ_MESSAGE}." if all_mcq else
-            f"Grading {len(answers)} answer(s) against rubric '{rubric.name}' ({rubric.version}) "
+            f"Grading {len(answers)} answer(s) against rubric {rubric_store.rubric_label(rubric)} "
             f"with {settings.anthropic_model} (AI call 2" + ("; transcribed voice answer" if is_voice else "") + ").",
             current_step=REGRADE_STEP if job.reason == "reevaluate" else "Rubric evaluation",
         )
@@ -590,7 +577,8 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
             current_step="Insights & ROI",
         )
         # The marks reader's chapters live in ocr.json (also after a faculty review or re-evaluation).
-        content = chapter_rubric(rubric.content, (read_artifact(sub.id, OCR_FILE) or {}).get("question_chapters"))
+        stored = results_store.read_artifact(sub.id, OCR_FILE) or {}
+        content = chapter_rubric(rubric.content, stored.get("question_chapters"))
         report = _validated_report(insights.build_evaluation_report(content, answers, evaluation))
         n_priorities = len(report["roi_recommendations"])
         _record(
@@ -807,7 +795,7 @@ def ocr_cache_key(
         "provider": provider,
         "model": model,
         "reader": READER_MARKS if marks else READER_OCR,
-        "prompt_version": mcq_marks.MARKS_PROMPT_VERSION if marks else getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
+        "prompt_version": mcq_marks.MARKS_PROMPT_VERSION if marks else ai.OCR_PROMPT_VERSION,
         "language_hints": sorted(hints),
     })
 
@@ -829,8 +817,6 @@ def ocr_reader(sub: StudentSubmission, rubric_content: dict[str, Any] | None, pa
     if page_count >= MARKS_MIN_PAGES:
         return READER_MARKS
     try:
-        import paper_detect  # local import: paper_detect -> uploads -> pipeline
-
         role = paper_detect.inspect_bytes(Path(sub.file_path).read_bytes(), get_settings()).role
     except Exception as exc:  # noqa: BLE001 - detection must never fail the job
         logger.debug("Printed-paper detection skipped for submission %s: %s", sub.id, exc)
@@ -859,11 +845,6 @@ def _paper_check(job: _Job, ocr: OcrResult) -> RubricMatch | None:
     return match
 
 
-def rubric_label(rubric: Rubric) -> str:
-    """"'Biology - Genetics' (v1)" - how review messages name a rubric."""
-    return f"'{rubric.name}' ({rubric.version})"
-
-
 def document_paper_check(
     data: bytes, rubric_content: dict[str, Any] | None, *, rubric_label: str | None = None,
     settings: Settings | None = None,
@@ -878,8 +859,6 @@ def document_paper_check(
     (a long printed paper against a small non-MCQ rubric), its message followed by
     PAPER_SHAPE_ACTION; else None. Whether a hold verdict holds the sheet is review_decision's call
     (text_layer=True). Raises when the file cannot be read (callers guard)."""
-    import paper_detect  # local import: paper_detect -> uploads -> pipeline
-
     inspection, texts = paper_detect.inspect_document(data, settings or get_settings())
     verdict = paper_detect.rubric_check(inspection, texts, rubric_content, rubric_label=rubric_label)
     if verdict is None:
@@ -904,7 +883,7 @@ def _text_layer_check(job: _Job) -> RubricMatch | None:
     rubric = sub.rubric
     try:
         match = document_paper_check(
-            Path(sub.file_path).read_bytes(), rubric.content, rubric_label=rubric_label(rubric)
+            Path(sub.file_path).read_bytes(), rubric.content, rubric_label=rubric_store.rubric_label(rubric)
         )
     except Exception:  # noqa: BLE001 - the check must never fail the job
         logger.exception("Text-layer paper check failed for submission %s - continuing without it", sub.id)
@@ -966,7 +945,7 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None, Rubr
         _ocr_artifact(job, ocr, check)
         return ocr, cache_key, check
 
-    per_call = ai.ocr_pages_per_call(settings, rubric.content)
+    per_call = settings.ocr_pages_per_call
     split = (
         f" in {-(-len(pages) // per_call)} calls of up to {per_call} pages, "
         f"{settings.ai_chunk_concurrency} at a time"
@@ -995,8 +974,6 @@ def _typed_route(job: _Job) -> tuple[Any, bytes] | None:
     viewer only. None, and the sheet takes today's route (pre-processing + a vision reader), for any
     file the gate refuses, TYPED_TEXT_PATH=0, or a rescan (faculty asked for a fresh reading of the
     pages)."""
-    import typed_sheets  # local import: typed_sheets -> paper_detect -> uploads -> pipeline
-
     db, sub = job.db, job.sub
     settings = get_settings()
     if not settings.typed_text_path or job.reason == "rescan" or (sub.mime_type or "") not in TEXT_LAYER_MIME_TYPES:
@@ -1024,8 +1001,6 @@ def _typed_read(job: _Job, route: Any, data: bytes) -> tuple[OcrResult, int, Rub
     """(OCR result, page count, same-paper check) of a typed sheet: a typed MCQ answer list with no AI
     call, typed written answers with one text-only mapping call that must pass
     typed_sheets.check_structure - None when it does not, and the sheet is read from page images."""
-    import typed_sheets  # local import: typed_sheets -> paper_detect -> uploads -> pipeline
-
     db, sub = job.db, job.sub
     settings = get_settings()
     rubric = sub.rubric
@@ -1143,7 +1118,7 @@ def _cache_store(job: _Job, cache_key: str | None, ocr: OcrResult) -> None:
     faculty corrections live in ocr_reviews / ocr_reviewed.json, never in the cache."""
     if cache_key is None:
         return
-    db, sub = job.db, job.sub
+    sub = job.sub
     provider, model = vision_model()
     if ocr.provider and ocr.provider != provider:
         # Served by the fallback model (FR-3.10): never stored under the primary model's cache key.
@@ -1157,7 +1132,7 @@ def _cache_store(job: _Job, cache_key: str | None, ocr: OcrResult) -> None:
         rubric_questions_hash=hashing.rubric_questions_hash(sub.rubric.content or {}),
         provider=ocr.provider or provider,
         model=ocr.model or model,
-        prompt_version=getattr(ai, "OCR_PROMPT_VERSION", "ocr-v1"),
+        prompt_version=ai.OCR_PROMPT_VERSION,
         language_hints=_language_hints(sub),
         ocr_result=ocr.model_dump(mode="json"),
     ))
@@ -1336,8 +1311,8 @@ def _gate(job: _Job, ocr: OcrResult, page_total: int, *, paper_check: RubricMatc
     threshold = get_settings().ocr_confidence_threshold
     rubric = sub.rubric
     decision = review_decision(
-        ocr, page_total, rubric.content, threshold, paper_check=paper_check, rubric_label=rubric_label(rubric),
-        voice=(sub.input_kind or "document") == INPUT_VOICE,
+        ocr, page_total, rubric.content, threshold, paper_check=paper_check,
+        rubric_label=rubric_store.rubric_label(rubric), voice=(sub.input_kind or "document") == INPUT_VOICE,
         text_layer=job.check_source == CHECK_SOURCE_TEXT_LAYER,
     )
     per_page = ", ".join(f"p{p['page']} {p['confidence']:.2f}" for p in decision.pages)
@@ -1399,7 +1374,7 @@ def stored_transcript(submission_id: int) -> tuple[OcrResult | None, str | None,
     """(transcript, artifact name, raw artifact): the faculty-reviewed transcript first, else the
     raw OCR; (None, None, {}) when neither exists."""
     for name in (REVIEWED_OCR_FILE, OCR_FILE):
-        data = read_artifact(submission_id, name)
+        data = results_store.read_artifact(submission_id, name)
         if data is None:
             continue
         try:
@@ -1725,9 +1700,9 @@ def _recheck_held_sheet(db: Session, submission_id: int, settings: Settings) -> 
     sub = db.get(StudentSubmission, submission_id)
     if sub is None or sub.rubric is None:
         return False
-    if (settings.artifact_dir / str(sub.id) / REVIEWED_OCR_FILE).exists():
+    if (results_store.job_dir(sub.id) / REVIEWED_OCR_FILE).exists():
         return False  # faculty already worked on the transcript
-    data = read_artifact(sub.id, OCR_FILE)
+    data = results_store.read_artifact(sub.id, OCR_FILE)
     if data is None:
         return False
     try:
@@ -1741,7 +1716,7 @@ def _recheck_held_sheet(db: Session, submission_id: int, settings: Settings) -> 
     page_total = 0 if voice else int(sub.page_count or 0) or max(
         (a.page for a in ocr.page_assessments if isinstance(a.page, int) and a.page >= 1), default=1
     )
-    label = rubric_label(rubric)
+    label = rubric_store.rubric_label(rubric)
     check: RubricMatch | None = None
     stored = data.get("paper_check")
     if isinstance(stored, dict):
@@ -1756,7 +1731,7 @@ def _recheck_held_sheet(db: Session, submission_id: int, settings: Settings) -> 
     )
     # A rescan skips the check because faculty already saw one; an older build never checked a
     # sheet read as handwriting, so a rescan without any paper check in its log is checked now.
-    run = read_artifact(sub.id, RUN_FILE) or {}
+    run = results_store.read_artifact(sub.id, RUN_FILE) or {}
     seen_check = any(
         isinstance(entry, dict) and str(entry.get("message") or "").startswith(PAPER_CHECK_PREFIX)
         for entry in sub.processing_log or []
@@ -1793,7 +1768,7 @@ def last_run_mode(submission_id: int) -> str:
     """Mode of the submission's last run (run.json / dead_letter.json); 'full' when unknown or
     when an evaluation-only run has no transcript left to re-use."""
     for name in (DEAD_LETTER_FILE, RUN_FILE):
-        data = read_artifact(submission_id, name)
+        data = results_store.read_artifact(submission_id, name)
         if data and data.get("mode") in MODES:
             mode = data["mode"]
             if mode == MODE_EVALUATION_ONLY and stored_transcript(submission_id)[0] is None:

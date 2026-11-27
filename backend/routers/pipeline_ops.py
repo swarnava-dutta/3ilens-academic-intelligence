@@ -48,6 +48,7 @@ from database import (
     Rubric,
     StudentSubmission,
     SubmissionStatus,
+    append_log,
     get_db,
     utc_iso,
     utcnow,
@@ -57,6 +58,7 @@ from routers import preview_routes
 from schemas import (
     IntakeBatchStatus,
     InvocationPurposeLit,
+    InvocationStatusLit,
     ModelInvocationOut,
     OcrReviewData,
     OcrReviewOut,
@@ -65,6 +67,7 @@ from schemas import (
     ReevaluateInput,
     RenameInput,
     RerunInput,
+    ReviewActionLit,
     ReviewAnswer,
     ReviewInput,
     RubricCompatibility,
@@ -84,7 +87,7 @@ INTAKE_BATCH_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 PAGE_NUMBER_RE = re.compile(r"^\d{1,4}$")
 PAGE_MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg"}
 INVOCATION_PURPOSES: tuple[str, ...] = get_args(InvocationPurposeLit)
-INVOCATION_STATUSES = ("ok", "error", "refusal", "cache_hit")
+INVOCATION_STATUSES: tuple[str, ...] = get_args(InvocationStatusLit)
 # Artifacts that belong to one scan of the sheet (removed when a rescan replaces the file).
 SCAN_ARTIFACTS = (
     pipeline.OCR_FILE, pipeline.REVIEWED_OCR_FILE, pipeline.EVALUATION_FILE, pipeline.REPORT_FILE,
@@ -163,10 +166,6 @@ def _qlist(numbers: list[int]) -> str:
     return ", ".join(f"Q{n}" for n in numbers)
 
 
-def _job_dir(sub: StudentSubmission) -> Path:
-    return get_settings().artifact_dir / str(sub.id)
-
-
 # --------------------------------------------------------------------------- #
 # Rename (faculty sets the student's name)
 # --------------------------------------------------------------------------- #
@@ -181,7 +180,7 @@ def rename_submission(submission_id: int, body: RenameInput, db: DbSession) -> S
     if sub.status in ACTIVE_STATUSES:
         raise _invalid_state(sub, "a sheet that is not queued or processing")
     if name != sub.student_name:
-        pipeline.append_log(sub, "Faculty edit", f"Student renamed from {sub.student_name} to {name} by faculty.")
+        append_log(sub, "Faculty edit", f"Student renamed from {sub.student_name} to {name} by faculty.")
         sub.student_name = name
         sub.updated_at = utcnow()
         db.commit()
@@ -214,7 +213,7 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
         else "full re-run from the stored upload"
         + (" (OCR cache reused when the bytes match)" if get_settings().ocr_cache_enabled else "")
     )
-    pipeline.append_log(sub, "Queue", f"Operator re-drive from DLQ (attempt {attempt}): {what}.")
+    append_log(sub, "Queue", f"Operator re-drive from DLQ (attempt {attempt}): {what}.")
     sub.current_step = f"Queued - operator retry (attempt {attempt})"
     sub.error_message = None
     sub.last_error_code = None
@@ -252,9 +251,9 @@ def prepare_reevaluation(db: Session, sub: StudentSubmission, target: Rubric) ->
         f"{pipeline._fmt(archived.total_marks)}) archived."
         if archived is not None else ""
     )
-    pipeline.append_log(
+    append_log(
         sub, "Queue",
-        f"Re-evaluation queued against rubric '{target.name}' ({target.version}).{before} "
+        f"Re-evaluation queued against rubric {rubric_store.rubric_label(target)}.{before} "
         "OCR reused - no vision call.",
     )
     # The current result is archived above, so GET /api/results/{id} answers 202 with this step
@@ -341,7 +340,7 @@ def _answers_from_result(sub: StudentSubmission) -> dict[int, OcrAnswer]:
 def _review_out(review: OcrReview) -> OcrReviewOut:
     after = review.after if isinstance(review.after, dict) else {}
     changed = [n for n in after.get("changed_questions") or [] if isinstance(n, int)]
-    action = review.action if review.action in ("approve", "correct", "rescan") else "correct"
+    action = review.action if review.action in get_args(ReviewActionLit) else "correct"
     return OcrReviewOut(
         id=review.id, reviewer=review.reviewer, action=action, note=review.note,
         changed_questions=changed, created_at=review.created_at,
@@ -463,7 +462,7 @@ def review_submission(
     )
     _claim(db, sub, (SubmissionStatus.HUMAN_REVIEW_REQUIRED,), "HUMAN_REVIEW_REQUIRED")
     try:
-        job_dir = _job_dir(sub)
+        job_dir = results_store.job_dir(sub.id)
         job_dir.mkdir(parents=True, exist_ok=True)
         # Written strictly (not best effort): grading must never silently fall back to the raw OCR.
         (job_dir / pipeline.REVIEWED_OCR_FILE).write_text(json.dumps(artifact, indent=2), encoding="utf-8")
@@ -483,8 +482,8 @@ def review_submission(
         message = f"Faculty corrected {_qlist(sorted(changed))} - cleared for grading by {reviewer}."
     else:
         message = f"Faculty reviewed the transcript with no changes - cleared for grading by {reviewer}."
-    pipeline.append_log(sub, "Human review", message)
-    pipeline.append_log(
+    append_log(sub, "Human review", message)
+    append_log(
         sub, "Queue", "Queued for grading (evaluation only): reviewed transcript re-used - no new OCR call."
     )
     sub.current_step = "Queued"
@@ -551,17 +550,13 @@ def rescan_submission(
             sub.detected_languages = []
         replaced = f" (replaces SHA-256 {hashing.short_hash(old_hash)})" if old_hash else ""
         what = f"voice answer, {description}" if kind == INPUT_VOICE else f"{description}, {uploads.human_size(size)}"
-        pipeline.append_log(
+        append_log(
             sub, "Ingestion",
             f"Rescan received - full re-run: {display} ({what}) by {name}; "
             f"SHA-256 {sha256[:12]}... recorded for chain of custody{replaced}.",
         )
         uploads.duplicate_notice(db, sub)
-        pipeline.append_log(
-            sub, "Queue",
-            f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric '{sub.rubric.name}' "
-            f"({sub.rubric.version}).",
-        )
+        pipeline.log_queued(sub, sub.rubric)
         sub.current_step = "Queued"
         sub.updated_at = utcnow()
         db.commit()
@@ -578,7 +573,7 @@ def rescan_submission(
 
 
 def _clear_scan_artifacts(sub: StudentSubmission) -> None:
-    job_dir = _job_dir(sub)
+    job_dir = results_store.job_dir(sub.id)
     if not job_dir.is_dir():
         return
     for item in job_dir.iterdir():
@@ -592,10 +587,6 @@ def _clear_scan_artifacts(sub: StudentSubmission) -> None:
 # --------------------------------------------------------------------------- #
 # Faculty re-run (the sheet was uploaded with the wrong rubric, or held / failed for another reason)
 # --------------------------------------------------------------------------- #
-def _rubric_label(rubric: Rubric | None) -> str:
-    return f"'{rubric.name}' ({rubric.version})" if rubric is not None else "an unknown rubric"
-
-
 @router.post("/api/submissions/{submission_id}/rerun", status_code=202, response_model=SubmissionOut)
 def rerun_submission(
     submission_id: int,
@@ -650,11 +641,11 @@ def rerun_submission(
             "questions."
         )
         sub.voice_question = None
-    was = "same rubric" if same else f"was {_rubric_label(previous)}"
-    pipeline.append_log(
+    was = "same rubric" if same else f"was {rubric_store.rubric_label(previous)}"
+    append_log(
         sub, "Queue",
-        f"Faculty re-run with rubric {_rubric_label(target)} by {reviewer} - full re-run from the stored upload "
-        f"({was}).{notes}",
+        f"Faculty re-run with rubric {rubric_store.rubric_label(target)} by {reviewer} - full re-run from the "
+        f"stored upload ({was}).{notes}",
     )
     sub.current_step = "Queued - re-run"
     sub.error_message = None
@@ -674,7 +665,7 @@ def rerun_submission(
 def _remove_artifacts(sub: StudentSubmission, names: tuple[str, ...]) -> None:
     """Strict (not best effort): a file left behind would steer the next run (500 when one cannot
     be removed; the caller rolls back)."""
-    job_dir = _job_dir(sub)
+    job_dir = results_store.job_dir(sub.id)
     for name in names:
         try:
             (job_dir / name).unlink(missing_ok=True)
@@ -712,7 +703,7 @@ def page_refs(sub: StudentSubmission) -> list[PageRef]:
     rows have no scan: []. A voice answer has no pages: []."""
     if voice.is_voice(sub):
         return []
-    job_dir = _job_dir(sub)
+    job_dir = results_store.job_dir(sub.id)
     found = _page_files(job_dir)
     if not found and _upload_exists(sub) and sub.status not in ACTIVE_STATUSES:
         try:
@@ -758,7 +749,7 @@ def page_image(
     if not PAGE_NUMBER_RE.fullmatch(page_number):
         raise not_found
     sub = result_view.get_submission(db, submission_id)
-    job_dir = _job_dir(sub).resolve()
+    job_dir = results_store.job_dir(sub.id).resolve()
     suffix = "_original" if variant == "original" else ""
     for extension, media_type in PAGE_MEDIA_TYPES.items():
         candidate = (job_dir / f"page_{int(page_number)}{suffix}.{extension}").resolve()
@@ -944,9 +935,9 @@ def create_rubric_version(
             _remove_artifacts(sub, (pipeline.REVIEWED_OCR_FILE,))
             note = " The question numbers changed, so any faculty-reviewed transcript was cleared."
         sub.rubric_id = rubric.id
-        pipeline.append_log(
-            sub, "Queue", f"Answer key edited - moved to rubric {_rubric_label(rubric)} "
-            f"(was {_rubric_label(parent)}).{note}",
+        append_log(
+            sub, "Queue", f"Answer key edited - moved to rubric {rubric_store.rubric_label(rubric)} "
+            f"(was {rubric_store.rubric_label(parent)}).{note}",
         )
     db.commit()
     rubric_sources.inherit(parent.id, rubric.id)  # a new version keeps its question-paper preview

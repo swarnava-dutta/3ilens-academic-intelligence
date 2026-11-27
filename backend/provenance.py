@@ -7,7 +7,6 @@ synthetic demo rows still produce schema-valid dicts.
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 from datetime import datetime, timedelta
@@ -29,13 +28,13 @@ from database import (
     StudentSubmission,
     SubmissionStatus,
 )
+from schemas import LANGUAGE_HINTS
 
 logger = logging.getLogger("3ilens.provenance")
 
 # Wording required by the client demo for a cached OCR result (UI + audit log).
 OCR_CACHE_HIT_LABEL = "OCR cache hit - no vision call (Rs 0.00)"
 CUSTODY_DETECTED_BY = "magic bytes (file signature), not the file extension"
-LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
 # processing_log steps that mark the start of a run (upload, operator re-drive, re-evaluation...).
 RUN_START_STEPS = ("Ingestion", "Queue")
 # Log lines written up to this long after completed_at still belong to the run (final Persistence
@@ -137,16 +136,6 @@ def summarise_costs(rows: list[ModelInvocation]) -> dict[str, Any]:
     }
 
 
-def ocr_artifact(sub: StudentSubmission, name: str = "ocr.json") -> dict[str, Any] | None:
-    """A JSON artifact of the submission (ocr.json / ocr_reviewed.json), or None."""
-    path = get_settings().artifact_dir / str(sub.id) / name
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def _parse_ts(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -221,7 +210,7 @@ def _extraction(sub: StudentSubmission, result: EvaluationResult, db: Session | 
             confidences.append(float(q.get("confidence") or 0))
         except (TypeError, ValueError):
             continue
-    ocr = None if sub.is_demo else ocr_artifact(sub)
+    ocr = None if sub.is_demo else results_store.read_artifact(sub.id, "ocr.json")
     dropped = _int_list((ocr or {}).get("dropped_questions"))
     is_voice = voice.is_voice(sub)
     return {
@@ -238,7 +227,7 @@ def _extraction(sub: StudentSubmission, result: EvaluationResult, db: Session | 
         "page_confidences": [] if is_voice else _page_confidences(sub.page_confidences),
         "ocr_adapter": _voice_adapter(db, sub) if is_voice else ocr_adapter_label(settings),
         "ocr_cache_hit": bool(sub.ocr_cache_hit),
-        "language_hints": [h for h in (sub.language_hints or []) if h in LANGUAGE_CODES] or ["en"],
+        "language_hints": [h for h in (sub.language_hints or []) if h in LANGUAGE_HINTS] or ["en"],
         "corrected_by_faculty": any(bool(q.get("corrected_by_faculty")) for q in questions),
     }
 

@@ -47,7 +47,7 @@ def submission_audio(submission_id: int, db: DbSession) -> FileResponse:
 def submission_transcript(submission_id: int, db: DbSession) -> VoiceTranscript:
     """The speech-to-text transcript of a voice answer (synthetic for sample rows)."""
     sub = result_view.get_submission(db, submission_id)
-    data = voice.transcript_out(db, sub)
+    data = voice.transcript_out(sub)
     if data is None:
         raise ApiError(404, f"Submission {submission_id} has no voice transcript.", "no_transcript")
     return VoiceTranscript.model_validate(data)

@@ -53,10 +53,6 @@ def _questions(sub: StudentSubmission) -> list[dict[str, Any]]:
     ]
 
 
-def _is_mcq(q: dict[str, Any]) -> bool:
-    return str(q.get("question_type") or "").lower() == "mcq"
-
-
 def _is_bonus(q: dict[str, Any]) -> bool:
     """A question the key made a bonus (full marks to everyone): never an attempt, a right answer
     or an item to analyse (the same rule as patterns.negative_marking_profile)."""
@@ -69,7 +65,7 @@ def _scored(sub: StudentSubmission) -> list[dict[str, Any]]:
 
 
 def _mcqs(sub: StudentSubmission) -> list[dict[str, Any]]:
-    return [q for q in _scored(sub) if _is_mcq(q)]
+    return [q for q in _scored(sub) if marking.question_type(q) == "mcq"]
 
 
 def _state(q: dict[str, Any]) -> str:
@@ -88,14 +84,14 @@ def _state(q: dict[str, Any]) -> str:
         return "blank"
     if outcome == "FULL":
         return "right"
-    if outcome == "PARTIAL" and not _is_mcq(q):
+    if outcome == "PARTIAL" and marking.question_type(q) != "mcq":
         return "partial"
     return "wrong"
 
 
 def _penalty(q: dict[str, Any]) -> float:
     """Marks lost to a wrong MCQ (penalty is stored positive; older rows only carry negative marks)."""
-    if not _is_mcq(q) or _state(q) != "wrong":
+    if marking.question_type(q) != "mcq" or _state(q) != "wrong":
         return 0.0
     penalty = abs(_num(q.get("penalty")))
     if penalty == 0 and _num(q.get("estimated_marks")) < 0:
@@ -282,7 +278,7 @@ def attempt_summary(subs: Subs) -> dict[str, Any] | None:
             subjects.setdefault(str(t["topic"]), str(t.get("subject") or ""))
             if subject_level(t):
                 subject_rows.add(str(t["topic"]))
-        bonus += sum(1 for q in _questions(sub) if _is_mcq(q) and _is_bonus(q))
+        bonus += sum(1 for q in _questions(sub) if marking.question_type(q) == "mcq" and _is_bonus(q))
         mcqs = _mcqs(sub)
         with_mcq += bool(mcqs)
         if mcqs:
@@ -362,7 +358,7 @@ def item_analysis(subs: Subs) -> list[dict[str, Any]] | None:
     for number in sorted(per_q):
         items = per_q[number]
         n = len(items)
-        mcq = any(_is_mcq(q) for _, q in items)
+        mcq = any(marking.question_type(q) == "mcq" for _, q in items)
         states = Counter(_state(q) for _, q in items)
         keys = Counter(_option(q.get("correct_option")) for _, q in items if _option(q.get("correct_option")))
         key = keys.most_common(1)[0][0] if keys else None
@@ -770,7 +766,7 @@ def written_errors(subs: Subs) -> list[dict[str, Any]]:
     groups: dict[tuple[int, str, str], dict[str, Any]] = {}
     for sub in subs:
         for q in _questions(sub):
-            if _is_mcq(q):
+            if marking.question_type(q) == "mcq":
                 continue
             key = (q["question"], _norm(q.get("topic")))
             sheets[key] += 1
