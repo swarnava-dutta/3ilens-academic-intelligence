@@ -93,7 +93,14 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   read by the tick reader. Measured on the real 19-page AIPMT 2016 sheet with
   `aipmt-2016-Answer-Key-Code-A-P-W-v2.pdf`: **Rs 20.50 and 63 s, 4 AI calls** (Rs 27.24 and
   73.6 s before the tick-reader changes above).
-- Pre-processing: 200 DPI PDF master, deskew, contrast and sharpen.
+- **Typed answer sheets from their text:** a PDF or Word file whose answers are typed is read
+  from the file's text layer instead of page images (`typed_sheets.py`, `TYPED_TEXT_PATH=1`): a
+  typed MCQ answer list ("12. B", "Q13 (2)", "14. -") with no AI call, typed written answers with
+  one text-only mapping call (superscripts kept as `^`) that must use the sheet's own words.
+  Anything in doubt - a printed paper, a scan or photo, a picture, pen marks or formatting that
+  could carry an answer, a list the two parsers read differently - takes the usual route.
+- Pre-processing: 200 DPI PDF master, deskew, contrast and sharpen; the page image work runs on
+  `PREPROCESS_WORKERS` threads (4) with byte-identical output (19-page paper: about 24 s -> 14 s).
 - SHA-256 custody and an OCR cache: re-uploading identical bytes reuses the stored OCR
   ("OCR cache hit - no vision call (Rs 0.00)").
 - OCR keeps the student's literal answer (it never "corrects" towards the textbook answer),
@@ -420,7 +427,8 @@ table of [API_CONTRACT.md](API_CONTRACT.md)):
 | Area | Variables |
 | --- | --- |
 | OCR cache | `OCR_CACHE=1` |
-| Pre-processing | `PDF_MASTER_DPI=200`, `VISION_MAX_EDGE_PX=2000`, `PREPROCESS_ENHANCE=1`, `PREPROCESS_CONTRAST=1.4`, `MIN_SHORT_EDGE_PX=1200` |
+| Pre-processing | `PDF_MASTER_DPI=200`, `VISION_MAX_EDGE_PX=2000`, `PREPROCESS_ENHANCE=1`, `PREPROCESS_CONTRAST=1.4`, `MIN_SHORT_EDGE_PX=1200`, `PREPROCESS_WORKERS=4` |
+| Typed answer sheets | `TYPED_TEXT_PATH=1` (read from the file's text layer; `0` = page images) |
 | Worker | `MAX_JOB_ATTEMPTS=3`, `RETRY_BACKOFF_BASE_SECONDS=2.0`, `WORKER_CONCURRENCY=4` |
 | Printed papers | `MAX_PDF_PAGES=40`, `OCR_PAGES_PER_CALL=10`, `MCQ_OCR_PAGES_PER_CALL=5`, `RUBRIC_PAGES_PER_CALL=2`, `AI_CHUNK_CONCURRENCY=5` |
 | Cost tracking | `USD_INR=85`, `COST_TARGET_INR=5`, `LATENCY_TARGET_SECONDS=300`, `BATCH_TARGET_SECONDS=1800`, `LLM_PRICING_JSON` |
@@ -667,6 +675,7 @@ backend/
   preprocessing.py      image/PDF normalisation for the vision model
   uploads.py            upload validation and content sniffing (documents and audio)
   docx_reader.py        typed Word sheets and rubric sources (validation, text, HTML)
+  typed_sheets.py       typed answer sheets read from their text layer (gate, typed MCQ list, text mapping)
   hashing.py            SHA-256 custody, OCR-cache keys, rubric fingerprints, student identity
   paper_detect.py       printed-paper detection from the text layer (answer-key paper, MCQ paper)
   rubric_sources.py     the question paper / answer-key file kept with an intake's key, page previews

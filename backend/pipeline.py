@@ -7,7 +7,11 @@ dead_letter.json artifact (the simulated DLQ route; POST /api/submissions/{id}/r
 
 What a run does (mode "full"):
   custody check (SHA-256 of the stored upload == the hash recorded at ingestion)
-  -> pre-processing (real: 300 DPI master, deskew / contrast / unsharp; preprocessing.py)
+  -> a typed answer sheet (PDF / Word whose answers are typed text; typed_sheets.py) is read from its
+     text layer instead - a typed MCQ list with no AI call, typed written answers with one text-only
+     mapping call - and joins the review gate below; every other upload:
+  -> pre-processing (real: 200 DPI master, deskew / contrast / unsharp, pages on PREPROCESS_WORKERS
+     threads; preprocessing.py)
   -> OCR (AI call 1) or an OCR-cache hit (FR-2.5: same bytes + rubric questions + model)
   -> same-paper check for a printed MCQ paper (paper_match: its printed questions and code against
      the rubric; another paper or version -> faculty review); a PDF / Word upload read as handwriting
@@ -84,6 +88,7 @@ TRANSCRIPT_CACHE_VERSION = "transcript-v1"  # OCR-cache rows holding a voice tra
 DEMO_REGRADE_MESSAGE = "Synthetic demo re-run - no AI call"
 DEMO_NEW_QUESTION_GAP = "Not graded - new in this rubric version (demo)"
 ALL_MCQ_MESSAGE = "All questions are MCQs - auto-scored deterministically (no grading call)"
+TYPED_SHEET_MESSAGE = "Typed answer sheet: the answers are read from the file's text layer, not from page images"
 PAPER_CHECK_PREFIX = "Paper check: "
 PAPER_CHECK_FAILED = "skipped - the printed questions could not be compared with the rubric."
 PAPER_HOLD_MESSAGE = (
@@ -516,24 +521,37 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
                     return  # held for faculty review (FR-2.4); no pages to gate
                 answers = list(ocr.answers)
             else:
-                # ---- Step 3: pre-processing --------------------------------------- #
+                # ---- Steps 3-4 for a typed answer sheet: its own text, no page images -- #
                 step = "Pre-processing"
+                typed = _typed_route(job)
+                read = None
+                if typed is not None:
+                    step = "OCR & Parse"
+                    read = _typed_read(job, *typed)
+                if read is not None:
+                    ocr, page_total, paper_check = read
+                    if _gate(job, ocr, page_total, paper_check=paper_check):
+                        return  # held for faculty review
+                    answers = list(ocr.answers)
+                else:
+                    # ---- Step 3: pre-processing ----------------------------------- #
+                    step = "Pre-processing"
 
-                def log_preprocessing(message: str) -> None:
-                    _record(db, sub, "Pre-processing", str(message))
+                    def log_preprocessing(message: str) -> None:
+                        _record(db, sub, "Pre-processing", str(message))
 
-                pages = preprocessing.preprocess_document(
-                    Path(sub.file_path), sub.mime_type, job.job_dir, log=log_preprocessing
-                )
-                _record(db, sub, step, f"Prepared {len(pages)} page image(s) for the vision model.")
+                    pages = preprocessing.preprocess_document(
+                        Path(sub.file_path), sub.mime_type, job.job_dir, log=log_preprocessing
+                    )
+                    _record(db, sub, step, f"Prepared {len(pages)} page image(s) for the vision model.")
 
-                # ---- Step 4: OCR (AI call 1) or OCR-cache hit --------------------- #
-                step = "OCR & Parse"
-                ocr, cache_key, paper_check = _ocr_stage(job, pages)
-                if _gate(job, ocr, len(pages), paper_check=paper_check):
-                    return  # held for faculty review (FR-2.4, or another paper / version)
-                _cache_store(job, cache_key, ocr)
-                answers = list(ocr.answers)
+                    # ---- Step 4: OCR (AI call 1) or OCR-cache hit ----------------- #
+                    step = "OCR & Parse"
+                    ocr, cache_key, paper_check = _ocr_stage(job, pages)
+                    if _gate(job, ocr, len(pages), paper_check=paper_check):
+                        return  # held for faculty review (FR-2.4, or another paper / version)
+                    _cache_store(job, cache_key, ocr)
+                    answers = list(ocr.answers)
         else:
             _record(
                 db, sub, "Queue",
@@ -969,6 +987,85 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None, Rubr
     check = _text_layer_check(job)
     _ocr_artifact(job, ocr, check)
     return ocr, cache_key, check
+
+
+def _typed_route(job: _Job) -> tuple[Any, bytes] | None:
+    """(typed_sheets.Route, file bytes) when a typed answer sheet (PDF / Word) is read from its own
+    text layer instead of page images - its pages are then rendered (no enhancement) for the review
+    viewer only. None, and the sheet takes today's route (pre-processing + a vision reader), for any
+    file the gate refuses, TYPED_TEXT_PATH=0, or a rescan (faculty asked for a fresh reading of the
+    pages)."""
+    import typed_sheets  # local import: typed_sheets -> paper_detect -> uploads -> pipeline
+
+    db, sub = job.db, job.sub
+    settings = get_settings()
+    if not settings.typed_text_path or job.reason == "rescan" or (sub.mime_type or "") not in TEXT_LAYER_MIME_TYPES:
+        return None
+    rubric = sub.rubric
+    try:
+        data = Path(sub.file_path).read_bytes()
+    except OSError:
+        return None  # pre-processing reports the missing file
+    route = typed_sheets.route(data, rubric.content, settings)
+    if route.path == typed_sheets.PATH_KEEP:
+        logger.info("Submission %s: typed-text path not used - %s", sub.id, route.reason)
+        return None
+    _record(
+        db, sub, "Pre-processing",
+        f"{TYPED_SHEET_MESSAGE} ({route.reason}). Page images are rendered for the review viewer only.",
+        current_step="Pre-processing",
+    )
+    paths = preprocessing.render_review_pages(Path(sub.file_path), sub.mime_type, job.job_dir)
+    route.pages = len(paths)
+    return route, data
+
+
+def _typed_read(job: _Job, route: Any, data: bytes) -> tuple[OcrResult, int, RubricMatch | None] | None:
+    """(OCR result, page count, same-paper check) of a typed sheet: a typed MCQ answer list with no AI
+    call, typed written answers with one text-only mapping call that must pass
+    typed_sheets.check_structure - None when it does not, and the sheet is read from page images."""
+    import typed_sheets  # local import: typed_sheets -> paper_detect -> uploads -> pipeline
+
+    db, sub = job.db, job.sub
+    settings = get_settings()
+    rubric = sub.rubric
+    step = "OCR & Parse"
+    if route.path == typed_sheets.PATH_MCQ:
+        ocr = typed_sheets.read_mcq(route)
+        _record(
+            db, sub, step,
+            f"Typed answer list read from the text layer: {route.answered} answer(s) on {route.pages} page(s) - no AI "
+            "call (Rs 0.00).",
+            current_step="OCR & answer structuring",
+        )
+    else:
+        provider, model = vision_model(settings)
+        hints = _language_hints(sub)
+        _record(
+            db, sub, step,
+            f"Mapping the typed text of {route.pages} page(s) to the rubric questions with {settings.anthropic_model} "
+            "(AI call 1, text only - no page images; superscripts kept as ^).",
+            current_step="OCR & answer structuring",
+        )
+        ocr, sent = _ai_call(
+            job, step, "AI call 1 (typed text mapping)",
+            lambda on_usage: typed_sheets.read_structure(
+                route, data, rubric.content, language_hints=hints, on_usage=on_usage
+            ),
+        )
+        check = typed_sheets.check_structure(sent, ocr)
+        if not check["ok"]:
+            weakest = min(check["word_support"].values(), default=1.0)
+            _record(
+                db, sub, step,
+                f"Typed-text mapping set aside (answers cover {check['coverage']:.0%} of the sheet's words, the least "
+                f"supported answer {weakest:.0%} of its words found in the sheet) - reading the page images with "
+                f"the {provider} vision model ({model}) instead.",
+            )
+            return None
+    check = _text_layer_check(job)
+    _ocr_artifact(job, ocr, check)
+    return ocr, route.pages, check
 
 
 def _transcript_cache_hit(job: _Job, cache_key: str, model: str) -> Transcript | None:

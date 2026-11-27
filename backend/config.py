@@ -174,6 +174,9 @@ class Settings:
     preprocess_enhance: bool = True             # PREPROCESS_ENHANCE: deskew + contrast + sharpen
     preprocess_contrast: float = 1.4            # PREPROCESS_CONTRAST (BRD says 1.8; 1.4 keeps faint pencil)
     min_short_edge_px: int = 1200               # MIN_SHORT_EDGE_PX: upscale small photos
+    typed_text_path: bool = True                # TYPED_TEXT_PATH: typed PDF / Word answer sheets read from their text layer
+    preprocess_workers: int = 4                # PREPROCESS_WORKERS (clamped 1-8): threads for one sheet's per-page image
+                                                # work and the tick reader's page re-encode (same bytes as 1)
     # --- worker ---------------------------------------------------------------------------
     max_job_attempts: int = 3                   # MAX_JOB_ATTEMPTS (transient AI errors)
     retry_backoff_base_seconds: float = 2.0     # RETRY_BACKOFF_BASE_SECONDS
@@ -247,6 +250,8 @@ def get_settings() -> Settings:
         preprocess_enhance=_bool("PREPROCESS_ENHANCE", True),
         preprocess_contrast=max(0.5, min(3.0, _float("PREPROCESS_CONTRAST", 1.4))),
         min_short_edge_px=max(0, _int("MIN_SHORT_EDGE_PX", 1200)),
+        typed_text_path=_bool("TYPED_TEXT_PATH", True),
+        preprocess_workers=max(1, min(8, _int("PREPROCESS_WORKERS", 4))),
         max_job_attempts=max(1, _int("MAX_JOB_ATTEMPTS", 3)),
         retry_backoff_base_seconds=max(0.0, _float("RETRY_BACKOFF_BASE_SECONDS", 2.0)),
         worker_concurrency=max(1, _int("WORKER_CONCURRENCY", 4)),

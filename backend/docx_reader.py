@@ -3,8 +3,9 @@
 validate_docx() is the security gate (zip sanity, size/entry caps, real WordprocessingML,
 no macros). docx_text() extracts plain text (rubric parsing), numbered_text() the same with Word's
 automatic list numbers written out (answer keys); docx_to_html() produces simple
-escaped HTML + embedded images, which preprocessing renders to PDF so typed sheets take the
-same vision route as scans (no separate text path).
+escaped HTML + embedded images, which preprocessing renders to PDF pages (the vision route, and
+the review viewer's page images); a typed answer sheet that passes typed_sheets' gate is read
+from its text instead.
 """
 from __future__ import annotations
 

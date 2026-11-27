@@ -28,6 +28,7 @@ import dataclasses
 import io
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -235,27 +236,33 @@ def calls_for(page_count: int, settings: Settings | None = None) -> int:
 # --------------------------------------------------------------------------- #
 # Requests
 # --------------------------------------------------------------------------- #
-def _model_pages(pages: list[PreparedPage]) -> list[PreparedPage]:
+def _model_pages(pages: list[PreparedPage], workers: int = 1) -> list[PreparedPage]:
     """Pages re-encoded for this reader: long edge <= paper_pages.MAX_LONG_EDGE_PX (1800) as JPEG.
     The live check read every tick correctly at this size, and it costs ~3.7k input tokens per
-    page against ~9.4k for the pipeline's 2000 px PNGs. A page that cannot be decoded is sent as is."""
-    out = []
-    for page in pages:
-        try:
-            with Image.open(io.BytesIO(page.data)) as image:
-                image = image.convert("RGB")
-                scale = paper_pages.MAX_LONG_EDGE_PX / max(image.size)
-                if scale < 1:
-                    image = image.resize(
-                        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-                        Image.Resampling.LANCZOS,
-                    )
-                data, media_type, _size = paper_pages.encode_page(image)
-            out.append(dataclasses.replace(page, data=data, media_type=media_type))
-        except Exception:  # noqa: BLE001 - keep the original page rather than fail the read
-            logger.warning("Page %s could not be re-encoded for the marks reader; sent as prepared", page.page_number)
-            out.append(page)
-    return out
+    page against ~9.4k for the pipeline's 2000 px PNGs. A page that cannot be decoded is sent as is.
+    With workers > 1 the pages are re-encoded on that many threads (PREPROCESS_WORKERS; Pillow
+    releases the GIL), in the same order and with the same bytes."""
+    if workers > 1 and len(pages) > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, len(pages)), thread_name_prefix="marks-pages") as pool:
+            return list(pool.map(_model_page, pages))
+    return [_model_page(page) for page in pages]
+
+
+def _model_page(page: PreparedPage) -> PreparedPage:
+    try:
+        with Image.open(io.BytesIO(page.data)) as image:
+            image = image.convert("RGB")
+            scale = paper_pages.MAX_LONG_EDGE_PX / max(image.size)
+            if scale < 1:
+                image = image.resize(
+                    (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+            data, media_type, _size = paper_pages.encode_page(image)
+        return dataclasses.replace(page, data=data, media_type=media_type)
+    except Exception:  # noqa: BLE001 - keep the original page rather than fail the read
+        logger.warning("Page %s could not be re-encoded for the marks reader; sent as prepared", page.page_number)
+        return page
 
 
 def _ordered_images(chunk: list[PreparedPage], before: PreparedPage | None, after: PreparedPage | None):
@@ -563,7 +570,7 @@ def read_marked_options(
     if not pages:
         raise ai.AIServiceError("No answer-sheet pages were available to send for OCR.", code="no_pages")
 
-    ordered = _model_pages(sorted(pages, key=lambda page: page.page_number))
+    ordered = _model_pages(sorted(pages, key=lambda page: page.page_number), settings.preprocess_workers)
     total = len(ordered)
     hints = ai.clean_language_hints(language_hints)
     mcq_options = _mcq_options(rubric_content)

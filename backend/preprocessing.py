@@ -8,7 +8,11 @@ Real image work, Pillow + PyMuPDF only:
   areas become white paper), upscaled with LANCZOS when the short edge is below
   ``settings.min_short_edge_px`` (at most 2x).
 * Typed Word answer sheets (.docx): converted to an in-memory A4 PDF with pymupdf.Story and
-  then take exactly the same PDF path - there is no separate text route.
+  then take exactly the same PDF path (a typed sheet that typed_sheets reads from its text
+  layer skips this module; only render_review_pages draws its pages for the viewer).
+* Pages are rendered one at a time on the calling thread (pymupdf is not thread-safe); the
+  per-page Pillow work runs on ``settings.preprocess_workers`` threads with byte-identical
+  output, and the per-page log lines are written on the calling thread in page order.
 * Enhancement (``settings.preprocess_enhance``): deskew (projection-profile search on a
   600 px greyscale thumbnail, +/-15 deg), auto-contrast (1% cut-off) + contrast boost
   (``settings.preprocess_contrast``), unsharp mask (r=2, 150%, threshold 3).
@@ -27,7 +31,9 @@ import io
 import logging
 import math
 import re
+from collections import deque
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -132,41 +138,80 @@ def preprocess_document(
     source = _open_source(file_path, mime_type, settings, log)
     page_budget = min(MAX_PAGE_BYTES, MAX_DOCUMENT_BYTES // max(source.page_count, 1))
     pages: list[PreparedPage] = []
+
+    def prepare(page_number: int, master: Image.Image, note: str) -> tuple[PreparedPage, str]:
+        original = _fit_long_edge(master, settings.vision_max_edge_px)
+        if enhance:
+            enhanced, info = enhance_page(master, contrast=settings.preprocess_contrast)
+            model_image = _fit_long_edge(enhanced, settings.vision_max_edge_px)
+            if model_image is not enhanced:
+                enhanced.close()
+            details = _enhancement_text(info)
+        else:
+            model_image, details = original, "no enhancement"
+        if master is not original:
+            master.close()
+
+        data, media_type, extension, size = _encode_page(model_image, page_budget)
+        path = artifact_dir / f"page_{page_number}.{extension}"
+        _write(path, data)
+        if enhance:
+            odata, _, oextension, _ = _encode_page(original, page_budget)
+            _write(artifact_dir / f"page_{page_number}_original.{oextension}", odata)
+        for image in {id(original): original, id(model_image): model_image}.values():
+            image.close()
+        message = (
+            f"Page {page_number}/{source.page_count}: {note}; {details}; sent {size[0]}x{size[1]} "
+            f"to the vision model ({extension.upper()}, {_human_bytes(len(data))})."
+        )
+        return PreparedPage(page_number=page_number, media_type=media_type, data=data, path=path), message
+
+    def done(result: tuple[PreparedPage, str]) -> None:
+        # On the calling thread, in page order: log() may write to the job's database session.
+        pages.append(result[0])
+        log(result[1])
+
     try:
         _prepare_artifact_dir(artifact_dir)
-        for page_number, (master, note) in enumerate(source.pages, start=1):
-            original = _fit_long_edge(master, settings.vision_max_edge_px)
-            if enhance:
-                enhanced, info = enhance_page(master, contrast=settings.preprocess_contrast)
-                model_image = _fit_long_edge(enhanced, settings.vision_max_edge_px)
-                if model_image is not enhanced:
-                    enhanced.close()
-                details = _enhancement_text(info)
-            else:
-                model_image, details = original, "no enhancement"
-            if master is not original:
-                master.close()
-
-            data, media_type, extension, size = _encode_page(model_image, page_budget)
-            path = artifact_dir / f"page_{page_number}.{extension}"
-            _write(path, data)
-            if enhance:
-                odata, _, oextension, _ = _encode_page(original, page_budget)
-                _write(artifact_dir / f"page_{page_number}_original.{oextension}", odata)
-            for image in {id(original): original, id(model_image): model_image}.values():
-                image.close()
-
-            pages.append(PreparedPage(page_number=page_number, media_type=media_type, data=data, path=path))
-            log(
-                f"Page {page_number}/{source.page_count}: {note}; {details}; sent {size[0]}x{size[1]} "
-                f"to the vision model ({extension.upper()}, {_human_bytes(len(data))})."
-            )
+        workers = min(settings.preprocess_workers, source.page_count)
+        if workers <= 1:
+            for page_number, (master, note) in enumerate(source.pages, start=1):
+                done(prepare(page_number, master, note))
+        else:
+            _prepare_parallel(source, prepare, done, workers)
     finally:
         source.close()
 
     if not pages:
         raise PreprocessingError("No pages could be extracted from the uploaded answer sheet.", "no_pages")
     return pages
+
+
+def _prepare_parallel(
+    source: _Source,
+    prepare: Callable[[int, Image.Image, str], tuple[PreparedPage, str]],
+    done: Callable[[tuple[PreparedPage, str]], None],
+    workers: int,
+) -> None:
+    """The per-page Pillow work (enhance, resize, encode, write) of a multi-page document on
+    `workers` threads; Pillow releases the GIL for it, and every page's bytes are the same as one
+    at a time. Pages are still rendered here, one after another (pymupdf is not thread-safe), and
+    at most 2 x workers rendered pages wait at once, so memory stays bounded. Results are handed to
+    done() in page order on this thread; the first failure cancels the pages not yet started and
+    is raised once the running ones have finished (no artifact is written after this returns)."""
+    pending: deque[Future[tuple[PreparedPage, str]]] = deque()
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="preprocess") as pool:
+        try:
+            for page_number, (master, note) in enumerate(source.pages, start=1):
+                pending.append(pool.submit(prepare, page_number, master, note))
+                while len(pending) >= 2 * workers:
+                    done(pending.popleft().result())
+            while pending:
+                done(pending.popleft().result())
+        except BaseException:
+            for future in pending:
+                future.cancel()
+            raise
 
 
 def render_review_pages(file_path: Path, mime_type: str, artifact_dir: Path) -> list[Path]:

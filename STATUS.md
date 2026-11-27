@@ -11,7 +11,7 @@ Planning notes used while building the requirements are kept in local planning n
 
 | Check | Result |
 |---|---|
-| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1523 passed**, 0 failed (offline; AI and transcription calls are faked) |
+| Backend tests (`cd backend && .venv\Scripts\python -m pytest -q`) | **1556 passed**, 0 failed (offline; AI and transcription calls are faked) |
 | Frontend `npx tsc --noEmit` + `npm run lint` | clean |
 | Frontend `npm run build` | passes (all 8 routes) |
 | Live AI end-to-end, base pipeline | done: 26 test pages, 23 COMPLETED / 3 HUMAN_REVIEW / 0 FAILED (see `test-pages/README.md`) |
@@ -118,6 +118,17 @@ Built for two kinds of PDF the client will upload: a scanned NEET question paper
   - One definition of test, sitting, latest and previous paper across the three pages (`sittings.py`).
 - **Demo data off by default** (`SEED_DEMO_DATA=0`): a fresh database has no rubric, sheet or result; the demo sets load only with `SEED_DEMO_DATA=1` through `POST /api/demo/seed` (the UI has no seed buttons).
 - **Data reset.** `scripts/reset_data.py` is a dry run by default; `--yes` backs up the database, `uploads/` and `artifacts/` to `backups/<UTC timestamp>/`, then deletes every rubric, sheet and result, the demo batches and the demo faculty leads (institution, base batch and LMS keys stay).
+
+### Tick-reader cost and latency checks (2026-11-27)
+Every lever was measured against today's reader (Sonnet 5.5, effort medium, 1800 px JPEG pages, 5 pages per call, next page as context) on the real 19-page AIPMT 2016 ticked sheet (ground truth for 180 questions, 6 of them ambiguous) and on synthetic phone-photo papers (84 questions in ballpoint, 82 in HB pencil). A lever had to make no more wrong readings than today, question by question (wrong option, blank read as marked, mark read as blank, single read as multiple), and keep chapters as complete and accurate.
+- **Adopted - pre-processing on threads** (`PREPROCESS_WORKERS=4`): pages still render one at a time, the per-page image work and the tick reader's re-encode run on 4 threads, and the output is byte-identical (checked on every page image and artifact). 19-page paper: 23.6 s -> 14.1 s until the reader can start (median of 3; 11.6 s at 8 threads), peak memory 313 -> 511 MB (867 MB at 8). The model reads the same bytes, so readings and cost are unchanged.
+- **Adopted - typed answer sheets from the text layer** (`typed_sheets.py`, `TYPED_TEXT_PATH=1`): a typed MCQ answer list (PDF or Word) is read with no AI call - 0 wrong of 180 and of 84 on four typed lists, where the vision readers took Rs 5.4-8.3 and 18-34 s and read a Word list with automatic numbering 65 of 84 wrong. Typed written answers are mapped from the text in one text-only call: Rs 1.85 -> 0.88 and Rs 2.54 -> 1.21 on two sheets, 0 mapping errors, superscripts kept 10 of 10 (`^`; 8 of 10 from the page image). All 15 negatives (the 2016 sheet, printed papers, flat scans, photos, answer-key PDFs, a Word file with a photo, a typed page plus a scanned page, a key uploaded as a student sheet) keep today's route.
+- **Not adopted - smaller pages:** 1500 px is 16% cheaper (Rs 21.06 -> 17.7 on the 2016 sheet) but on the pencil paper it made a wrong reading in each of 3 full runs (Q28 or Q16 at 0.88-0.90, past the review gate) against 0 in 2 runs at 1800 px; on the ballpoint paper it read a double mark as one option in 1 of 2 runs; on the 2016 sheet chapters fell to 169-177 of 180 in 2 of 3 runs. 1300 px was worse.
+- **Not adopted - Claude Haiku 5.5:** alone, 12-18 wrong on the clear 2016 questions against 2; as a first pass with Sonnet re-reading unsure pages, 15-17 of 19 pages went back to Sonnet, so it saved nothing and took 3-4x as long.
+- **Not adopted - compact output** (rows, chapter numbers): 26% cheaper but it read blank 2016 questions (Q124, Q130, Q133) as marked at high confidence.
+- **Not adopted - lower effort / no thinking:** the reader does no thinking at effort medium (0 thinking tokens in every call), so neither saves anything; effort low read a double mark as one option in 2 of 2 runs.
+- **Not adopted - context page changes:** no next page saves Rs 1.55 but missed 7 marks on questions split across pages; the top 30% of the next page made 7 wrong against 5 on the 2016 sheet; 10 pages per call added a false mark and one 70 s call.
+- **Result:** a 19-page printed paper still costs about Rs 21 to read; it is ready for the reader about 9.5 s sooner. Bench scripts and results are in `.run/bench/` (not in the repo).
 
 ### Fixes to earlier known issues
 - Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).
