@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Info, Plus, Trash2 } from "lucide-react";
 import type { MarkingPolicy, RubricContent, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AnswerKeyImport } from "./answer-key-import";
@@ -13,21 +13,17 @@ import {
   ANSWER_KEY_VIEW_THRESHOLD,
   MAX_PAPER_CODE,
   MAX_RUBRIC_QUESTIONS,
+  STALE_AFTER_KEY,
   blankQuestion,
   compareContents,
   isMcq,
+  settledKeyWarning,
   totalMarks,
   validateContent,
 } from "./rubric-utils";
 
 /** Warnings shown before "Show all N". */
 const WARNINGS_SHOWN = 6;
-/**
- * Draft warnings an answer-key import settles (backend answer_keys._STALE / _RECHECKED): the old
- * "Fix before saving", missing-key and missing-criteria lines.
- */
-const STALE_AFTER_KEY =
-  /^(?:Fix before saving: |No answer key for |Q\d+ is an MCQ without an answer key|No grading criteria for |Q\d+ has no grading criteria)/;
 /** Rows per "Show more" step of the full list on long papers. */
 const FULL_LIST_STEP = 20;
 
@@ -60,6 +56,10 @@ interface RubricDraftEditorProps {
   disabled?: boolean;
   /** Original content: questions that differ are marked "changed" / "new". */
   baseline?: RubricContent | null;
+  /** The answer-key file behind the content now (intake): an import's Undo restores it. */
+  keyFile?: File | null;
+  /** An answer-key file was applied with "Apply answer key from file" (or its Undo restored the earlier one). */
+  onKeyFile?: (file: File | null) => void;
 }
 
 /**
@@ -67,7 +67,16 @@ interface RubricDraftEditorProps {
  * subject, chapter, marks, criteria (one per line), effort hours and expected answer. Rubrics with
  * MCQs can take their key from a separate answer-key file (AnswerKeyImport).
  */
-export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = [], disabled, baseline }: RubricDraftEditorProps) {
+export function RubricDraftEditor({
+  value,
+  onChange,
+  aiDrafted = [],
+  warnings = [],
+  disabled,
+  baseline,
+  keyFile,
+  onKeyFile,
+}: RubricDraftEditorProps) {
   const ids = useId();
   const issues = validateContent(value);
   const diff = baseline ? compareContents(baseline, value) : null;
@@ -85,7 +94,13 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
   // After a key import the draft's missing-key / validation warnings are stale (the live checks
   // above the table show what is still missing), as the server drops them for a key_file.
   const currentWarnings = keyedFromFile.length ? warnings.filter((w) => !STALE_AFTER_KEY.test(w)) : warnings;
-  const shownWarnings = allWarnings ? currentWarnings : currentWarnings.slice(0, WARNINGS_SHOWN);
+  // "More than one accepted answer" / "bonus" warnings are informational once every question they
+  // list is keyed that way in the draft; the ones still to act on come first.
+  const rankedWarnings = currentWarnings
+    .map((text) => ({ text, settled: settledKeyWarning(text, value) }))
+    .sort((a, b) => Number(a.settled) - Number(b.settled));
+  const openWarnings = rankedWarnings.filter((w) => !w.settled).length;
+  const shownWarnings = allWarnings ? rankedWarnings : rankedWarnings.slice(0, WARNINGS_SHOWN);
   const hasMcqs = value.questions.some(isMcq);
 
   function update(index: number, patch: Partial<RubricQuestion>) {
@@ -130,7 +145,7 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2">
           <label htmlFor={`${ids}-name`} className={labelClass}>
-            Rubric name
+            Answer key name
           </label>
           <input
             id={`${ids}-name`}
@@ -197,19 +212,30 @@ export function RubricDraftEditor({ value, onChange, aiDrafted = [], warnings = 
           onChange={onChange}
           keyed={keyedFromFile}
           onKeyed={setKeyedFromFile}
+          keyFile={keyFile}
+          onKeyFile={onKeyFile}
           disabled={disabled}
         />
       ) : null}
 
       {currentWarnings.length > 0 ? (
-        <div className="border-l-2 border-amber-500 pl-3">
-          <ul className="space-y-1 text-sm text-amber-900">
-            {shownWarnings.map((w, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-                <span className="min-w-0 break-words">{w}</span>
-              </li>
-            ))}
+        <div className={cn("border-l-2 pl-3", openWarnings > 0 ? "border-amber-500" : "border-slate-300")}>
+          <ul className="space-y-1 text-sm">
+            {shownWarnings.map((w, i) =>
+              w.settled ? (
+                <li key={i} className="flex items-start gap-2 text-slate-600">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                  <span className="min-w-0 break-words">
+                    {w.text} <span className="text-xs font-medium text-lime-700">Now set in the draft.</span>
+                  </span>
+                </li>
+              ) : (
+                <li key={i} className="flex items-start gap-2 text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                  <span className="min-w-0 break-words">{w.text}</span>
+                </li>
+              ),
+            )}
           </ul>
           {currentWarnings.length > WARNINGS_SHOWN ? (
             <button

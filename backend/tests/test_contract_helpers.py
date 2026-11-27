@@ -200,7 +200,7 @@ def test_rubric_store_versions_and_compatibility(client, db_session):
     from schemas import RubricContentIn
 
     content = seed.load_genetics_rubric()
-    parent = seed.get_default_rubric(db_session)
+    parent = seed.ensure_genetics_rubric(db_session)  # the conftest test rubric
     edited = json.loads(json.dumps(content))
     edited["questions"][0]["max_marks"] = 5
     edited["questions"].append({**edited["questions"][1], "question": 6, "topic": "New Topic"})

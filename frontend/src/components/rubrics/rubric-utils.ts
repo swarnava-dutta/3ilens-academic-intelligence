@@ -1,5 +1,34 @@
-// Rubric helpers shared by the intake rubric source and the /cohort "Rubric versions" panel.
-import type { MarkingPolicy, Rubric, RubricCompatibility, RubricContent, RubricQuestion } from "@/lib/types";
+// Rubric helpers shared by the intake rubric source and the /cohort "Answer keys used" panel.
+import type {
+  MarkingPolicy,
+  Rubric,
+  RubricCompatibility,
+  RubricContent,
+  RubricQuestion,
+  RubricSourceKind,
+  RubricSourceRole,
+} from "@/lib/types";
+import { hasGenericCriteria } from "./answer-key-apply";
+
+/** How a key's source file is labelled at intake and on the report. */
+export const SOURCE_ROLE_LABEL: Record<RubricSourceRole, string> = {
+  question_paper: "Question paper",
+  rubric_file: "Rubric file",
+  marked_copy: "Marked copy (ticks are the key)",
+  answer_key: "Answer key file",
+};
+
+/** What the file a key is drafted from is: a rubric as JSON / text, a teacher's marked copy, or the question paper. */
+export function paperRole(fileName: string, ticksAreKey: boolean): RubricSourceRole {
+  if (/\.(?:json|txt)$/i.test(fileName)) return "rubric_file";
+  return ticksAreKey ? "marked_copy" : "question_paper";
+}
+
+/** A stored source file's label: its role, else (older entries) its kind. */
+export function sourceLabel(kind: RubricSourceKind, role?: RubricSourceRole | null): string {
+  if (role && role in SOURCE_ROLE_LABEL) return SOURCE_ROLE_LABEL[role];
+  return kind === "key" ? SOURCE_ROLE_LABEL.answer_key : SOURCE_ROLE_LABEL.question_paper;
+}
 
 /** Option letters of an MCQ (2-6 options). */
 export const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
@@ -13,48 +42,46 @@ export const ANSWER_KEY_VIEW_THRESHOLD = 20;
 /** Backend RubricContentIn.paper_code max length. */
 export const MAX_PAPER_CODE = 60;
 
-export interface CustomRubricFile {
-  fileName: string;
-  text: string;
-  name: string;
-  questionCount: number;
-  totalMarks: number;
-}
+/**
+ * Draft warnings an answer-key import settles (backend answer_keys._STALE / _RECHECKED): the old
+ * "Fix before saving", missing-key and missing-criteria lines.
+ */
+export const STALE_AFTER_KEY =
+  /^(?:Fix before saving: |No answer key for |Q\d+ is an MCQ without an answer key|No grading criteria for |Q\d+ has no grading criteria)/;
 
-/** Light client-side sanity check of an uploaded rubric JSON; the API performs the full validation. */
-export function parseCustomRubric(fileName: string, text: string): CustomRubricFile | string {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch (err) {
-    return `"${fileName}" is not valid JSON (${err instanceof Error ? err.message : "parse error"}).`;
-  }
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return 'The rubric must be a JSON object with a "questions" array.';
-  }
-  const obj = data as { name?: unknown; questions?: unknown };
-  if (!Array.isArray(obj.questions) || obj.questions.length === 0) {
-    return 'The rubric needs a non-empty "questions" array.';
-  }
-  let total = 0;
-  for (const [i, q] of obj.questions.entries()) {
-    const item = q as { question?: unknown; topic?: unknown; max_marks?: unknown } | null;
-    if (!item || typeof item !== "object") return `Question #${i + 1} must be an object.`;
-    if (typeof item.question !== "number") return `Question #${i + 1} needs a numeric "question" number.`;
-    if (typeof item.topic !== "string" || !item.topic.trim()) return `Question ${item.question} needs a "topic".`;
-    if (typeof item.max_marks !== "number" || item.max_marks <= 0) {
-      return `Question ${item.question} needs a positive "max_marks".`;
-    }
-    total += item.max_marks;
-  }
-  return {
-    fileName,
-    text,
-    name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Custom rubric",
-    questionCount: obj.questions.length,
-    totalMarks: total,
-  };
-}
+/** A small answer key in the JSON shape the intake accepts (one MCQ, one written answer). */
+export const RUBRIC_TEMPLATE: RubricContent = {
+  name: "Unit test 3 - Genetics",
+  subject: "Biology",
+  paper_code: "Set A",
+  questions: [
+    {
+      question: 1,
+      topic: "Mendelian inheritance",
+      subject: "Biology",
+      chapter: "Principles of Inheritance and Variation",
+      max_marks: 4,
+      question_type: "mcq",
+      options: ["1:1", "3:1", "9:3:3:1", "1:2:1"],
+      correct_option: "B",
+      negative_marks: 1,
+      expected_answer: "Option B: 3:1",
+      grading_criteria: ["4 marks: option B"],
+      effort_hours: 1,
+    },
+    {
+      question: 2,
+      topic: "Test cross",
+      subject: "Biology",
+      chapter: "Principles of Inheritance and Variation",
+      max_marks: 5,
+      prompt: "What is a test cross? Explain it with an example.",
+      expected_answer: "A cross of an F1 individual with the homozygous recessive parent to find its genotype; e.g. Tt x tt gives 1:1.",
+      grading_criteria: ["Defines a test cross (2)", "Gives a correct example with the cross (2)", "States the 1:1 ratio (1)"],
+      effort_hours: 2,
+    },
+  ],
+};
 
 export function versionLabel(version: string): string {
   return /^v\d/i.test(version) || /^custom/i.test(version) ? version : `v${version}`;
@@ -108,10 +135,15 @@ export function cloneContent(content: RubricContent): RubricContent {
         grading_criteria: [...(q.grading_criteria ?? [])],
       };
       if (q.options) copy.options = [...q.options];
+      // An empty list from the API means "unused" (null); the editor's empty list means "tick them".
+      if (q.accepted_options?.length) copy.accepted_options = [...q.accepted_options];
+      else delete copy.accepted_options;
       // An MCQ read from a printed paper may come without option texts (formulas printed as
       // images): give it blank options so the correct option can be picked; blank options are
       // dropped again by normalizeContent.
-      if (isMcq(q) && (copy.options?.length ?? 0) < 2) copy.options = blankOptions(q.correct_option);
+      if (isMcq(q) && (copy.options?.length ?? 0) < 2) {
+        copy.options = blankOptions(q.correct_option, q.accepted_options);
+      }
       if (q.marking_scheme) copy.marking_scheme = q.marking_scheme.map((step) => ({ ...step }));
       return copy;
     }),
@@ -121,14 +153,203 @@ export function cloneContent(content: RubricContent): RubricContent {
   return out;
 }
 
-/** Four blank options (more when the correct option is E or F). */
-export function blankOptions(correct?: string | null): string[] {
-  const index = (OPTION_LETTERS as readonly string[]).indexOf(correct ?? "");
+/** Four blank options (more when the correct or an accepted option is E or F). */
+export function blankOptions(correct?: string | null, accepted?: string[] | null): string[] {
+  const index = Math.max(
+    letterIndex(correct),
+    ...(accepted ?? []).map((letter) => letterIndex(letter)),
+  );
   return Array.from({ length: Math.max(4, index + 1) }, () => "");
 }
 
 export function isMcq(q: Pick<RubricQuestion, "question_type">): boolean {
   return q.question_type === "mcq";
+}
+
+// --------------------------------------------------------------------------- //
+// MCQ keys: one correct option, several accepted options, or a bonus question
+// --------------------------------------------------------------------------- //
+/**
+ * How an MCQ is keyed (backend K1): "single" = correct_option; "several" = accepted_options (any of
+ * 2-6 letters scores full marks, e.g. "2 or 3" in a publisher key); "bonus" = full marks to every
+ * student whatever they marked.
+ */
+export type McqKeyMode = "single" | "several" | "bonus";
+
+export const MCQ_KEY_MODES: { value: McqKeyMode; label: string }[] = [
+  { value: "single", label: "One correct option" },
+  { value: "several", label: "Several accepted options" },
+  { value: "bonus", label: "Bonus - full marks to everyone" },
+];
+
+/** 0-5 for A-F (lower case and spaces tolerated), -1 otherwise. */
+function letterIndex(letter: string | null | undefined): number {
+  return (OPTION_LETTERS as readonly string[]).indexOf(squash(letter).toUpperCase());
+}
+
+export function mcqKeyMode(q: Pick<RubricQuestion, "bonus" | "accepted_options">): McqKeyMode {
+  if (q.bonus) return "bonus";
+  return Array.isArray(q.accepted_options) ? "several" : "single";
+}
+
+/** Option letters an MCQ offers: its options (2-6), A-F when it has no option list. */
+function offeredCount(q: Pick<RubricQuestion, "options">): number {
+  const count = q.options?.length ?? 0;
+  return count >= 2 ? Math.min(count, OPTION_LETTERS.length) : OPTION_LETTERS.length;
+}
+
+/** The accepted letters, upper case, distinct, in A-F order (unknown letters dropped). */
+export function acceptedLetters(q: Pick<RubricQuestion, "accepted_options">): string[] {
+  const chosen = new Set((q.accepted_options ?? []).map((letter) => squash(letter).toUpperCase()));
+  return OPTION_LETTERS.filter((letter) => chosen.has(letter));
+}
+
+/** "B or C", "A, B or C". */
+export function orList(letters: string[]): string {
+  if (letters.length <= 1) return letters.join("");
+  return `${letters.slice(0, -1).join(", ")} or ${letters[letters.length - 1]}`;
+}
+
+/** The single correct option when it is a letter within the options, else null. */
+function singleKey(q: Pick<RubricQuestion, "correct_option" | "options">): string | null {
+  const index = letterIndex(q.correct_option);
+  return index >= 0 && index < offeredCount(q) ? OPTION_LETTERS[index] : null;
+}
+
+/** Problems with an MCQ's key (validateContent wording); [] when it is keyed. */
+function mcqKeyProblems(q: RubricQuestion): string[] {
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return [];
+  if (mode === "single") return singleKey(q) ? [] : ["the correct option"];
+  const raw = (q.accepted_options ?? []).map((letter) => squash(letter).toUpperCase());
+  const problems: string[] = [];
+  if (raw.some((letter) => letterIndex(letter) < 0)) problems.push("accepted options are letters A-F");
+  else if (new Set(raw).size !== raw.length) problems.push("distinct accepted options");
+  else if (raw.some((letter) => letterIndex(letter) >= offeredCount(q))) problems.push("accepted options within the options");
+  if (new Set(raw).size < 2) problems.push("at least two accepted options");
+  return problems;
+}
+
+/** The MCQ has a key the API accepts: a correct option, 2+ accepted options, or bonus. */
+export function mcqKeySet(q: RubricQuestion): boolean {
+  return isMcq(q) && mcqKeyProblems(q).length === 0;
+}
+
+/** Short key label for tables: "B", "B or C", "Bonus" ("" when not set). */
+export function mcqKeyLabel(q: RubricQuestion): string {
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return "Bonus";
+  if (mode === "several") return orList(acceptedLetters(q));
+  return singleKey(q) ?? "";
+}
+
+/** How an MCQ is scored, in one line ("+4 for B or C, -1 for any other option or several marked, 0 blank"). */
+export function mcqScoringNote(q: RubricQuestion, policyNegative: number): string {
+  const marks = Number.isFinite(q.max_marks) ? marksText(q.max_marks) : "?";
+  const negative =
+    typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks) ? q.negative_marks : policyNegative;
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return `Bonus question - full marks to everyone: +${marks} for every student, whatever they marked.`;
+  if (mode === "several") {
+    const letters = acceptedLetters(q);
+    return letters.length >= 2
+      ? `Accepted options ${orList(letters)}: +${marks} for any of them, −${negative} for any other option or several marked, 0 blank.`
+      : "Tick at least two accepted options.";
+  }
+  return `Scored by letter: +${marks} correct, −${negative} wrong or multiple, 0 blank.`;
+}
+
+/** "4", "2.5", "0.25" (Python "{:g}" for the usual values). */
+function marksText(marks: number): string {
+  return String(Number(marks.toPrecision(6)));
+}
+
+/** An expected answer the editor or a draft wrote from the key ("Option B: 3:1", "Option B or C", "Bonus question"). */
+const AUTO_ANSWER = /^(?:option\s+[A-F](?:\s*(?:,|\bor\b|\/)\s*[A-F])*(?:\s*:[\s\S]*)?|bonus(?:\s+question)?\b[\s\S]*)$/i;
+
+/** Expected answer written from the key: "Option B: <text>", "Option B or C", "Bonus question" ("" when unset). */
+export function mcqAutoAnswer(q: RubricQuestion): string {
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return "Bonus question";
+  if (mode === "several") {
+    const letters = acceptedLetters(q);
+    return letters.length ? `Option ${orList(letters)}` : "";
+  }
+  const letter = singleKey(q);
+  if (!letter) return "";
+  const text = squash(q.options?.[letterIndex(letter)]);
+  return text ? `Option ${letter}: ${text}` : `Option ${letter}`;
+}
+
+/** One-line criterion written from the key ("4 marks: option B or C"); null when the key is unset. */
+function mcqAutoCriterion(q: RubricQuestion): string | null {
+  const marks = marksText(Number.isFinite(q.max_marks) && q.max_marks > 0 ? q.max_marks : 4);
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return `${marks} marks to every student (bonus question)`;
+  const label = mode === "several" ? orList(acceptedLetters(q)) : singleKey(q);
+  return label ? `${marks} marks: option ${label}` : null;
+}
+
+/**
+ * A key change for an MCQ (`patch` sets correct_option / accepted_options / bonus), with the
+ * expected answer and criteria rewritten when they are still the ones written from the key (blank,
+ * "Option B: ...", "4 marks: option B"); text faculty wrote themselves is kept.
+ */
+export function withKeyTexts(q: RubricQuestion, patch: Partial<RubricQuestion>): Partial<RubricQuestion> {
+  const after: RubricQuestion = { ...q, ...patch };
+  const out: Partial<RubricQuestion> = { ...patch };
+  const expected = squash(q.expected_answer);
+  if (!expected || AUTO_ANSWER.test(expected)) out.expected_answer = mcqAutoAnswer(after);
+  if (hasGenericCriteria(q.grading_criteria)) {
+    const criterion = mcqAutoCriterion(after);
+    out.grading_criteria = criterion ? [criterion] : [""];
+  }
+  return out;
+}
+
+/** Fields that switch an MCQ to another key mode (the single option is kept to switch back). */
+export function keyModePatch(q: RubricQuestion, mode: McqKeyMode): Partial<RubricQuestion> {
+  if (mode === "bonus") return { bonus: true, accepted_options: undefined };
+  if (mode === "several") {
+    const keep = acceptedLetters(q);
+    const single = singleKey(q);
+    return { bonus: undefined, accepted_options: keep.length ? keep : single ? [single] : [] };
+  }
+  return {
+    bonus: undefined,
+    accepted_options: undefined,
+    correct_option: singleKey(q) ?? acceptedLetters(q)[0] ?? q.correct_option,
+  };
+}
+
+/** "Q51, Q53, Q111-Q112 and 2 more" -> [51, 53, 111, 112] (the listed ones). */
+function listedQuestions(text: string): number[] {
+  const numbers: number[] = [];
+  for (const match of text.matchAll(/\bQ(\d{1,4})(?:\s*[-–]\s*Q?(\d{1,4}))?\b/g)) {
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : start;
+    if (end < start || end - start > 1000) continue;
+    for (let n = start; n <= end; n += 1) numbers.push(n);
+  }
+  return numbers;
+}
+
+/** A draft warning about keys with several accepted answers or bonus questions. */
+const SPECIAL_KEY_WARNING = /more than one accepted|several accepted|accepted (?:answers|options)|\bbonus\b/i;
+
+/**
+ * The draft warning names MCQs with several accepted answers or bonus questions, and every one it
+ * lists is now keyed that way in the draft (it becomes informational).
+ */
+export function settledKeyWarning(warning: string, content: RubricContent): boolean {
+  if (!SPECIAL_KEY_WARNING.test(warning)) return false;
+  const numbers = listedQuestions(warning);
+  if (!numbers.length) return false;
+  const byNumber = new Map(content.questions.map((q) => [q.question, q]));
+  return numbers.every((n) => {
+    const q = byNumber.get(n);
+    return !!q && isMcq(q) && mcqKeyMode(q) !== "single" && mcqKeySet(q);
+  });
 }
 
 /** Sum of a question's marking-scheme step marks. */
@@ -166,7 +387,11 @@ export function normalizeContent(content: RubricContent): RubricContent {
           out.question_type = "mcq";
           const options = (q.options ?? []).map((o) => squash(o));
           if (options.some(Boolean)) out.options = options;
-          if (q.correct_option) out.correct_option = q.correct_option;
+          // Only the key of the chosen mode goes to the API (a bonus question needs no letter).
+          const mode = mcqKeyMode(q);
+          if (mode === "bonus") out.bonus = true;
+          else if (mode === "several") out.accepted_options = acceptedLetters(q);
+          else if (q.correct_option) out.correct_option = q.correct_option;
           if (typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks)) out.negative_marks = q.negative_marks;
         } else {
           if (q.question_type === "descriptive") out.question_type = "descriptive";
@@ -229,7 +454,7 @@ export interface ContentIssues {
   count: number;
 }
 
-/** Mirrors the API's RubricContentIn rules so faculty see problems before saving. */
+/** Mirrors the API's RubricContentIn rules so faculty see problems before grading. */
 export function validateContent(content: RubricContent): ContentIssues {
   const general: string[] = [];
   const byIndex: Record<number, string[]> = {};
@@ -257,8 +482,8 @@ export function validateContent(content: RubricContent): ContentIssues {
       const filled = options.filter((o) => o.trim()).length;
       if (options.length < 2 || options.length > 6) problems.push("2-6 options");
       else if (filled > 0 && filled < options.length) problems.push("text for every option (or leave all blank)");
-      const index = (OPTION_LETTERS as readonly string[]).indexOf(q.correct_option ?? "");
-      if (index < 0 || (options.length >= 2 && index >= options.length)) problems.push("the correct option");
+      // A correct option, 2-6 accepted options within the options, or a bonus question.
+      problems.push(...mcqKeyProblems(q));
       const neg = q.negative_marks;
       if (neg !== undefined && (!Number.isFinite(neg) || neg < 0 || neg > q.max_marks)) {
         problems.push("negative marks between 0 and the question marks");
@@ -303,6 +528,8 @@ const COMPARED: (keyof RubricQuestion)[] = [
   "question_type",
   "options",
   "correct_option",
+  "accepted_options",
+  "bonus",
   "negative_marks",
   "bloom_level",
   "concept",
@@ -312,11 +539,19 @@ const COMPARED: (keyof RubricQuestion)[] = [
 ];
 
 function comparable(q: RubricQuestion, key: keyof RubricQuestion): string {
+  // The MCQ key as normalizeContent sends it: only the chosen mode's field counts.
+  if (key === "correct_option" || key === "accepted_options" || key === "bonus") {
+    const mode = isMcq(q) ? mcqKeyMode(q) : null;
+    if (key === "correct_option") return mode === "single" ? squash(q.correct_option).toUpperCase() : "";
+    if (key === "accepted_options") return mode === "several" ? acceptedLetters(q).join(",") : "";
+    return mode === "bonus" ? "true" : "";
+  }
   const value = q[key];
   if (Array.isArray(value)) {
     return value.map((c) => squash(typeof c === "string" ? c : JSON.stringify(c))).filter(Boolean).join("\n");
   }
   if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "true" : "";
   if (key === "question_type") return value === "mcq" ? "mcq" : "descriptive";
   return squash(value as string | undefined);
 }

@@ -91,7 +91,7 @@ def test_list_filters_and_newest_first(client, db_session):
     assert client.get("/api/interventions", params={"batch_id": 9999}).json() == []
 
 
-def test_result_lists_the_students_interventions(client):
+def test_result_lists_the_students_interventions(demo_data, client):
     client.post("/api/demo/seed")
     subs = {s["student_name"]: s["id"] for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED"}
     sub_id = subs["Ananya Iyer"]
@@ -183,3 +183,17 @@ def test_build_record_captures_demo_flag(client, db_session):
     row = outcomes.build_record(sub, topic="mechanics", kind="nudge", action="x", applied_by="y", hours=4)
     assert isinstance(row, InterventionRecord) and row.is_demo is True and row.topic == "Mechanics"
     assert row.predicted_gain_pct == pytest.approx(55 * 4 / 12, abs=0.05)  # from_low 12 h
+
+
+def test_batched_follow_ups_match_follow_up_per_record(client, db_session):
+    _effect_fixture(client, db_session)  # two measured records
+    pending = add_result(db_session, "Out Batch Pending", {"Human Physiology": 50}, days_ago=10)
+    assert _post(client, pending.id, applied_at=_applied(8)).status_code == 201
+    unassessed = add_result(db_session, "Out Batch Unassessed", {"Human Physiology": 50}, days_ago=10)
+    assert _post(client, unassessed.id, applied_at=_applied(8)).status_code == 201
+    add_result(db_session, "Out Batch Unassessed", {"Ecology": 70}, days_ago=2)
+    rows = outcomes._records(db_session)
+    single = [outcomes.follow_up(db_session, row) for row in rows]
+    assert sorted(status for status, _ in single) == ["improved", "improved", "not_assessed", "pending"]
+    assert outcomes.follow_ups(db_session, rows) == single
+    assert outcomes.follow_ups(db_session, []) == []

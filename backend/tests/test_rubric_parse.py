@@ -130,6 +130,16 @@ def test_json_rubric_file_is_parsed_without_ai(client, no_ai):
     assert body["warnings"][-1] == "Total: 5 question(s), 20 marks."
 
 
+@pytest.mark.parametrize("codec", ["utf-16", "utf-16-be"])
+def test_a_utf16_json_rubric_file_is_parsed_like_utf8(client, no_ai, codec):
+    """Notepad's "Unicode" (UTF-16 with a byte-order mark) used to be refused as binary (415)."""
+    text = json.dumps(GENETICS)
+    data = ("\ufeff" + text).encode(codec) if codec == "utf-16-be" else text.encode(codec)  # both with a BOM
+    response = _parse(client, file=("genetics.json", data, "application/json"))
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "json" and response.json()["draft"]["name"] == GENETICS["name"]
+
+
 def test_pasted_json_text_is_parsed_without_ai(client, no_ai):
     response = _parse(client, text=json.dumps(GENETICS), subject="Biology")
     assert response.status_code == 200 and response.json()["source"] == "json"
@@ -154,8 +164,8 @@ def test_empty_source_is_rejected(client, no_ai):
 
 
 def test_unsupported_signatures_are_rejected(client, no_ai, png_bytes):
-    response = _parse(client, file=("paper.png", png_bytes, "image/png"))
-    assert response.status_code == 415 and response.json()["code"] == "unsupported_signature"
+    response = _parse(client, file=("key.png", png_bytes, "image/png"))  # a photo of a key: read by AI
+    assert response.status_code == 503 and response.json()["code"] == "ai_not_configured"
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("notes.txt", "not a word document")
@@ -333,4 +343,4 @@ def test_complete_mcq_draft_validates_and_saves(client, monkeypatch):
     assert "do not solve it yourself" in fake.calls[0]["system"]
     saved = client.post("/api/rubrics", json={"content": draft, "approved": False})
     assert saved.status_code == 201, saved.text
-    assert ai.RUBRIC_PARSE_PROMPT_VERSION == "rubric-v2"
+    assert ai.RUBRIC_PARSE_PROMPT_VERSION == "rubric-v3"

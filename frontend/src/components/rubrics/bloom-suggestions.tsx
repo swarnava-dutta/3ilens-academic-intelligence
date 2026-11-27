@@ -51,7 +51,7 @@ export function BloomSuggestions({
           !errorCode(err) && (status === 404 || status === 405)
             ? "Bloom suggestions are not available on this API build yet."
             : errorCode(err) === "unknown_rubric"
-              ? "This rubric is no longer stored - reload the page."
+              ? "This answer key is no longer stored - reload the page."
               : errorMessage(err),
       });
       return;
@@ -95,7 +95,7 @@ export function BloomSuggestions({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-700">
           <span className="font-semibold text-brand-navy">Bloom levels (K1-K5)</span> · suggestions never change the
-          rubric until you apply them and save a version.
+          answer key until you apply them and save a version.
         </p>
         <button
           type="button"

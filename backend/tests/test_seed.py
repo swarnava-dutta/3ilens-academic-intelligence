@@ -9,7 +9,25 @@ def count(session, model) -> int:
     return session.scalar(select(func.count()).select_from(model))
 
 
-def test_seed_base_is_idempotent(isolated_env):
+def test_seed_base_creates_no_rubric_while_demo_data_is_off(isolated_env):
+    """SEED_DEMO_DATA off (default): institution and batch only - every upload brings its own key."""
+    import database
+    import seed
+    from database import Batch, Institution, Rubric, StudentSubmission
+
+    database.init_db()
+    with database.SessionLocal() as session:
+        institution, batch, rubric = seed.seed_base(session)
+        assert seed.seed_base(session)[:2] == (institution, batch)
+        assert rubric is None
+        assert count(session, Institution) == count(session, Batch) == 1
+        assert count(session, Rubric) == count(session, StudentSubmission) == 0
+        with pytest.raises(seed.DemoDataDisabled):
+            seed.seed_demo_set(session, "all")
+        assert count(session, Rubric) == count(session, StudentSubmission) == 0
+
+
+def test_seed_base_is_idempotent(demo_data, isolated_env):
     import database
     import seed
     from database import Batch, Institution, Rubric
@@ -27,7 +45,7 @@ def test_seed_base_is_idempotent(isolated_env):
         assert len(rubric.content["questions"]) == 5
 
 
-def test_seed_demo_cohort_is_idempotent_and_never_calls_ai(isolated_env, forbid_ai):
+def test_seed_demo_cohort_is_idempotent_and_never_calls_ai(demo_data, isolated_env, forbid_ai):
     import database
     import seed
     from database import EvaluationResult, StudentSubmission
@@ -49,7 +67,7 @@ def test_seed_demo_cohort_is_idempotent_and_never_calls_ai(isolated_env, forbid_
     assert forbid_ai == []
 
 
-def test_demo_cohort_uses_the_insights_engine_with_varied_performance(isolated_env):
+def test_demo_cohort_uses_the_insights_engine_with_varied_performance(demo_data, isolated_env):
     import database
     import seed
     from database import EvaluationResult
@@ -68,7 +86,7 @@ def test_demo_cohort_uses_the_insights_engine_with_varied_performance(isolated_e
             assert r.strengths_gaps["strengths"] and r.strengths_gaps["gaps"]
 
 
-def test_demo_seed_endpoint_and_cohort(client, forbid_ai):
+def test_demo_seed_endpoint_and_cohort(demo_data, client, forbid_ai):
     import seed
 
     first = client.post("/api/demo/seed")
@@ -106,7 +124,7 @@ def test_demo_seed_endpoint_and_cohort(client, forbid_ai):
     assert forbid_ai == []
 
 
-def test_demo_and_live_records_are_counted_separately(client, upload, fake_ai):
+def test_demo_and_live_records_are_counted_separately(demo_data, client, upload, fake_ai):
     client.post("/api/demo/seed")
     assert upload(student_name="Live Student").status_code == 202
     cohort = client.get("/api/cohort").json()
@@ -115,11 +133,15 @@ def test_demo_and_live_records_are_counted_separately(client, upload, fake_ai):
     assert client.get("/api/submissions").json()[0]["is_demo"] is False  # live upload is newest
 
 
-def test_seed_cli(isolated_env, capsys):
+def test_seed_cli(isolated_env, capsys, monkeypatch):
     import seed
 
     assert seed.main([]) == 0
-    assert "Base seed OK" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Base seed OK" in out and "no rubric (SEED_DEMO_DATA is off" in out
+    assert seed.main(["--demo"]) == 1  # demo data is off by default
+    assert "SEED_DEMO_DATA=1" in capsys.readouterr().out
+    monkeypatch.setenv("SEED_DEMO_DATA", "1")
     assert seed.main(["--demo"]) == 0
     assert "created" in capsys.readouterr().out
     assert seed.main(["--demo"]) == 0
@@ -140,7 +162,7 @@ PAYLOAD_SUBJECT = {
 }
 
 
-def test_genetics_demo_carries_confusions_and_two_demo_sign_offs(isolated_env, forbid_ai):
+def test_genetics_demo_carries_confusions_and_two_demo_sign_offs(demo_data, isolated_env, forbid_ai):
     import analytics
     import database
     import seed
@@ -191,7 +213,7 @@ def test_mixed_rubric_file_covers_the_ten_payload_topics():
         assert q.prompt and q.expected_answer
 
 
-def test_mixed_demo_set_is_idempotent_and_never_creates_an_ai_client(isolated_env, no_network_clients, forbid_ai):
+def test_mixed_demo_set_is_idempotent_and_never_creates_an_ai_client(demo_data, isolated_env, no_network_clients, forbid_ai):
     import database
     import seed
     from database import Batch, Rubric, StudentSubmission
@@ -226,7 +248,7 @@ def test_mixed_demo_set_is_idempotent_and_never_creates_an_ai_client(isolated_en
     assert no_network_clients == [] and forbid_ai == []
 
 
-def test_mixed_learners_reproduce_the_payload_urgency_labels(isolated_env):
+def test_mixed_learners_reproduce_the_payload_urgency_labels(demo_data, isolated_env):
     import analytics
     import database
     import seed
@@ -250,7 +272,7 @@ def test_mixed_learners_reproduce_the_payload_urgency_labels(isolated_env):
             assert sum(q["estimated_marks"] for q in result.question_evaluations) == pytest.approx(result.total_score)
 
 
-def test_demo_sets_combine_in_any_order(isolated_env):
+def test_demo_sets_combine_in_any_order(demo_data, isolated_env):
     import database
     import seed
 
@@ -264,7 +286,7 @@ def test_demo_sets_combine_in_any_order(isolated_env):
             seed.seed_demo_set(session, "everything")
 
 
-def test_demo_seed_endpoint_all_sets(client, forbid_ai):
+def test_demo_seed_endpoint_all_sets(demo_data, client, forbid_ai):
     from tests.test_contract import check_interface
 
     body = client.post("/api/demo/seed", params={"set": "all"}).json()

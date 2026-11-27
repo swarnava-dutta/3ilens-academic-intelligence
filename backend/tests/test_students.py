@@ -6,7 +6,7 @@ from tests.test_contract import check, check_interface
 URGENCIES = ("on_track", "needs_attention", "at_risk")
 
 
-def test_student_cards_for_every_submission(client):
+def test_student_cards_for_every_submission(demo_data, client):
     client.post("/api/demo/seed")
     cards = client.get("/api/students").json()
     check(cards, "StudentCard[]", "cards")
@@ -36,7 +36,7 @@ def test_student_cards_for_every_submission(client):
     assert review["release_status"] is None and review["total_marks"] == 20
 
 
-def test_student_card_filters(client):
+def test_student_card_filters(demo_data, client):
     client.post("/api/demo/seed")
     for urgency, expected in (("on_track", 5), ("needs_attention", 3), ("at_risk", 4)):
         cards = client.get("/api/students", params={"urgency": urgency}).json()
@@ -60,7 +60,7 @@ def test_student_card_filters(client):
     assert len(by_topic) == cohort["completed"]  # same rule as the cohort topic filter
 
 
-def test_mixed_demo_cards_filters_and_history(client):
+def test_mixed_demo_cards_filters_and_history(demo_data, client):
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
 
     filters = client.get("/api/filters").json()
@@ -118,7 +118,7 @@ def test_filters_on_an_empty_database(client):
     assert client.get("/api/students").json() == []
 
 
-def test_history_never_mixes_a_real_student_with_the_demo_namesake(client, upload, fake_ai):
+def test_history_never_mixes_a_real_student_with_the_demo_namesake(demo_data, client, upload, fake_ai):
     client.post("/api/demo/seed", params={"set": "all"})
     live = upload(student_name="Aarav Sharma").json()  # same name-derived ref as the demo student
     assert client.get(f"/api/results/{live['id']}").status_code == 200

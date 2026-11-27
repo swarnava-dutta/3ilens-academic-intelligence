@@ -29,7 +29,7 @@ import ai  # noqa: E402
 import pipeline  # noqa: E402
 from config import get_settings  # noqa: E402
 from database import EvaluationResult, SessionLocal, StudentSubmission, init_db  # noqa: E402
-from seed import seed_base  # noqa: E402
+from seed import ensure_genetics_rubric, seed_base  # noqa: E402
 
 MIME = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg", ".webp": "image/webp"}
@@ -53,7 +53,8 @@ def main() -> int:
           f"endpoint: {settings.anthropic_base_url} | AI ready: {ready} {missing or ''}")
     init_db()
     with SessionLocal() as db:
-        _, batch, rubric = seed_base(db)
+        _, batch, _ = seed_base(db)
+        rubric = ensure_genetics_rubric(db)  # no saved rubrics: every sheet answers this sample key
         db.commit()
         batch_id, rubric_id = batch.id, rubric.id
 

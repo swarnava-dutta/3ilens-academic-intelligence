@@ -13,7 +13,7 @@ RESULTS = "/api/lms/v1/results"
 
 
 @pytest.fixture
-def genetics(client):
+def genetics(demo_data, client):
     assert client.post("/api/demo/seed").json()["created"] == 13
 
 

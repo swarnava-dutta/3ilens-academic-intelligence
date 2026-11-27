@@ -302,7 +302,7 @@ def test_human_review_and_failed_bodies_match_types_ts(upload, fake_ai, client):
     assert body["processing_log"][-1]["step"] == "Dead-letter queue"
 
 
-def test_demo_cohort_payloads_match_types_ts(client):
+def test_demo_cohort_payloads_match_types_ts(demo_data, client):
     seeded = client.post("/api/demo/seed").json()
     check_interface(seeded, "DemoSeedResult")
     assert seeded["created"] == 13

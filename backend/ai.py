@@ -94,8 +94,8 @@ OPENAI_MAX_COMPLETION_TOKENS = 8000
 # Bumped whenever a prompt or output schema changes; part of the OCR cache key.
 OCR_PROMPT_VERSION = "ocr-v4"
 EVALUATION_PROMPT_VERSION = "eval-v3"
-RUBRIC_PARSE_PROMPT_VERSION = "rubric-v2"
-RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v2"
+RUBRIC_PARSE_PROMPT_VERSION = "rubric-v3"
+RUBRIC_PAGES_PROMPT_VERSION = "rubric-pages-v3"
 BLOOM_DETECT_PROMPT_VERSION = "bloom-v1"
 
 # Post-processing caps (structured outputs cannot enforce maxItems / minLength).
@@ -247,6 +247,12 @@ class _RubricQuestionWire(BaseModel):
     question_type: Literal["descriptive", "mcq"]
     options: list[str] = Field(description="MCQ option texts in order, without their letters; empty otherwise.")
     correct_option: str | None = Field(description="The answer-key letter (A-F) of an MCQ, or null when the source has none.")
+    accepted_options: list[str] = Field(
+        description="When the MCQ's key accepts two or more options, every accepted letter (A-F); empty otherwise."
+    )
+    bonus: bool = Field(
+        description="True when the key makes the MCQ a bonus (full marks to everyone); false otherwise."
+    )
     bloom_level: Literal["K1", "K2", "K3", "K4", "K5"]
 
 
@@ -264,7 +270,10 @@ class _AnswerKeyEntryWire(BaseModel):
     model_config = ConfigDict(title="AnswerKeyEntry")
 
     question: int = Field(description="The question number as printed in the answer-key table.")
-    option: str = Field(description="The correct option as printed in the table: a letter A-F or a number 1-6.")
+    option: str = Field(
+        description="The correct option as printed in the table: a letter A-F or a number 1-6; both when the key "
+        "accepts two (\"2 or 3\"); \"bonus\" when the key makes the question a bonus."
+    )
 
 
 class RubricPagesWire(BaseModel):
@@ -341,6 +350,8 @@ class _RubricQuestionParse(BaseModel):
     question_type: Any = None
     options: list[Any] = Field(default_factory=list)
     correct_option: Any = None
+    accepted_options: Any = None
+    bonus: Any = False
     bloom_level: Any = None
 
 
@@ -701,6 +712,12 @@ empty list for descriptive questions.
 - correct_option: for an MCQ, the letter (A-F) of the correct option taken from the \
 source's answer key; null when the source has no key (do not solve it yourself) and for \
 descriptive questions.
+- accepted_options: for an MCQ whose answer key accepts more than one option (for example \
+"2 or 3", "(1), (3)" or "B/C"), the letters of every accepted option, for example ["B", "C"], \
+and correct_option is null; an empty list otherwise.
+- bonus: true when the answer key makes an MCQ a bonus (marked "Bonus", dropped, deleted, all \
+options correct or full marks to everyone), and correct_option is null unless the key also \
+names one option; false otherwise.
 - bloom_level: the Bloom level of what the question asks the student to do - K1 Remember \
 (recall a fact, term or definition), K2 Understand (explain, describe, distinguish), K3 \
 Apply (use a rule, cross, formula or method on a case), K4 Analyse (compare, infer, \
@@ -731,9 +748,16 @@ listed in an answer-key table, or shown by a tick, circle, underline or highligh
 option. Options printed as (1)-(4) map to A-D: (1) = A, (2) = B, (3) = C, (4) = D. When \
 nothing on the page marks the correct option, correct_option is null and expected_answer is \
 an empty string - never solve the question yourself.
+- When the paper's key accepts two or more options for a question ("2 or 3", "(2), (3)", "B/C"), \
+return their letters in accepted_options (for example ["B", "C"]) and correct_option null. When \
+the key makes a question a bonus ("Bonus", "Dropped", "Deleted", "*", "All options correct"), \
+return bonus true and correct_option null. Never leave such a question with correct_option null \
+and nothing else.
 - answer_key: every entry of an answer-key table printed on these pages (question number and \
-the option as printed), including questions that are not on these pages; an empty list when \
-there is no such table. Do not repeat "Ans." lines that sit under a question here.
+the option as printed; both options as printed when the key accepts two, for example "2 or 3"; \
+"bonus" when the key makes the question a bonus), including questions that are not on these \
+pages; an empty list when there is no such table. Do not repeat "Ans." lines that sit under a \
+question here.
 - Ignore publisher adverts and banners, watermarks, logos, page headers and footers, and \
 instructions to candidates.
 - Keep it compact: an MCQ prompt of at most 300 characters (shorten a long stem without \
@@ -742,7 +766,9 @@ units in plain text, for example "d2y/dx2 = (rho g / S) x" or "27 x 10^4 V m^-1"
 figure in a few words, for example "[figure: circuit with a 2 uF capacitor and switch S]".
 - For an MCQ, expected_answer is "Option B: <option text>" and grading_criteria is one item \
 for the full marks, for example ["4 marks: option B"]; use the marks printed for the \
-question when the paper shows them. effort_hours may be 0.
+question when the paper shows them. With accepted options they are "Option B or C" and \
+["4 marks: option B or C"]; for a bonus "Bonus question" and ["4 marks: bonus question, full \
+marks to everyone"]. effort_hours may be 0.
 - subject: from the section heading (Physics, Chemistry, Biology, Botany, Zoology, \
 Mathematics, ...) or, when no heading is visible on these pages, from the question content. \
 On NEET papers, Botany and Zoology questions are Biology.
@@ -1612,11 +1638,7 @@ def parse_rubric_pages(
     questions = _rubric_questions(result["draft"])
     numbers = sorted(n for n in (_question_number(q) for q in questions) if n is not None)
     mcqs = [q for q in questions if marking.question_type(q) == "mcq"]
-    keyed = sum(
-        1 for q in mcqs
-        if marking.normalise_option(q.get("correct_option"), len(q.get("options") or []) or None)
-        not in (None, marking.MULTI, marking.UNKNOWN)
-    )
+    keyed = sum(1 for q in mcqs if _has_key(q))  # a correct option, accepted options or a bonus
     summary = (
         f"Read {_count(total, 'page')} in {_count(calls, 'AI call')}; {_count(len(questions), 'question')}"
         + (f"; answer key found for {keyed} of {_count(len(mcqs), 'MCQ')}." if mcqs else ".")
@@ -1724,11 +1746,74 @@ def _claude_rubric_pages_request(
     return _claude_request(settings, system, content, RubricPagesWire, RUBRIC_PAGES_EFFORT)
 
 
+_TRUE_WORDS = frozenset({"true", "yes", "y", "1"})
+
+
+def _raw_flag(value: Any) -> bool:
+    """A model-returned boolean read leniently (true, "true", "yes", 1)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    return isinstance(value, str) and value.strip().casefold() in _TRUE_WORDS
+
+
+def _draft_key(question: dict[str, Any], n_options: int | None = None) -> dict[str, Any]:
+    """The answer key of a drafted MCQ, read leniently: {'correct_option': 'B'}, {'accepted_options':
+    ['B', 'C']} (with correct_option only when it is one of them), {'bonus': True} (plus any letter
+    key it also carries) or {} (no key). A correct_option such as "2 or 3" reads as accepted
+    options and a one-letter accepted_options as the correct option; an accepted_options entry
+    that names no option (or one beyond n_options) voids the list. A correct_option or
+    accepted_options entry that is a bonus word ("Bonus", "*", "Dropped", "Deleted", "All options
+    correct" - marking.is_bonus_key) makes the question a bonus even when the model left bonus false."""
+    correct_raw = question.get("correct_option")
+    correct = marking.normalise_option(correct_raw, n_options)
+    raw = question.get("accepted_options")
+    entries = raw if isinstance(raw, list) else [raw] if isinstance(raw, str) else []
+    bonus_word = marking.is_bonus_key(correct_raw)
+    letters: set[str] = set()
+    for entry in entries:
+        if not str(entry or "").strip():
+            continue
+        if marking.is_bonus_key(entry):
+            bonus_word = True
+            continue
+        found = marking.option_letters(entry, n_options)
+        if not found:
+            letters = set()
+            break
+        letters.update(found)
+    accepted = sorted(letters)
+    if correct == marking.MULTI and not accepted:
+        accepted = marking.option_letters(correct_raw, n_options)
+    letter = correct if correct not in (None, marking.MULTI, marking.UNKNOWN) else None
+    if len(accepted) == 1:
+        letter, accepted = letter or accepted[0], []
+    key: dict[str, Any] = {}
+    if accepted:
+        key["accepted_options"] = accepted
+        if letter in accepted:
+            key["correct_option"] = letter
+    elif letter:
+        key["correct_option"] = letter
+    if _raw_flag(question.get("bonus")) or bonus_word:
+        key["bonus"] = True
+    return key
+
+
+def _key_signature(key: dict[str, Any]) -> str | None:
+    """'bonus', 'B/C' (accepted options), 'B' or None - how a key is named in the draft notes."""
+    if key.get("bonus"):
+        return "bonus"
+    if key.get("accepted_options"):
+        return "/".join(key["accepted_options"])
+    return key.get("correct_option")
+
+
 def _has_key(question: dict[str, Any]) -> bool:
+    """A correct option, two or more accepted options, or a bonus."""
     options = question.get("options") if isinstance(question.get("options"), list) else []
-    return marking.normalise_option(question.get("correct_option"), len(options) or None) not in (
-        None, marking.MULTI, marking.UNKNOWN,
-    )
+    return bool(_draft_key(question, len(options) or None))
 
 
 def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any], list[str]]:
@@ -1775,17 +1860,22 @@ def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any],
         if marking.question_type(question) != "mcq" or number not in key_table:
             continue
         options = question.get("options") or []
-        table = marking.normalise_option(key_table[number], len(options) or None)
-        if table in (None, marking.MULTI, marking.UNKNOWN):
+        n_options = len(options) or None
+        # "2" -> correct_option, "2 or 3" -> accepted_options, "Bonus" / "*" -> bonus
+        parsed = marking.parse_answer_key(key_table[number], n_options)
+        if parsed is None:
             unmatched.append(number)
             continue
+        table = _key_signature(parsed)
         if not _has_key(question):
-            question["correct_option"] = table
+            question["correct_option"] = parsed.get("correct_option")
+            question["accepted_options"] = parsed.get("accepted_options") or []
+            question["bonus"] = bool(parsed.get("bonus"))
             if not str(question.get("expected_answer") or "").strip():
-                question["expected_answer"] = f"Option {table}"
+                question["expected_answer"] = marking.mcq_expected_answer(parsed)
             filled.append(number)
         else:
-            marked = marking.normalise_option(question.get("correct_option"), len(options) or None)
+            marked = _key_signature(_draft_key(question, n_options))
             if marked != table:
                 conflicts.append(f"Q{number} (table {table}, under the question {marked})")
     for question in by_number.values():
@@ -1829,6 +1919,7 @@ def _merge_rubric_parts(parts: list[_RubricPagesParse]) -> tuple[dict[str, Any],
 
 _SET_WORD = re.compile(r"\bset\b", re.IGNORECASE)
 _CODE_WORD = re.compile(r"\bcode\b", re.IGNORECASE)
+_CODE_LETTER_GAP = re.compile(r"\b([A-Z])(?: ?, ?| )(?=[A-Z]\b)", re.IGNORECASE)  # "A, P, W" / "A P W" -> "A/P/W"
 MAX_PAPER_CODE_CHARS = 60  # schemas.RubricContentIn.paper_code
 _NO_PAPER_CODE = frozenset({"", "n/a", "na", "n.a", "n. a", "none", "nil", "null", "-", "--", "unknown",
                             "not printed", "not available", "no code", "not visible"})
@@ -1836,11 +1927,12 @@ _NO_PAPER_CODE = frozenset({"", "n/a", "na", "n.a", "n. a", "none", "nil", "null
 
 def paper_code_label(raw: Any) -> str | None:
     """A printed paper code as stored on a rubric: "CODE - 45" / "45" -> "Code 45", "set b" ->
-    "Set B", "A/P/W" -> "Code A/P/W"; None when raw names no code (the code itself is read by
+    "Set B", "A/P/W" / "A, P, W" -> "Code A/P/W"; None when raw names no code (the code itself is read by
     paper_match.normalise_code, so the same-paper check reads it back unchanged)."""
     import paper_match  # local import: the paper-code rules live with the same-paper check
 
     text = " ".join(str(raw or "").split()) if isinstance(raw, (str, int)) and not isinstance(raw, bool) else ""
+    text = _CODE_LETTER_GAP.sub(r"\1/", text)  # a booklet family, as answer_keys.text_paper_code reads it
     if text.casefold().strip(" .") in _NO_PAPER_CODE:
         return None  # "N/A", "none", "-": the model saw no code
     code = paper_match.normalise_code(text) if text else None
@@ -1863,11 +1955,15 @@ def _fill_mcq_criteria(question: dict[str, Any]) -> None:
     except (TypeError, ValueError):
         marks = 0.0
     options = question.get("options") if isinstance(question.get("options"), list) else []
-    letter = marking.normalise_option(question.get("correct_option"), len(options) or None)
-    target = f"option {letter}" if letter not in (None, marking.MULTI, marking.UNKNOWN) else "the correct option"
+    key = _draft_key(question, len(options) or None)
+    worth = _fmt_marks(marks if marks > 0 else 4.0)
+    if key.get("bonus"):
+        question["grading_criteria"] = [f"{worth} marks to every student (bonus question)"]
+        return
+    label = marking.key_label(key)
+    target = f"option {label}" if label else "the correct option"
     question["grading_criteria"] = [
-        f"{_fmt_marks(marks if marks > 0 else 4.0)} marks for {target}; a wrong option follows the "
-        "negative-marking rule; 0 if blank"
+        f"{worth} marks for {target}; a wrong option follows the negative-marking rule; 0 if blank"
     ]
 
 
@@ -1888,10 +1984,9 @@ def _same_question_text(a: str, b: str) -> bool:
 
 
 def _key_letter(question: dict[str, Any]) -> str | None:
-    """The question's answer-key letter read without its option count (a continuation fragment
-    may list only the options that ran onto its page), or None."""
-    letter = marking.normalise_option(question.get("correct_option"))
-    return letter if letter not in (None, marking.MULTI, marking.UNKNOWN) else None
+    """The question's answer key read without its option count (a continuation fragment may list
+    only the options that ran onto its page): 'B', 'B/C' (accepted options), 'bonus' or None."""
+    return _key_signature(_draft_key(question))
 
 
 def _filled_options(question: dict[str, Any]) -> int:
@@ -1907,11 +2002,12 @@ def _merge_entries(
     - question text, topic, chapter, subject and Bloom level from the fuller reading (longer
       prompt), with gaps filled from the other;
     - options from the reading with more transcribed options;
-    - correct_option with its expected_answer, grading_criteria and ai_drafted_answer from a keyed
-      reading; otherwise from a reading taken from the paper (ai_drafted_answer false) over an
-      AI-drafted one; otherwise the reading with more criteria / the longer expected answer.
-    Both readings keyed with different letters: the first (page order) is kept and the clash is
-    recorded in key_clashes."""
+    - correct_option, accepted_options and bonus with their expected_answer, grading_criteria and
+      ai_drafted_answer from a keyed reading; otherwise from a reading taken from the paper
+      (ai_drafted_answer false) over an AI-drafted one; otherwise the reading with more criteria /
+      the longer expected answer.
+    Both readings keyed differently (letter, accepted options or bonus): the first (page order) is
+    kept and the clash is recorded in key_clashes."""
     fuller, other = (new, old) if len(str(new.get("prompt") or "")) > len(str(old.get("prompt") or "")) else (old, new)
     merged = dict(fuller)
     for field in ("topic", "subject", "chapter", "bloom_level"):
@@ -1940,7 +2036,8 @@ def _merge_entries(
             return len(criteria), len(str(q.get("expected_answer") or ""))
 
         answer = new if weight(new) > weight(old) else old
-    for field in ("correct_option", "expected_answer", "grading_criteria", "ai_drafted_answer"):
+    for field in ("correct_option", "accepted_options", "bonus", "expected_answer", "grading_criteria",
+                  "ai_drafted_answer"):
         merged[field] = answer.get(field)
     for field in ("max_marks", "effort_hours"):
         values = [q.get(field) for q in (answer, fuller, other)]
@@ -2996,9 +3093,12 @@ def _scheme_from_criteria(criteria: list[str], max_marks: float) -> list[dict[st
 
 def rubric_draft_warnings(content: dict[str, Any], ai_drafted: Iterable[int] = ()) -> list[str]:
     """Teacher-facing checks on a rubric draft: missing criteria, criteria marks that do not add
-    up to max_marks, missing expected answers and AI-drafted answers to review."""
+    up to max_marks, missing expected answers, MCQ keys that accept several options or make a
+    question a bonus, and AI-drafted answers to review."""
     warnings: list[str] = []
     total = 0.0
+    multi_keys: list[str] = []
+    bonus_numbers: list[int] = []
     for q in _rubric_questions(content):
         number = q.get("question")
         label = f"Q{number}"
@@ -3019,13 +3119,24 @@ def rubric_draft_warnings(content: dict[str, Any], ai_drafted: Iterable[int] = (
                 )
         if marking.question_type(q) == "mcq":
             options = q.get("options") if isinstance(q.get("options"), list) else []
-            correct = marking.normalise_option(q.get("correct_option"), len(options) or None)
-            if correct in (None, marking.MULTI, marking.UNKNOWN):
+            key = _draft_key(q, len(options) or None)
+            if not key:
                 warnings.append(f"{label} is an MCQ without an answer key - set correct_option.")
+            elif key.get("bonus"):
+                if (n := insights._as_int(number)) is not None:
+                    bonus_numbers.append(n)
+            elif key.get("accepted_options"):
+                multi_keys.append(f"{label} ({marking.or_join(key['accepted_options'])})")
         elif not str(q.get("expected_answer") or "").strip():
             warnings.append(f"{label} has no expected answer.")
         if max_marks <= 0:
             warnings.append(f"{label} has no marks - set max_marks.")
+    if multi_keys:
+        listed = ", ".join(multi_keys[:10]) + (f" and {len(multi_keys) - 10} more" if len(multi_keys) > 10 else "")
+        warnings.append(f"More than one accepted option for {listed} - any of them scores full marks; check before "
+                        "approving.")
+    if bonus_numbers:
+        warnings.append(f"Bonus (full marks to everyone): {marking._ranges(bonus_numbers)} - check before approving.")
     drafted = sorted({int(n) for n in ai_drafted})
     if drafted:
         warnings.append(
@@ -3114,11 +3225,16 @@ def finalise_rubric_draft(raw: dict[str, Any], *, subject_hint: str | None = Non
             "chapter": chapter,
         }
         if marking.question_type(q) == "mcq":
-            options = _positional_options(q.get("options"), q.get("correct_option"))
+            # positions are kept up to the highest key letter (correct or accepted)
+            named = _draft_key(q)
+            letters = [*named.get("accepted_options", []), named.get("correct_option") or ""]
+            options = _positional_options(q.get("options"), max(letters) or None)
             item["question_type"] = "mcq"
             item["options"] = options or None
-            correct = marking.normalise_option(q.get("correct_option"), len(options) or None)
-            item["correct_option"] = correct if correct not in (None, marking.MULTI, marking.UNKNOWN) else None
+            key = _draft_key(q, len(options) or None)
+            item["correct_option"] = key.get("correct_option")
+            item["accepted_options"] = key.get("accepted_options")
+            item["bonus"] = True if key.get("bonus") else None
         else:
             item["marking_scheme"] = _scheme_from_criteria(item["grading_criteria"], item["max_marks"])
         level = bloom.parse_level(q.get("bloom_level"))

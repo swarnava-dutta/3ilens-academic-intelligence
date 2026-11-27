@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import unicodedata
 import uuid
 from pathlib import Path, PureWindowsPath
 
@@ -27,7 +28,7 @@ import pipeline
 import preprocessing
 import voice
 from config import AUDIO_MIME_TYPES, DOCX_MIME, Settings, get_settings
-from database import StudentSubmission
+from database import Rubric, SessionLocal, StudentSubmission
 from errors import ApiError
 
 logger = logging.getLogger("3ilens.uploads")
@@ -57,11 +58,74 @@ def unprocessable(detail: str, code: str = "invalid_request") -> ApiError:
     return ApiError(422, detail, code)
 
 
+MAX_STUDENT_NAME = 120
+
+
+def validate_student_name(raw: str | None) -> str:
+    """Upload and rename rule: whitespace collapsed, 1-120 characters (422 invalid_student_name)."""
+    name = " ".join((raw or "").split())
+    if not name:
+        raise unprocessable("Student name is required.", "invalid_student_name")
+    if len(name) > MAX_STUDENT_NAME:
+        raise unprocessable(f"Student name must be at most {MAX_STUDENT_NAME} characters.", "invalid_student_name")
+    return name
+
+
 # --------------------------------------------------------------------------- #
 # Sniffing
 # --------------------------------------------------------------------------- #
+UTF16_BOMS = {b"\xff\xfe": "utf-16-le", b"\xfe\xff": "utf-16-be"}
+UTF16_BAD_CATEGORIES = {"Cc", "Cn", "Co", "Cs"}  # control (but \t \r \n), unassigned, private use, surrogate
+UTF16_SAMPLE_CHARS = 2000
+UTF16_BAD_SHARE = 0.02
+
+
+def _readable(text: str) -> bool:
+    """Mostly readable characters: at most 2% controls (other than tab / line breaks), unassigned
+    or private-use code points. Random audio bytes read as UTF-16 fail this by a wide margin."""
+    sample = text[:UTF16_SAMPLE_CHARS]
+    if not sample.strip():
+        return False
+    bad = sum(
+        1 for ch in sample
+        if ch not in "\t\r\n\f" and (ch == "\ufffd" or unicodedata.category(ch) in UTF16_BAD_CATEGORIES)
+    )
+    return bad <= UTF16_BAD_SHARE * len(sample)
+
+
+def utf16_text(data: bytes) -> str | None:
+    """The text of a UTF-16 file (Windows Notepad / Excel "Unicode text"): a byte-order mark (FF FE
+    little-endian, FE FF big-endian) or, without one, plain text whose every other byte is zero.
+    None when the bytes are not readable UTF-16 text. `data` may be just the head of the file: an
+    odd trailing byte or a surrogate pair cut in half is ignored."""
+    encoding = UTF16_BOMS.get(data[:2])
+    body = data[2:] if encoding else data
+    if encoding is None:
+        sample = data[:400]
+        if len(sample) < 4:
+            return None
+        if sample[1::2].count(0) >= 0.9 * len(sample[1::2]) and sample[0::2].count(0) < 0.5 * len(sample[0::2]):
+            encoding = "utf-16-le"
+        elif sample[0::2].count(0) >= 0.9 * len(sample[0::2]) and sample[1::2].count(0) < 0.5 * len(sample[1::2]):
+            encoding = "utf-16-be"
+        else:
+            return None
+    body = body[: len(body) - len(body) % 2]
+    text = body.decode(encoding, errors="replace").lstrip("\ufeff").rstrip("\ufffd")
+    return text if "\x00" not in text and _readable(text) else None
+
+
+def is_utf16_text(head: bytes) -> bool:
+    """The head of a UTF-16 text file with a byte-order mark. FF FE is also an MPEG-1 Layer I
+    frame header, so sniff_audio asks this first: a BOM followed by readable text is text."""
+    return head[:2] in UTF16_BOMS and utf16_text(head) is not None
+
+
 def is_voice_note(head: bytes) -> bool:
-    """MP3 (ID3 tag or MPEG frame sync), WAV, M4A/AAC, Ogg/Opus (WhatsApp voice notes), AMR."""
+    """MP3 (ID3 tag or MPEG frame sync), WAV, M4A/AAC, Ogg/Opus (WhatsApp voice notes), AMR. A
+    UTF-16 byte-order mark followed by readable text is a text file, not audio (is_utf16_text)."""
+    if is_utf16_text(head):
+        return False
     if head.startswith(b"ID3"):
         return True
     if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0 and head[1] != 0xFF:
@@ -294,15 +358,35 @@ def duplicate_notice(db: Session, sub: StudentSubmission) -> None:
     )
 
 
-def paper_notice(sub: StudentSubmission, path: Path, mime_type: str, settings: Settings) -> None:
+def _selected_rubric(sub: StudentSubmission, rubric: Rubric | None) -> tuple[dict | None, str | None]:
+    """(content, "'name' (version)") of the sheet's rubric: the one given, the loaded relation, else
+    a short read by sub.rubric_id (POST /api/upload builds the row before adding it to its session).
+    (None, None) when unknown."""
+    if rubric is None:
+        rubric = sub.rubric
+    if rubric is None and sub.rubric_id is not None:
+        with SessionLocal() as db:  # closing detaches the row; its loaded columns stay readable
+            rubric = db.get(Rubric, sub.rubric_id)
+    if rubric is None:
+        return None, None
+    return rubric.content, f"'{rubric.name}' ({rubric.version})"
+
+
+def paper_notice(
+    sub: StudentSubmission, path: Path, mime_type: str, settings: Settings, rubric: Rubric | None = None
+) -> None:
     """One Ingestion log line when a PDF / DOCX looks like a printed MCQ paper or a question paper
-    with its answer key (paper_detect, text layer only). A hint only: processing never changes."""
+    with its answer key (paper_detect, text layer only), naming the selected rubric (`rubric`, else
+    the sheet's) when the paper does not fit it. A hint only: processing never changes."""
     if mime_type not in ("application/pdf", DOCX_MIME):
         return
     import paper_detect  # local import: paper_detect uses this module's sniffing helpers
 
     try:
-        hint = paper_detect.ingestion_hint(path.read_bytes(), mime_type, settings)
+        content, label = _selected_rubric(sub, rubric)
+        hint = paper_detect.ingestion_hint(
+            path.read_bytes(), mime_type, settings, rubric_content=content, rubric_label=label
+        )
     except Exception as exc:  # noqa: BLE001 - a hint must never fail the upload
         logger.debug("Paper detection skipped for %s: %s", path.name, exc)
         return

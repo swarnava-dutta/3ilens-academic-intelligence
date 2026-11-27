@@ -4,7 +4,19 @@ import { ArrowDown, ArrowUp, Lock, Plus, Trash2 } from "lucide-react";
 import type { MarkingPolicy, MarkingStep, PartialCreditMode, QuestionType, RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PARTIAL_CREDIT_LABELS } from "./marking-policy-fields";
-import { MARK_STEPS, MAX_SCHEME_STEPS, OPTION_LETTERS, isMcq, schemeTotal } from "./rubric-utils";
+import {
+  MARK_STEPS,
+  MAX_SCHEME_STEPS,
+  MCQ_KEY_MODES,
+  OPTION_LETTERS,
+  acceptedLetters,
+  isMcq,
+  keyModePatch,
+  mcqKeyMode,
+  mcqScoringNote,
+  schemeTotal,
+  withKeyTexts,
+} from "./rubric-utils";
 
 const fieldClass =
   "block w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
@@ -39,7 +51,14 @@ export function QuestionTypeField({
         mark_step: undefined,
       });
     } else {
-      onChange({ question_type: "descriptive", options: undefined, correct_option: undefined, negative_marks: undefined });
+      onChange({
+        question_type: "descriptive",
+        options: undefined,
+        correct_option: undefined,
+        accepted_options: undefined,
+        bonus: undefined,
+        negative_marks: undefined,
+      });
     }
   }
   return (
@@ -61,7 +80,19 @@ export function QuestionTypeField({
   );
 }
 
-/** MCQ: options A-F (2-6), the correct-option radio and the per-question negative marks. */
+type Letter = (typeof OPTION_LETTERS)[number];
+
+/** The letter after removing option `index` (later letters move up one); null when it was removed. */
+function shiftLetter(letter: string | null | undefined, index: number): string | null {
+  const at = OPTION_LETTERS.indexOf((letter ?? "").trim().toUpperCase() as Letter);
+  if (at < 0 || at === index) return null;
+  return at > index ? OPTION_LETTERS[at - 1] : OPTION_LETTERS[at];
+}
+
+/**
+ * MCQ: how it is keyed (one correct option / several accepted options / bonus), options A-F (2-6)
+ * with the correct-option radio or the accepted-option checkboxes, and the negative marks.
+ */
 function McqFields({
   idPrefix,
   question: q,
@@ -76,43 +107,105 @@ function McqFields({
   onChange: (patch: Partial<RubricQuestion>) => void;
 }) {
   const options = q.options ?? [];
+  const mode = mcqKeyMode(q);
+  const accepted = acceptedLetters(q);
+  /** A key change: the expected answer and criteria follow when they were written from the key. */
+  function setKey(patch: Partial<RubricQuestion>) {
+    onChange(withKeyTexts(q, patch));
+  }
   function setOption(index: number, text: string) {
     onChange({ options: options.map((o, i) => (i === index ? text : o)) });
   }
   function removeOption(index: number) {
-    const letter = OPTION_LETTERS[index];
-    const next = options.filter((_, i) => i !== index);
-    let correct = q.correct_option;
-    if (correct === letter) correct = undefined;
-    else if (correct && OPTION_LETTERS.indexOf(correct as (typeof OPTION_LETTERS)[number]) > index) {
-      correct = OPTION_LETTERS[OPTION_LETTERS.indexOf(correct as (typeof OPTION_LETTERS)[number]) - 1];
+    const patch: Partial<RubricQuestion> = {
+      options: options.filter((_, i) => i !== index),
+      correct_option: shiftLetter(q.correct_option, index) ?? undefined,
+    };
+    if (Array.isArray(q.accepted_options)) {
+      patch.accepted_options = q.accepted_options
+        .map((letter) => shiftLetter(letter, index))
+        .filter((letter): letter is string => letter !== null);
     }
-    onChange({ options: next, correct_option: correct });
+    setKey(patch);
+  }
+  function toggleAccepted(letter: string, on: boolean) {
+    const chosen = new Set(accepted);
+    if (on) chosen.add(letter);
+    else chosen.delete(letter);
+    setKey({ accepted_options: OPTION_LETTERS.filter((l) => chosen.has(l)) });
   }
   const policyNeg = policy?.negative_marks ?? 0;
+  const legend =
+    mode === "single"
+      ? "Options · pick the correct one"
+      : mode === "several"
+        ? "Options · tick every accepted option"
+        : "Options · every student scores full marks";
 
   return (
     <div className="space-y-2">
       <fieldset>
-        <legend className={labelClass}>Options · pick the correct one</legend>
+        <legend className={labelClass}>Answer key</legend>
+        <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-x-4">
+          {MCQ_KEY_MODES.map((option) => (
+            <label key={option.value} className="inline-flex items-center gap-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name={`${idPrefix}-key-mode`}
+                value={option.value}
+                checked={mode === option.value}
+                disabled={disabled}
+                onChange={() => setKey(keyModePatch(q, option.value))}
+                className="h-4 w-4 shrink-0 border-slate-300 text-brand-cyan focus:ring-brand-cyan"
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend className={labelClass}>{legend}</legend>
         <ol className="space-y-1.5">
           {options.map((text, i) => {
             const letter = OPTION_LETTERS[i];
+            const isAccepted = mode === "several" && accepted.includes(letter);
+            const isCorrect = mode === "single" && (q.correct_option ?? "").trim().toUpperCase() === letter;
             return (
               <li key={letter} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  id={`${idPrefix}-correct-${letter}`}
-                  name={`${idPrefix}-correct`}
-                  checked={q.correct_option === letter}
-                  disabled={disabled}
-                  onChange={() => onChange({ correct_option: letter })}
-                  className="h-4 w-4 shrink-0 border-slate-300 text-brand-cyan focus:ring-brand-cyan"
-                />
-                <label htmlFor={`${idPrefix}-correct-${letter}`} className="w-16 shrink-0 text-sm font-semibold text-slate-700">
-                  {letter}
-                  {q.correct_option === letter ? <span className="ml-1 text-[10px] font-semibold text-lime-700">correct</span> : null}
-                </label>
+                {mode === "single" ? (
+                  <input
+                    type="radio"
+                    id={`${idPrefix}-correct-${letter}`}
+                    name={`${idPrefix}-correct`}
+                    checked={isCorrect}
+                    disabled={disabled}
+                    onChange={() => setKey({ correct_option: letter })}
+                    className="h-4 w-4 shrink-0 border-slate-300 text-brand-cyan focus:ring-brand-cyan"
+                  />
+                ) : mode === "several" ? (
+                  <input
+                    type="checkbox"
+                    id={`${idPrefix}-correct-${letter}`}
+                    checked={isAccepted}
+                    disabled={disabled}
+                    onChange={(e) => toggleAccepted(letter, e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded-sm border-slate-300 text-brand-cyan focus:ring-brand-cyan"
+                  />
+                ) : (
+                  <span className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                {mode === "bonus" ? (
+                  <span className="w-[4.5rem] shrink-0 text-sm font-semibold text-slate-700">{letter}</span>
+                ) : (
+                  <label
+                    htmlFor={`${idPrefix}-correct-${letter}`}
+                    className="w-[4.5rem] shrink-0 text-sm font-semibold text-slate-700"
+                  >
+                    {letter}
+                    {isCorrect ? <span className="ml-1 text-[10px] font-semibold text-lime-700">correct</span> : null}
+                    {isAccepted ? <span className="ml-1 text-[10px] font-semibold text-lime-700">accepted</span> : null}
+                  </label>
+                )}
                 <label htmlFor={`${idPrefix}-opt-${letter}`} className="sr-only">
                   Option {letter} text
                 </label>
@@ -149,26 +242,31 @@ function McqFields({
           <Plus className="h-3.5 w-3.5" aria-hidden />
           Add option
         </button>
-        <div className="w-44">
-          <label htmlFor={`${idPrefix}-neg`} className={labelClass}>
-            Negative marks (wrong)
-          </label>
-          <input
-            id={`${idPrefix}-neg`}
-            type="number"
-            min={0}
-            step={0.25}
-            className={fieldClass}
-            value={typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks) ? q.negative_marks : ""}
-            disabled={disabled}
-            placeholder={`${policyNeg} (policy)`}
-            onChange={(e) => onChange({ negative_marks: e.target.value === "" ? undefined : num(e.target.value) })}
-          />
-        </div>
-        <p className="pb-1.5 text-xs text-slate-500">
-          Scored by letter: +{Number.isFinite(q.max_marks) ? q.max_marks : "?"} correct, &minus;
-          {typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks) ? q.negative_marks : policyNeg} wrong or
-          multiple, 0 blank.
+        {mode !== "bonus" ? (
+          <div className="w-44">
+            <label htmlFor={`${idPrefix}-neg`} className={labelClass}>
+              Negative marks (wrong)
+            </label>
+            <input
+              id={`${idPrefix}-neg`}
+              type="number"
+              min={0}
+              step={0.25}
+              className={fieldClass}
+              value={typeof q.negative_marks === "number" && Number.isFinite(q.negative_marks) ? q.negative_marks : ""}
+              disabled={disabled}
+              placeholder={`${policyNeg} (policy)`}
+              onChange={(e) => onChange({ negative_marks: e.target.value === "" ? undefined : num(e.target.value) })}
+            />
+          </div>
+        ) : null}
+        <p
+          className={cn(
+            "min-w-0 pb-1.5 text-xs",
+            mode === "several" && accepted.length < 2 ? "text-rose-700" : "text-slate-500",
+          )}
+        >
+          {mcqScoringNote(q, policyNeg)}
         </p>
       </div>
     </div>

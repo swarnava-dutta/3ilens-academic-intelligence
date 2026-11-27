@@ -10,14 +10,14 @@ import {
   errorCode,
   errorMessage,
   getResultVersions,
-  getRubrics,
   reevaluateSubmission,
   reportPdfUrl,
 } from "@/lib/api";
-import type { ReleaseInfo, Result, ResultVersion, Rubric, Submission } from "@/lib/types";
+import type { ReleaseInfo, Result, ResultVersion, RubricContent, Submission } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
-import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
+import { Modal, Notice, btnPrimary, btnSecondary } from "./dialog";
 import { fmtIST } from "./format";
+import { KeyDraftFields, questionRefs, useKeyDraft } from "./key-draft";
 import { ReleaseChip } from "./release-gate";
 import { rubricLabel } from "./use-rubric";
 
@@ -117,10 +117,10 @@ export function evaluatedLabel(submission: Submission): string {
   return `Evaluated ${formatDateTime(submission.updated_at)}`;
 }
 
-/** Question numbers of a rubric that the current result does not have, and vice versa. */
-function questionDiff(rubric: Rubric | undefined, result: Result): { added: number[]; removed: number[] } {
-  if (!rubric) return { added: [], removed: [] };
-  const next = new Set((rubric.content?.questions ?? []).map((q) => q.question));
+/** Question numbers of a drafted key that the current result does not have, and vice versa. */
+function questionDiff(content: RubricContent | null, result: Result): { added: number[]; removed: number[] } {
+  if (!content) return { added: [], removed: [] };
+  const next = new Set((content.questions ?? []).map((q) => q.question));
   const now = new Set(result.question_evaluations.map((q) => q.question));
   return {
     added: [...next].filter((n) => !now.has(n)).sort((a, b) => a - b),
@@ -128,7 +128,23 @@ function questionDiff(rubric: Rubric | undefined, result: Result): { added: numb
   };
 }
 
-function RerunDialog({
+function regradeError(err: unknown): string {
+  const code = errorCode(err);
+  if (code === "ai_not_configured") {
+    return "Re-grading a live upload needs a Claude call, but AI is not configured on the server (ai_not_configured).";
+  }
+  if (code === "invalid_rubric") return `The drafted key cannot be used: ${errorMessage(err)}`;
+  if (code === "invalid_state") return "This sheet is no longer completed (it may already be re-grading). Reload the page.";
+  return errorMessage(err);
+}
+
+/**
+ * Re-grade a completed sheet from its stored transcript (no new OCR call): with the same key, or
+ * with a key drafted on the fly from the right question paper (+ an optional answer-key file).
+ * The drafted key goes inline with the re-grade (POST /reevaluate {rubric}); the API stores it as
+ * this sheet's own snapshot, like the one an upload creates. Nothing is picked from a list.
+ */
+export function RegradeDialog({
   open,
   onClose,
   result,
@@ -139,50 +155,27 @@ function RerunDialog({
   result: Result;
   onQueued: () => void;
 }) {
-  const [rubrics, setRubrics] = useState<Rubric[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number>(result.rubric.id);
-  const [busy, setBusy] = useState(false);
+  const key = useKeyDraft();
+  const [busy, setBusy] = useState<"new" | "same" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isDemo = result.submission.is_demo;
+  const drafted = key.draft?.draft ?? null;
+  const diff = questionDiff(drafted, result);
+  const locked = busy !== null || key.drafting;
 
-  // Load the rubric list the first time the dialog opens.
-  useEffect(() => {
-    if (!open || rubrics !== null) return;
-    let cancelled = false;
-    getRubrics()
-      .then((list) => {
-        if (!cancelled) setRubrics(Array.isArray(list) ? list : []);
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError(errorMessage(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, rubrics]);
-
-  const rubric = rubrics?.find((r) => r.id === selected);
-  const diff = questionDiff(rubric, result);
-
-  async function submit() {
-    setBusy(true);
+  async function submit(withDraft: boolean) {
+    if (withDraft && !drafted) return;
+    setBusy(withDraft ? "new" : "same");
     setError(null);
     try {
-      await reevaluateSubmission(result.submission.id, { rubric_id: selected });
+      // One call: the API validates a drafted key, stores it as this sheet's snapshot and re-grades.
+      await reevaluateSubmission(result.submission.id, withDraft && drafted ? { rubric: drafted } : { rubric_id: null });
       onClose();
       onQueued();
     } catch (err) {
-      const code = errorCode(err);
-      setError(
-        code === "ai_not_configured"
-          ? "Re-grading a live upload needs a Claude call, but AI is not configured on the server (ai_not_configured)."
-          : code === "unknown_rubric"
-            ? "That rubric no longer exists (unknown_rubric)."
-            : errorMessage(err),
-      );
+      setError(regradeError(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -190,45 +183,36 @@ function RerunDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title="Re-run with another rubric"
-      description={`${result.submission.student_name} · currently ${rubricLabel(result.rubric)}`}
+      size="lg"
+      title="Re-grade this sheet"
+      description={`${result.submission.student_name} · graded with ${rubricLabel(result.rubric)}`}
       footer={
-        <div className="flex justify-end gap-2">
-          <button type="button" className={btnSecondary} onClick={onClose} disabled={busy}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className={btnSecondary} onClick={onClose} disabled={busy !== null}>
             Cancel
           </button>
-          <button type="button" className={btnPrimary} onClick={submit} disabled={busy || !rubrics || !rubric}>
-            <RefreshCcw className={cn("h-4 w-4", busy && "animate-spin")} aria-hidden />
-            {busy ? "Queuing…" : "Re-run evaluation"}
+          <button type="button" className={btnSecondary} onClick={() => void submit(false)} disabled={locked}>
+            <RefreshCcw className={cn("h-4 w-4", busy === "same" && "animate-spin")} aria-hidden />
+            {busy === "same" ? "Queuing…" : "Re-grade with the same key"}
+          </button>
+          <button type="button" className={btnPrimary} onClick={() => void submit(true)} disabled={locked || !drafted}>
+            <RefreshCcw className={cn("h-4 w-4", busy === "new" && "animate-spin")} aria-hidden />
+            {busy === "new" ? "Queuing…" : "Re-grade with this key"}
           </button>
         </div>
       }
     >
       <div className="space-y-3 text-sm">
-        {loadError ? <Notice tone="error">Could not load rubrics: {loadError}</Notice> : null}
-        <label className="block">
-          <span className="mb-1 block font-medium text-slate-700">Rubric</span>
-          <select
-            className={inputClass}
-            value={selected}
-            onChange={(e) => setSelected(Number(e.target.value))}
-            disabled={!rubrics}
-          >
-            {!rubrics ? <option value={selected}>Loading rubrics…</option> : null}
-            {(rubrics ?? []).map((r) => (
-              <option key={r.id} value={r.id}>
-                {rubricLabel(r)} · {r.total_marks} marks · {r.status}
-                {r.id === result.rubric.id ? " (current)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        {rubric && rubric.change_note ? <p className="text-xs text-slate-500">Change note: {rubric.change_note}</p> : null}
+        <p className="text-slate-600">
+          To grade with another key, upload this sheet&apos;s question paper, and its answer key when the paper has none
+          printed. The key is drafted from them and used for this sheet only.
+        </p>
+        <KeyDraftFields state={key} disabled={busy !== null} />
         {diff.added.length || diff.removed.length ? (
           <Notice tone="warn">
             Question numbers differ from this sheet:
-            {diff.added.length ? ` Q${diff.added.join(", Q")} not on the stored transcript (graded as not attempted).` : ""}
-            {diff.removed.length ? ` Q${diff.removed.join(", Q")} dropped.` : ""}
+            {diff.added.length ? ` ${questionRefs(diff.added)} not on the stored transcript (graded as not attempted).` : ""}
+            {diff.removed.length ? ` ${questionRefs(diff.removed)} dropped.` : ""}
           </Notice>
         ) : null}
         <Notice tone="info">
@@ -245,7 +229,7 @@ function RerunDialog({
 }
 
 /** Stored evaluations, newest first. Picking one opens ?version=N; the current one drops the param. */
-function VersionSelect({ submissionId, viewing }: { submissionId: number; viewing?: number }) {
+export function VersionSelect({ submissionId, viewing }: { submissionId: number; viewing?: number }) {
   const router = useRouter();
   const [versions, setVersions] = useState<ResultVersion[] | null>(null);
 
@@ -296,7 +280,7 @@ function VersionSelect({ submissionId, viewing }: { submissionId: number; viewin
 
 /**
  * SAIR header: breadcrumb, student, urgency and release status, run metadata, version picker and
- * the report actions (PDF, simulated WhatsApp, re-run with another rubric, print). An archived
+ * the report actions (PDF, simulated WhatsApp, re-grade with the same or another key, print). An archived
  * version (`version` set) only offers print: the other actions act on the current result.
  */
 export function SairHeader({
@@ -366,7 +350,7 @@ export function SairHeader({
                 </button>
                 <button type="button" onClick={() => setRerunOpen(true)} className={btnSecondary}>
                   <RefreshCcw className="h-4 w-4" aria-hidden />
-                  Re-run…
+                  Re-grade…
                 </button>
               </>
             ) : null}
@@ -393,7 +377,7 @@ export function SairHeader({
       >
         <VersionSelect submissionId={submission.id} viewing={version} />
       </MetaList>
-      <RerunDialog open={rerunOpen} onClose={() => setRerunOpen(false)} result={result} onQueued={onReevaluated} />
+      <RegradeDialog open={rerunOpen} onClose={() => setRerunOpen(false)} result={result} onQueued={onReevaluated} />
     </header>
   );
 }

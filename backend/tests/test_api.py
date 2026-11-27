@@ -16,6 +16,10 @@ SUBMISSION_KEYS = {
     "completed_at", "release_status", "llm_cost_inr",
     # contract v3 (voice answers)
     "input_kind", "audio_seconds", "voice_question", "detected_languages",
+    # why a HUMAN_REVIEW_REQUIRED sheet was held
+    "review_reason",
+    # the rubric row's content hash, sent back with rubric_id on the next upload
+    "rubric_hash",
 }
 COHORT_KEYS = {
     "institution", "batch", "total_submissions", "completed", "processing", "human_review", "failed",
@@ -115,7 +119,7 @@ def test_health_survives_a_broken_readiness_check(client, monkeypatch):
     assert response.json()["missing_configuration"]
 
 
-def test_rubrics_lists_the_seeded_genetics_rubric(client):
+def test_rubrics_lists_the_test_rubric(client):
     response = client.get("/api/rubrics")
     assert response.status_code == 200
     rubrics = response.json()
@@ -139,6 +143,33 @@ def test_startup_seeds_base_data_only(client):
     cohort = client.get("/api/cohort").json()
     assert cohort["total_submissions"] == 0
     assert cohort["demo_count"] == 0
+
+
+def test_a_fresh_database_has_no_rubric_and_no_sheets(bare_client):
+    """SEED_DEMO_DATA off (the default): start-up creates the institution and batch only."""
+    health = bare_client.get("/api/health").json()
+    assert health["institution"]["name"] == "Instit-42" and health["batch"]["name"] == "NEET-A"
+    assert bare_client.get("/api/rubrics").json() == []
+    assert bare_client.get("/api/submissions").json() == []
+    assert bare_client.get("/api/students").json() == []
+    cohort = bare_client.get("/api/cohort").json()
+    assert cohort["total_submissions"] == 0 and cohort["total_marks"] == 0
+    import database
+    from sqlalchemy import func, select
+
+    with database.SessionLocal() as db:
+        for model in (database.Rubric, database.StudentSubmission, database.EvaluationResult,
+                      database.InterventionRecord):
+            assert db.scalar(select(func.count()).select_from(model)) == 0, model.__tablename__
+
+
+def test_demo_seeding_is_refused_while_demo_data_is_off(bare_client, forbid_ai):
+    response = bare_client.post("/api/demo/seed", params={"set": "all"})
+    assert response.status_code == 403
+    assert response.json()["code"] == "demo_data_disabled"
+    assert "SEED_DEMO_DATA" in response.json()["detail"]
+    assert bare_client.get("/api/rubrics").json() == []
+    assert bare_client.get("/api/submissions").json() == []
 
 
 # --------------------------------------------------------------------------- #
@@ -166,9 +197,41 @@ def test_upload_trims_student_name(upload, fake_ai):
 
 
 def test_upload_requires_a_file(client, forbid_ai):
-    response = client.post("/api/upload", data={"student_name": "Aarav"})
+    response = client.post("/api/upload", data={"student_name": "Aarav", "rubric_id": str(client.test_rubric_id)})
     assert response.status_code == 422
     assert response.json()["code"] == "missing_file"
+
+
+@pytest.mark.parametrize("rubric_id", [None, "", "   "])
+def test_upload_without_a_rubric_is_refused(upload, forbid_ai, tmp_path, rubric_id):
+    """No default rubric: every upload names its own answer key (rubric_json or rubric_id)."""
+    response = upload(rubric_id=rubric_id)
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Add the question paper or the answer key - every upload needs its own answer key (rubric).",
+        "code": "rubric_required",
+    }
+    assert uploaded_files(tmp_path) == []  # refused before the upload is saved
+
+
+def test_upload_on_a_fresh_database_needs_its_own_rubric(bare_client, fake_ai, png_bytes):
+    files = {"file": ("sheet.png", png_bytes, "image/png")}
+    refused = bare_client.post("/api/upload", data={"student_name": "Aarav"}, files=files)
+    assert refused.status_code == 422 and refused.json()["code"] == "rubric_required"
+    assert bare_client.get("/api/rubrics").json() == []  # nothing was created silently
+
+    first = bare_client.post(
+        "/api/upload", data={"student_name": "Aarav", "rubric_json": json.dumps(genetics_rubric())}, files=files
+    )
+    assert first.status_code == 202, first.text
+    snapshot = first.json()["rubric_id"]
+    # the next sheet of the same intake reuses the snapshot the first upload created
+    second = bare_client.post(
+        "/api/upload", data={"student_name": "Diya", "rubric_id": str(snapshot)}, files=files
+    )
+    assert second.status_code == 202 and second.json()["rubric_id"] == snapshot
+    rubrics = bare_client.get("/api/rubrics").json()
+    assert [(r["id"], r["name"], r["version"]) for r in rubrics] == [(snapshot, "Biology - Genetics", "custom-1")]
 
 
 @pytest.mark.parametrize(
@@ -300,6 +363,15 @@ def test_upload_rejects_unknown_rubric_id(upload, forbid_ai):
     assert upload(rubric_id="abc").status_code == 422
 
 
+def test_upload_rejects_a_rubric_id_whose_hash_changed(upload, fake_ai, client):
+    """Ids restart after a data reset: the id an intake kept may now name another answer key."""
+    first = upload().json()
+    assert first["rubric_hash"] and len(first["rubric_hash"]) == 64
+    stale = upload(rubric_id=str(first["rubric_id"]), rubric_hash="0" * 64)
+    assert stale.status_code == 422 and stale.json()["code"] == "unknown_rubric"
+    assert upload(rubric_id=str(first["rubric_id"]), rubric_hash=first["rubric_hash"]).status_code == 202
+
+
 def test_upload_with_custom_rubric_json_creates_a_new_rubric(upload, fake_ai, client):
     custom = {
         "name": "Physics - Kinematics",
@@ -330,6 +402,32 @@ def test_upload_with_custom_rubric_json_creates_a_new_rubric(upload, fake_ai, cl
     assert result.status_code == 200
     assert result.json()["rubric"]["version"] == "custom-1"
     assert result.json()["total_marks"] == 5
+
+
+def test_upload_keeps_the_rubric_source_files_with_rubric_json(client, fake_ai, png_bytes, make_pdf, tmp_path):
+    """rubric_json wins over rubric_id, and the question paper / key files come with it."""
+    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(genetics_rubric()),
+            "rubric_id": str(client.test_rubric_id)}
+    files = {"file": ("sheet.png", png_bytes, "image/png"),
+             "rubric_source_file": ("paper.pdf", make_pdf(2), "application/pdf"),
+             "rubric_key_file": ("key.txt", b"1. (2)\n2. (4)\n", "text/plain")}
+    response = client.post("/api/upload", data=data, files=files)
+    assert response.status_code == 202, response.text
+    rubric_id = response.json()["rubric_id"]
+    assert rubric_id != client.test_rubric_id
+    assert [(s["kind"], s["pages"]) for s in client.get(f"/api/rubrics/{rubric_id}/sources").json()] == [
+        ("paper", 2), ("key", 1)]
+    assert (tmp_path / "artifacts" / "rubrics" / str(rubric_id) / "paper.pdf").is_file()
+
+
+def test_upload_checks_the_rubric_source_files_before_saving(client, forbid_ai, png_bytes, tmp_path):
+    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(genetics_rubric())}
+    files = {"file": ("sheet.png", png_bytes, "image/png"),
+             "rubric_key_file": ("key.pdf", b"%PDF-1.4 truncated", "application/pdf")}
+    response = client.post("/api/upload", data=data, files=files)
+    assert response.status_code == 422 and response.json()["code"] == "corrupt_pdf"
+    assert response.json()["detail"] == "Answer key file: The PDF could not be opened - it may be corrupt."
+    assert uploaded_files(tmp_path) == [] and len(client.get("/api/rubrics").json()) == 1
 
 
 def test_upload_with_explicit_rubric_id(upload, fake_ai, client):
@@ -409,7 +507,8 @@ def test_cohort_without_data(client):
     assert cohort["batch"]["name"] == "NEET-A"
     assert cohort["total_submissions"] == cohort["completed"] == 0
     assert cohort["average_score"] is None and cohort["average_mastery"] is None
-    assert cohort["total_marks"] == 20
+    assert cohort["total_marks"] == 0  # no result and no rubric filter: there is no default rubric
+    assert client.get("/api/cohort", params={"rubric_id": client.test_rubric_id}).json()["total_marks"] == 20
     assert cohort["topic_mastery"] == [] and cohort["top_priorities"] == []
     assert [b["label"] for b in cohort["score_distribution"]] == DISTRIBUTION_LABELS
     assert all(b["count"] == 0 for b in cohort["score_distribution"])
@@ -591,7 +690,7 @@ def test_upload_into_an_explicit_batch(upload, fake_ai, client, db_session):
     assert cohort["total_submissions"] == 1 and cohort["filters"]["batch_id"] == other.id
 
 
-def test_demo_seed_splits_genetics_urgency_5_3_4_and_filters_submissions(client, forbid_ai):
+def test_demo_seed_splits_genetics_urgency_5_3_4_and_filters_submissions(demo_data, client, forbid_ai):
     assert client.post("/api/demo/seed").json()["created"] == 13
     counts = {}
     for urgency in ("on_track", "needs_attention", "at_risk"):
@@ -606,7 +705,7 @@ def test_demo_seed_splits_genetics_urgency_5_3_4_and_filters_submissions(client,
     assert forbid_ai == []
 
 
-def test_cohort_filters_and_extras_on_the_demo_cohort(client):
+def test_cohort_filters_and_extras_on_the_demo_cohort(demo_data, client):
     client.post("/api/demo/seed")
     cohort = client.get("/api/cohort").json()
     assert cohort["urgency_counts"] == {"on_track": 5, "needs_attention": 3, "at_risk": 4}
@@ -638,7 +737,7 @@ def test_cohort_filters_and_extras_on_the_demo_cohort(client):
     assert missing.status_code == 404 and missing.json()["code"] == "unknown_batch"
 
 
-def test_demo_seed_set_parameter(client):
+def test_demo_seed_set_parameter(demo_data, client):
     mixed = client.post("/api/demo/seed", params={"set": "mixed"}).json()["created"]  # the NEET mixed demo
     assert mixed >= 0
     assert client.post("/api/demo/seed", params={"set": "mixed"}).json()["created"] == 0  # idempotent
@@ -647,7 +746,7 @@ def test_demo_seed_set_parameter(client):
     assert client.post("/api/demo/seed", params={"set": "everything"}).status_code == 422
 
 
-def test_demo_result_carries_contract_extras(client):
+def test_demo_result_carries_contract_extras(demo_data, client):
     client.post("/api/demo/seed")
     sub = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
     result = client.get(f"/api/results/{sub['id']}").json()
@@ -669,7 +768,7 @@ def test_demo_result_carries_contract_extras(client):
     assert result["rubric"]["status"] == "AUTHOR_DRAFT" and len(result["rubric"]["rubric_hash"]) == 64
 
 
-def test_reevaluation_estimate_counts_students_and_cost(client, upload, fake_ai):
+def test_reevaluation_estimate_counts_students_and_cost(demo_data, client, upload, fake_ai):
     rubric_id = client.get("/api/rubrics").json()[0]["id"]
     client.post("/api/demo/seed")
     estimate = client.get(f"/api/rubrics/{rubric_id}/reevaluation-estimate").json()

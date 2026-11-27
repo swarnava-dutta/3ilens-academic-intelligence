@@ -147,7 +147,7 @@ def test_audio_outside_the_upload_folder_is_never_served(upload, fake_ai, fake_t
     assert response.status_code == 404 and response.json()["code"] == "no_audio"
 
 
-def test_sample_voice_rows_get_a_synthetic_transcript(client, db_session):
+def test_sample_voice_rows_get_a_synthetic_transcript(demo_data, client, db_session):
     from database import StudentSubmission
 
     client.post("/api/demo/seed")

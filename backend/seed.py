@@ -1,7 +1,9 @@
 """Seed data (spec Phase 5).
 
-seed_base()        - institution "Instit-42", batch "NEET-A" / "Mock-07" and the
-                     "Biology - Genetics" rubric. Runs on every server start (idempotent).
+seed_base()        - institution "Instit-42" and batch "NEET-A" / "Mock-07" (configuration, kept by
+                     scripts/reset_data.py). Runs on every server start (idempotent). The
+                     "Biology - Genetics" sample rubric is added only with SEED_DEMO_DATA=1: by default
+                     a fresh database holds no rubric - every upload brings its own answer key.
 seed_demo_cohort() - OPTIONAL synthetic cohort for the Cohort Dashboard. No AI call is made:
                      synthetic OCR answers + grades are pushed through the same deterministic
                      insights engine as live uploads. Every row has is_demo=True. Idempotent.
@@ -9,10 +11,11 @@ seed_demo_cohort() - OPTIONAL synthetic cohort for the Cohort Dashboard. No AI c
 seed_demo_extended() - set=mixed: NEET mixed sample rubric (illustrative), batch NEET-B, the 6 V5
                      sample learners and earlier mocks for 4 Genetics students (longitudinal history).
 seed_demo_set()    - POST /api/demo/seed?set=genetics|mixed|all|insights dispatcher (insights: seed_insights.py).
+                     Refuses (DemoDataDisabled) unless SEED_DEMO_DATA=1.
 
 CLI:  python seed.py          -> base seed only
-      python seed.py --demo   -> base seed + synthetic Genetics demo cohort
-      python seed.py --all    -> base seed + Genetics cohort + NEET mixed demo
+      python seed.py --demo   -> base seed + synthetic Genetics demo cohort (needs SEED_DEMO_DATA=1)
+      python seed.py --all    -> base seed + Genetics cohort + NEET mixed demo (needs SEED_DEMO_DATA=1)
 """
 from __future__ import annotations
 
@@ -71,8 +74,23 @@ def rubric_total_marks(content: dict[str, Any]) -> float:
     return float(sum(float(q["max_marks"]) for q in content.get("questions", [])))
 
 
-def seed_base(session: Session) -> tuple[Institution, Batch, Rubric]:
-    """Idempotently create the institution, batch and default Genetics rubric."""
+class DemoDataDisabled(RuntimeError):
+    """Demo / sample data was requested while SEED_DEMO_DATA is off (the default)."""
+
+
+DEMO_DISABLED_DETAIL = (
+    "Demo data is turned off (SEED_DEMO_DATA=0): every sheet is graded with the answer key uploaded "
+    "with it. Set SEED_DEMO_DATA=1 in .env and restart the backend to load the synthetic sample sets."
+)
+
+
+def demo_data_enabled() -> bool:
+    return get_settings().seed_demo_data
+
+
+def seed_base(session: Session) -> tuple[Institution, Batch, Rubric | None]:
+    """Idempotently create the institution and batch. The 'Biology - Genetics' sample rubric is
+    created (and returned) only with SEED_DEMO_DATA=1; otherwise the third item is None."""
     institution = session.scalar(select(Institution).where(Institution.name == INSTITUTION_NAME))
     if institution is None:
         institution = Institution(name=INSTITUTION_NAME)
@@ -95,6 +113,20 @@ def seed_base(session: Session) -> tuple[Institution, Batch, Rubric]:
     for row in session.scalars(select(Batch).where(Batch.exam.is_(None))).all():
         row.exam = get_settings().default_exam
 
+    rubric = ensure_genetics_rubric(session) if demo_data_enabled() else None
+    # Older databases: backfill rubric_hash / status (NULL) on every rubric.
+    for row in session.scalars(
+        select(Rubric).where((Rubric.rubric_hash.is_(None)) | (Rubric.status.is_(None)))
+    ).all():
+        ensure_rubric_fields(row)
+
+    session.commit()
+    return institution, batch, rubric
+
+
+def ensure_genetics_rubric(session: Session) -> Rubric:
+    """The 'Biology - Genetics' v1 sample rubric (demo data and tests), kept in sync with
+    rubrics/biology_genetics_v1.json. Idempotent; flushes, the caller commits."""
     content = load_genetics_rubric()
     total = rubric_total_marks(content)
     rubric = session.scalar(
@@ -109,21 +141,9 @@ def seed_base(session: Session) -> tuple[Institution, Batch, Rubric]:
     elif rubric.content != content or rubric.total_marks != total:
         rubric.content, rubric.total_marks = content, total  # keep in sync with the JSON file
     session.flush()
-    # Older databases: backfill rubric_hash / status (NULL) on every rubric.
-    for row in session.scalars(
-        select(Rubric).where((Rubric.rubric_hash.is_(None)) | (Rubric.status.is_(None)) | (Rubric.id == rubric.id))
-    ).all():
-        ensure_rubric_fields(row)
-
-    session.commit()
-    return institution, batch, rubric
-
-
-def get_default_rubric(session: Session) -> Rubric | None:
-    rubric = session.scalar(
-        select(Rubric).where(Rubric.name == GENETICS_RUBRIC_NAME, Rubric.version == GENETICS_RUBRIC_VERSION)
-    )
-    return rubric or session.scalar(select(Rubric).order_by(Rubric.id))
+    ensure_rubric_fields(rubric)
+    session.flush()
+    return rubric
 
 
 # --------------------------------------------------------------------------- #
@@ -389,7 +409,8 @@ def build_demo_inputs(
 
 def seed_demo_cohort(session: Session) -> int:
     """Insert the synthetic demo cohort (is_demo=True). Returns how many rows were created."""
-    _, batch, rubric = seed_base(session)
+    _, batch, _ = seed_base(session)
+    rubric = ensure_genetics_rubric(session)
     # Scoped to the Genetics rubric: set=mixed adds earlier assessments for some of these names.
     existing = set(
         session.scalars(
@@ -478,6 +499,7 @@ def seed_demo_cohort(session: Session) -> int:
                 language_hints=["en"],
                 flagged_pages=[1],
                 page_confidences=[{"page": 1, "confidence": 0.65}],
+                review_reason="low_confidence",
             )
         )
         created += 1
@@ -795,6 +817,8 @@ def seed_demo_set(session: Session, set_name: str = "genetics") -> int:
     insights -> seed_insights.seed_insights_demo (the learning-analytics sample set; not part of "all")."""
     if set_name not in DEMO_SETS:
         raise ValueError(f"Unknown demo set '{set_name}' (expected one of {', '.join(DEMO_SETS)}).")
+    if not demo_data_enabled():
+        raise DemoDataDisabled(DEMO_DISABLED_DETAIL)
     if set_name == "insights":
         import seed_insights  # local import: seed_insights imports this module
 
@@ -811,11 +835,15 @@ def main(argv: list[str]) -> int:
     init_db()
     with SessionLocal() as session:
         institution, batch, rubric = seed_base(session)
-        print(
-            f"Base seed OK: institution '{institution.name}', batch '{batch.name} {batch.exam_type}', "
-            f"rubric '{rubric.name}' {rubric.version} ({rubric.total_marks:g} marks)."
+        sample = (
+            f"sample rubric '{rubric.name}' {rubric.version} ({rubric.total_marks:g} marks)" if rubric is not None
+            else "no rubric (SEED_DEMO_DATA is off - every upload brings its own answer key)"
         )
+        print(f"Base seed OK: institution '{institution.name}', batch '{batch.name} {batch.exam_type}', {sample}.")
         if "--demo" in argv or "--all" in argv:
+            if not demo_data_enabled():
+                print(DEMO_DISABLED_DETAIL)
+                return 1
             created = seed_demo_set(session, "all" if "--all" in argv else "genetics")
             print(f"Demo cohort: created {created} synthetic submission(s) (is_demo=true)."
                   if created else "Demo cohort already present - nothing to add.")

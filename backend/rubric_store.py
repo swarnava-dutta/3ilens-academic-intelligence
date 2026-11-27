@@ -5,12 +5,42 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import hashing
 from database import Rubric, RubricStatus
+from errors import ApiError
 from schemas import RubricContentIn
+
+RUBRIC_REQUIRED_DETAIL = (
+    "Add the question paper or the answer key - every upload needs its own answer key (rubric)."
+)
+
+
+def format_validation_errors(exc: ValidationError, limit: int = 5) -> str:
+    """'questions[0].max_marks: Input should be greater than 0; ...' (at most `limit` errors)."""
+    parts = []
+    for err in exc.errors()[:limit]:
+        loc = ""
+        for piece in err["loc"]:
+            loc += f"[{piece}]" if isinstance(piece, int) else (f".{piece}" if loc else str(piece))
+        msg = str(err["msg"]).removeprefix("Value error, ")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    extra = exc.error_count() - limit
+    return "; ".join(parts) + (f" (+{extra} more)" if extra > 0 else "")
+
+
+def validate_content(data: Any, field: str = "rubric_json") -> RubricContentIn:
+    """An inline rubric (already JSON-decoded) -> RubricContentIn, or 422 invalid_rubric. Shared
+    by POST /api/upload (rubric_json) and POST /api/submissions/{id}/rerun (rubric)."""
+    if not isinstance(data, dict):
+        raise ApiError(422, f"{field} must be a JSON object with name, subject and questions.", "invalid_rubric")
+    try:
+        return RubricContentIn.model_validate(data)
+    except ValidationError as exc:
+        raise ApiError(422, f"Invalid {field} - {format_validation_errors(exc)}", "invalid_rubric") from exc
 
 _VERSION_RE = re.compile(r"^v(\d+)$", re.IGNORECASE)
 # Fields whose change marks a question as "changed" between two rubric versions.
@@ -18,7 +48,7 @@ _COMPARED_FIELDS = (
     "topic", "subject", "chapter", "max_marks", "prompt", "expected_answer", "grading_criteria", "effort_hours",
     # contract v3 fields (bloom_source is provenance only and is not compared)
     "question_type", "options", "correct_option", "negative_marks", "bloom_level", "concept", "marking_scheme",
-    "partial_credit", "mark_step",
+    "partial_credit", "mark_step", "accepted_options", "bonus",
 )
 
 

@@ -43,6 +43,8 @@ interface AppliedKey {
   applied: RubricContent;
   /** Questions keyed from files before this import (restored by Undo). */
   keyedBefore: number[];
+  /** The answer-key file behind the content before this import (restored by Undo). */
+  keyFileBefore: File | null;
 }
 
 function extensionOf(name: string): string {
@@ -90,14 +92,16 @@ function formatElapsed(seconds: number): string {
 /**
  * "Apply answer key from file" in the rubric editor: a key-only file (PDF, Word, image, text) or
  * pasted text is read by POST /api/rubrics/answer-key and applied here to the MCQs by question
- * number, with a summary of what changed and a one-step Undo. Nothing is saved until faculty save
- * the rubric.
+ * number, with a summary of what changed and a one-step Undo. Nothing is stored by the import: the
+ * edited key is what the next uploads (or a re-grade) use.
  */
 export function AnswerKeyImport({
   value,
   onChange,
   onKeyed,
   keyed = [],
+  keyFile = null,
+  onKeyFile,
   disabled,
 }: {
   value: RubricContent;
@@ -106,6 +110,13 @@ export function AnswerKeyImport({
   onKeyed?: (questions: number[]) => void;
   /** Question numbers keyed from earlier imports. */
   keyed?: number[];
+  /** The answer-key file behind the content now (the intake's sources), restored by Undo. */
+  keyFile?: File | null;
+  /**
+   * A file was applied (it now stands behind the key: the intake sends it with the next upload), or
+   * Undo restored the file before it. Pasted text changes no file.
+   */
+  onKeyFile?: (file: File | null) => void;
   disabled?: boolean;
 }) {
   const ids = useId();
@@ -122,11 +133,13 @@ export function AnswerKeyImport({
   // The key is applied to the content as it is when the reply arrives (faculty may keep editing
   // while a scan is read), and dropped when the editor has gone (draft discarded or replaced).
   const latest = useRef(value);
+  const latestKeyFile = useRef(keyFile);
   const alive = useRef(true);
 
   useEffect(() => {
     latest.current = value;
-  }, [value]);
+    latestKeyFile.current = keyFile;
+  }, [value, keyFile]);
 
   useEffect(() => {
     alive.current = true;
@@ -178,7 +191,8 @@ export function AnswerKeyImport({
       input = { text: pasted };
     }
 
-    const fileName = source === "file" ? (file?.name ?? null) : null;
+    const keyFileRead = source === "file" ? file : null;
+    const fileName = keyFileRead?.name ?? null;
     setBusy(true);
     setElapsed(0);
     setStartedAt(Date.now());
@@ -194,7 +208,17 @@ export function AnswerKeyImport({
       onChange(result.content);
       const keyedBefore = keyed;
       onKeyed?.([...new Set([...keyedBefore, ...result.report.keyed])].sort((a, b) => a - b));
-      setApplied({ report: result.report, extraction, fileName, previous, applied: result.content, keyedBefore });
+      const keyFileBefore = latestKeyFile.current;
+      if (keyFileRead) onKeyFile?.(keyFileRead);
+      setApplied({
+        report: result.report,
+        extraction,
+        fileName,
+        previous,
+        applied: result.content,
+        keyedBefore,
+        keyFileBefore,
+      });
       setOpen(false);
       setFile(null);
       setText("");
@@ -212,6 +236,7 @@ export function AnswerKeyImport({
     if (!applied) return;
     onChange(applied.previous);
     onKeyed?.(applied.keyedBefore);
+    onKeyFile?.(applied.keyFileBefore);
     setApplied(null);
     setUndone(true);
   }
@@ -402,7 +427,7 @@ function AppliedSummary({
         Key {methodLabel(extraction.method)}
         {fileName ? ` of ${fileName}` : " you pasted"} - {extraction.entries.length}{" "}
         {extraction.entries.length === 1 ? "entry" : "entries"}.
-        {extraction.method === "ai" ? " Check the changed keys against the paper before saving." : ""}
+        {extraction.method === "ai" ? " Check the changed keys against the paper." : ""}
       </p>
       {changes.length ? (
         <p className="mt-1 break-words text-xs text-slate-600">

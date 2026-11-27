@@ -695,7 +695,7 @@ def test_the_printed_paper_code_lands_on_the_draft(monkeypatch):
     schema = fake.calls[0]["output_config"]["format"]["schema"]
     assert "paper_code" in schema["properties"] and "paper_code" in schema["required"]
     assert "- paper_code: the paper code, set or version printed on these pages" in ai.RUBRIC_PAGES_ADDENDUM
-    assert ai.RUBRIC_PAGES_PROMPT_VERSION == "rubric-pages-v2"
+    assert ai.RUBRIC_PAGES_PROMPT_VERSION == "rubric-pages-v3"
 
 
 def test_no_printed_code_leaves_the_draft_without_one(monkeypatch):

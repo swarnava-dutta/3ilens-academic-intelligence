@@ -28,6 +28,9 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("OCR_CACHE", "0")  # tests that exercise the cache opt in with monkeypatch
     monkeypatch.setenv("RETRY_BACKOFF_BASE_SECONDS", "0")
     monkeypatch.setenv("DOWNLOAD_LINK_SECRET", "test-secret")
+    # Demo data is off by default (as in production); tests that load the sample sets opt in
+    # with the demo_data fixture.
+    monkeypatch.setenv("SEED_DEMO_DATA", "0")
     yield tmp_path
     import database
 
@@ -35,8 +38,16 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch):
-    """TestClient with lifespan (init_db + base seed). BackgroundTasks run before each call returns."""
+def demo_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SEED_DEMO_DATA=1: POST /api/demo/seed loads the synthetic sample sets and the start-up
+    base seed adds the 'Biology - Genetics' sample rubric (off by default, as in production)."""
+    monkeypatch.setenv("SEED_DEMO_DATA", "1")
+
+
+@pytest.fixture
+def bare_client(monkeypatch: pytest.MonkeyPatch):
+    """TestClient with lifespan (init_db + base seed: institution and batch only - no rubric while
+    demo data is off). BackgroundTasks run before each call returns."""
     monkeypatch.setenv("OCR_CONFIDENCE_THRESHOLD", "0.80")
     monkeypatch.setenv("VISION_PROVIDER", "anthropic")
     from fastapi.testclient import TestClient
@@ -45,6 +56,27 @@ def client(monkeypatch: pytest.MonkeyPatch):
 
     with TestClient(main.app) as test_client:
         yield test_client
+
+
+def add_test_rubric() -> int:
+    """The 'Biology - Genetics' v1 rubric (backend/rubrics/biology_genetics_v1.json) as a stored
+    rubric row - it stands in for the per-intake rubric snapshot an upload with rubric_json
+    creates, so tests can grade against a known 5-question / 20-mark key. Idempotent."""
+    import database
+    import seed
+
+    with database.SessionLocal() as session:
+        rubric = seed.ensure_genetics_rubric(session)
+        session.commit()
+        return rubric.id
+
+
+@pytest.fixture
+def client(bare_client):
+    """bare_client plus the test rubric (add_test_rubric: 'Biology - Genetics' v1, id 1 on a fresh
+    database). The upload fixture sends its rubric_id unless a test names a rubric itself."""
+    bare_client.test_rubric_id = add_test_rubric()
+    yield bare_client
 
 
 @pytest.fixture
@@ -108,7 +140,9 @@ def make_pdf() -> Callable[[int], bytes]:
 
 @pytest.fixture
 def upload(client, png_bytes):
-    """POST /api/upload helper: upload(filename=..., content=..., student_name=..., **form)."""
+    """POST /api/upload helper: upload(filename=..., content=..., student_name=..., **form).
+    Every upload needs a rubric: without rubric_id / rubric_json in **form the test rubric's id
+    is sent; pass rubric_id=None to send no rubric at all."""
 
     def _upload(
         filename: str = "aarav_sheet.png",
@@ -117,6 +151,8 @@ def upload(client, png_bytes):
         content_type: str = "application/octet-stream",
         **form: str,
     ):
+        if "rubric_id" not in form and "rubric_json" not in form:
+            form["rubric_id"] = str(client.test_rubric_id)
         data = {k: v for k, v in form.items() if v is not None}
         if student_name is not None:
             data["student_name"] = student_name

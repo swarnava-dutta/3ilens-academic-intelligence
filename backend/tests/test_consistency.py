@@ -24,7 +24,7 @@ TEST_KEY = "sk-ant-test-consistency-0000"
 
 
 @pytest.fixture
-def seeded(client, db_session):
+def seeded(demo_data, client, db_session):
     assert client.post("/api/demo/seed").status_code == 200
     subs = db_session.query(StudentSubmission).order_by(StudentSubmission.id).all()
     completed = next(s for s in subs if s.status == SubmissionStatus.COMPLETED and s.result.total_score < 15)

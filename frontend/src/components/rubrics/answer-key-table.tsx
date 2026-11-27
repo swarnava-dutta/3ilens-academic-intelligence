@@ -4,10 +4,19 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import type { RubricQuestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { OPTION_LETTERS, isMcq } from "./rubric-utils";
+import {
+  OPTION_LETTERS,
+  acceptedLetters,
+  isMcq,
+  keyModePatch,
+  mcqKeyLabel,
+  mcqKeyMode,
+  mcqKeySet,
+  withKeyTexts,
+} from "./rubric-utils";
 
 const selectClass =
-  "block h-8 w-14 rounded-md border border-slate-300 bg-white px-1.5 text-sm font-semibold text-slate-800 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "block h-8 w-[4.75rem] rounded-md border border-slate-300 bg-white px-1.5 text-sm font-semibold text-slate-800 focus:border-brand-cyan focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 /** Option letters an MCQ can take: its option count (2-6), A-D when the options are unknown. */
 function lettersFor(q: RubricQuestion): string[] {
@@ -15,9 +24,41 @@ function lettersFor(q: RubricQuestion): string[] {
   return OPTION_LETTERS.slice(0, count) as unknown as string[];
 }
 
-/** An MCQ whose correct option is missing or outside its options. */
+/**
+ * An MCQ without a usable key: no correct option within its options, fewer than two accepted
+ * options, and not a bonus question.
+ */
 export function missingKey(q: RubricQuestion): boolean {
-  return isMcq(q) && !lettersFor(q).includes(q.correct_option ?? "");
+  return isMcq(q) && !mcqKeySet(q);
+}
+
+/** The Key select's value: a letter, "several", "bonus" or "" (not set). */
+function keyValue(q: RubricQuestion): string {
+  const mode = mcqKeyMode(q);
+  if (mode !== "single") return mode;
+  const letter = (q.correct_option ?? "").trim().toUpperCase();
+  return lettersFor(q).includes(letter) ? letter : "";
+}
+
+/** Title of the Key select for a question keyed with several options or as a bonus. */
+function keyTitle(q: RubricQuestion): string | undefined {
+  const mode = mcqKeyMode(q);
+  if (mode === "bonus") return "Bonus question - full marks to everyone";
+  if (mode === "several") return `Accepted options ${mcqKeyLabel(q) || "- tick them in Edit"}`;
+  return undefined;
+}
+
+/** Label of the "several" choice: "B or C" (mcqKeyLabel), "B/…" while one is ticked, "Several…" before. */
+function severalLabel(q: RubricQuestion): string {
+  const letters = mcqKeyMode(q) === "several" ? acceptedLetters(q) : [];
+  if (letters.length >= 2) return mcqKeyLabel(q);
+  return letters.length === 1 ? `${letters[0]}/…` : "Several…";
+}
+
+/** The key patch for a Key select choice (expected answer and criteria follow when generic). */
+function keyChoice(q: RubricQuestion, value: string): Partial<RubricQuestion> {
+  if (value === "several" || value === "bonus") return withKeyTexts(q, keyModePatch(q, value));
+  return withKeyTexts(q, { bonus: undefined, accepted_options: undefined, correct_option: value || undefined });
 }
 
 interface AnswerKeyTableProps {
@@ -37,8 +78,8 @@ interface AnswerKeyTableProps {
 
 /**
  * Dense answer-key review for long papers (a 180-MCQ NEET paper): one row per question with
- * its subject, topic, the correct-option select and the problems to fix; "Edit" opens the full
- * editor for that one question.
+ * its subject, topic, the key select (a letter, several accepted options - ticked in the question's
+ * editor - or bonus) and the problems to fix; "Edit" opens the full editor for that one question.
  */
 export function AnswerKeyTable({
   questions,
@@ -61,6 +102,8 @@ export function AnswerKeyTable({
   }, [editing]);
   const mcqs = questions.filter(isMcq);
   const missing = mcqs.filter(missingKey).length;
+  const several = mcqs.filter((q) => mcqKeyMode(q) === "several").length;
+  const bonus = mcqs.filter((q) => mcqKeyMode(q) === "bonus").length;
   const flagged = Object.keys(problems).length;
   const rows = questions
     .map((q, index) => ({ q, index }))
@@ -75,6 +118,8 @@ export function AnswerKeyTable({
             {mcqs.length - missing}/{mcqs.length}
           </span>{" "}
           MCQs
+          {several > 0 ? <> · {several} with several accepted options</> : null}
+          {bonus > 0 ? <> · {bonus} bonus</> : null}
           {flagged > 0 ? (
             <>
               {" "}
@@ -109,7 +154,7 @@ export function AnswerKeyTable({
               <th scope="col" className="px-2 py-2 font-medium">
                 Topic
               </th>
-              <th scope="col" className="w-[4.5rem] px-2 py-2 font-medium sm:w-20">
+              <th scope="col" className="w-[5.75rem] px-2 py-2 font-medium sm:w-24">
                 Key
               </th>
               <th scope="col" className="w-24 px-2 py-2 font-medium sm:w-40">
@@ -124,7 +169,7 @@ export function AnswerKeyTable({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-2 py-4 text-center text-xs text-slate-500">
-                  Every MCQ has a correct option.
+                  Every MCQ has a key (a correct option, accepted options or bonus).
                 </td>
               </tr>
             ) : null}
@@ -152,13 +197,19 @@ export function AnswerKeyTable({
                       {isMcq(q) ? (
                         <>
                           <label htmlFor={`${ids}-key-${index}`} className="sr-only">
-                            Correct option for question {number}
+                            Answer key for question {number}
                           </label>
                           <select
                             id={`${ids}-key-${index}`}
-                            value={lettersFor(q).includes(q.correct_option ?? "") ? (q.correct_option ?? "") : ""}
+                            value={keyValue(q)}
                             disabled={disabled}
-                            onChange={(e) => onChange(index, { correct_option: e.target.value || undefined })}
+                            title={keyTitle(q)}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              onChange(index, keyChoice(q, value));
+                              // Several accepted options are ticked in the question's editor.
+                              if (value === "several") onEdit(index);
+                            }}
                             className={cn(selectClass, missingKey(q) && "border-rose-300")}
                           >
                             <option value="">—</option>
@@ -167,6 +218,10 @@ export function AnswerKeyTable({
                                 {letter}
                               </option>
                             ))}
+                            <option value="several">
+                              {severalLabel(q)}
+                            </option>
+                            <option value="bonus">Bonus</option>
                           </select>
                         </>
                       ) : (

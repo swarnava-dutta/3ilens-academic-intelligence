@@ -7,7 +7,8 @@
 - POST  /api/results/{id}/consistency-check FR-3.5 re-grade (one live Claude call), tolerance +/-2
 - POST  /api/rubrics/parse                  FR-3.4 rubric draft from text / PDF / DOCX / JSON; a PDF of
                                             3+ pages (a full printed paper) is read as page images; an
-                                            optional key_file (answer key) is applied to the draft
+                                            optional key_file (answer key) is applied to the draft;
+                                            a key-only file and a paper may come in either order
 - POST  /api/rubrics/answer-key             the answer key in a key-only file or pasted text (answer_keys)
 - POST  /api/rubrics                        save a rubric (AUTHOR_DRAFT or FACULTY_APPROVED)
 """
@@ -36,6 +37,7 @@ import pipeline
 import provenance
 import result_view
 import rubric_store
+import uploads
 from ai_schemas import ModelUsage, OcrAnswer, OcrResult
 from config import get_settings
 from database import (
@@ -49,6 +51,7 @@ from database import (
 )
 from errors import ApiError
 from schemas import (
+    AnswerKeyEntry,
     AnswerKeyExtraction,
     BatchOut,
     BatchPatchInput,
@@ -350,7 +353,17 @@ def _read_upload(file: UploadFile) -> bytes:
     return data
 
 
+def _peek(file: UploadFile) -> bytes:
+    """What _read_upload would read, with the file rewound for it (an oversize file is reported there)."""
+    data = file.file.read(get_settings().max_upload_bytes + 1)
+    file.file.seek(0)
+    return data
+
+
 def _decode_text(data: bytes) -> str:
+    wide = uploads.utf16_text(data)  # a key / paper saved as "Unicode text" (UTF-16)
+    if wide is not None:
+        return wide
     if b"\x00" in data[:4096]:
         raise ApiError(415, "Unsupported file type: upload a PDF, Word (.docx), JSON or text file.",
                        "unsupported_signature")
@@ -460,11 +473,18 @@ def parse_rubric(
 
     key_file: an answer key in a separate file (answer_keys.extract), applied to the draft on every
     path (answer_keys.apply_to_draft); the first warning (after any "Fix before saving") sums it up.
-    A key file that cannot be read leaves the draft as drafted, with a warning saying why."""
+    A key file that cannot be read leaves the draft as drafted, with a warning saying why. The two
+    files may come in either order: when file looks like a key alone (_key_only_source, no AI) and
+    key_file does not, they are swapped (files_swapped); when both do, file is drafted and key_file
+    applied."""
+    swapped = bool(file is not None and key_file is not None and _key_only_source(_peek(file), None)
+                   and not _key_only_source(_peek(key_file), None))
+    if swapped:
+        file, key_file = key_file, file
     draft = _draft_rubric(db, file=file, text=text, subject=subject, exam=exam, key_source=key_source)
-    if key_file is None:
-        return draft
-    return _apply_key_file(db, draft, key_file)
+    if key_file is not None:
+        draft = _apply_key_file(db, draft, key_file)
+    return draft.model_copy(update={"files_swapped": swapped})
 
 
 def _draft_rubric(
@@ -484,6 +504,10 @@ def _draft_rubric(
     source_text: str | None = None
     pdf_bytes: bytes | None = None
     data = _read_upload(file) if file is not None else b""
+    if not key_from_marks:
+        key_only = _key_only_draft(db, data, text, name=Path(file.filename or "").stem if file else "", subject=subject)
+        if key_only is not None:
+            return key_only
     if data:
         if data.startswith(b"%PDF"):
             source = "pdf"
@@ -549,6 +573,98 @@ def _draft_rubric(
         draft=result["draft"], warnings=result["warnings"], source=source,
         ai_drafted_questions=result["ai_drafted_questions"],
     )
+
+
+# NEET section layouts by question count (subject, questions); other counts get one section.
+_NEET_SECTIONS = {
+    180: (("Physics", 45), ("Chemistry", 45), ("Biology", 90)),
+    200: (("Physics", 50), ("Chemistry", 50), ("Biology", 100)),
+}
+KEY_ONLY_MIN_ENTRIES = 10
+KEY_ONLY_MAX_CHARS_PER_ENTRY = 40  # a key is ~10 characters per entry; a question paper hundreds
+
+
+def _key_only_source(data: bytes, text: str | None) -> str | None:
+    """"image" / "pdf" / "docx" / "text" when a file (or, with no file, pasted text) looks like an
+    answer key alone: an image (only ever a key here), or text in which answer_keys.parse_text finds
+    KEY_ONLY_MIN_ENTRIES+ entries at no more than KEY_ONLY_MAX_CHARS_PER_ENTRY characters each.
+    None for anything else or an unreadable file. No AI call."""
+    if uploads.sniff_mime(data[:8192]) in uploads.PIL_FORMATS:
+        return "image"
+    try:
+        if data.startswith(b"%PDF"):
+            texts, source = answer_keys._pdf_page_texts(data), "pdf"
+        elif data.startswith(ZIP_MAGIC):
+            texts, source = [docx_reader.docx_text(data)], "docx"
+        elif data:
+            texts, source = [_decode_text(data)], "text"
+        else:
+            texts, source = [text or ""], "text"
+    except Exception:  # noqa: BLE001 - not readable here: the normal path reports it
+        return None
+    joined = "\n".join(texts)
+    # ponytail: a scanned key (no text layer) still goes to the AI drafter; read it here too if that is common.
+    # ponytail: key-only by density, not by question stems ("Que. 1 2 3 ..." rows on one line read as stems).
+    found = len(answer_keys.parse_text(joined)[0])
+    return source if KEY_ONLY_MIN_ENTRIES <= found and len(joined) <= KEY_ONLY_MAX_CHARS_PER_ENTRY * found else None
+
+
+def _key_only_draft(
+    db: Session, data: bytes, text: str | None, *, name: str, subject: str | None
+) -> RubricDraft | None:
+    """A file or pasted text that is only an answer key (numbers and options, no question text - a
+    publisher's "Que. / Ans." grid, "1-B, 2-C", a key table) becomes an all-MCQ rubric straight from
+    the key: one MCQ per number, 4 marks, -1 for a wrong answer, no AI drafting (the AI drafter
+    would have no questions to read). None for anything with question text, or no readable key. A
+    photo of a key (JPEG / PNG / WEBP) is read by answer_keys.extract (AI); its errors are raised,
+    as no other path takes an image."""
+    source = _key_only_source(data, text)  # free text check before any AI read
+    if source is None:
+        return None
+    image = source == "image"
+    usages: list[ModelUsage] = []
+    try:
+        extraction = answer_keys.extract(data or None, None if data else (text or ""), on_usage=usages.append)
+    except (ApiError, ai.AIConfigurationError, ai.AIServiceError) as exc:
+        if not image:
+            return None
+        if isinstance(exc, ApiError):
+            raise
+        if isinstance(exc, ai.AIServiceError):
+            raise _ai_failure(exc) from exc
+        raise _ai_not_configured("Reading an answer key from an image") from exc
+    finally:
+        _record_usages(db, usages, None)
+    if len(extraction.entries) < KEY_ONLY_MIN_ENTRIES:
+        if image:
+            raise ApiError(422, answer_keys.NO_ANSWER_KEY, "no_answer_key")
+        return None
+    total = max(entry.question for entry in extraction.entries)
+    sections = _NEET_SECTIONS.get(total) or (((subject or "").strip() or "General", total),)
+    placeholders = [ai.UNTRANSCRIBED_OPTION.format(letter=letter) for letter in "ABCD"]
+    questions, number = [], 1
+    for section, count in sections:
+        for number in range(number, number + count):
+            questions.append({
+                "question": number, "topic": section, "subject": section, "max_marks": 4, "question_type": "mcq",
+                "options": list(placeholders), "expected_answer": "", "grading_criteria": ["4 marks: correct option"],
+                "effort_hours": 1,
+            })
+        number += 1
+    content = {
+        "name": " ".join(name.replace("_", " ").replace("-", " ").split()) or "Answer key",
+        "subject": "NEET" if total in _NEET_SECTIONS else sections[0][0],
+        "questions": questions,
+        "marking_policy": {"partial_credit": "all_or_nothing", "negative_marks": 1, "scheme_name": "+4 / -1"},
+        "paper_code": extraction.paper_code,
+    }
+    content, warnings, _stats = answer_keys.apply_to_draft(content, [], extraction)
+    note = (
+        f"Built from the answer key alone: {total} MCQs, 4 marks each, -1 for a wrong answer"
+        + (", topics by NEET section" if total in _NEET_SECTIONS else "")
+        + " - no question text, so no AI drafting."
+    )
+    return RubricDraft(draft=content, warnings=[note, *warnings], source=source, ai_drafted_questions=[])
 
 
 def _parse_paper_pages(
@@ -636,9 +752,20 @@ def read_answer_key(
         raise _ai_failure(exc) from exc
     finally:
         _record_usages(db, usages, None)
-    if not result.entries:
+    accepted, bonus, special = answer_keys.special_entries(result)
+    if not result.entries and not accepted and not bonus:
         raise ApiError(422, answer_keys.NO_ANSWER_KEY, "no_answer_key")
-    return result
+    # Send the multi-answer and bonus entries too (the client applies them like the parse route
+    # does); their "set them by hand" warnings no longer apply.
+    extra = [AnswerKeyEntry(question=n, accepted_options=letters) for n, letters in accepted.items()]
+    extra += [AnswerKeyEntry(question=n, bonus=True) for n in bonus if n not in accepted]
+    if not extra:
+        return result
+    return AnswerKeyExtraction(
+        entries=sorted([*result.entries, *extra], key=lambda e: e.question),
+        source=result.source, method=result.method, paper_code=result.paper_code,
+        warnings=[w for w in result.warnings if w not in special],
+    )
 
 
 @router.post("/api/rubrics", response_model=RubricOut, status_code=201)

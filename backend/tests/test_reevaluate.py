@@ -109,7 +109,7 @@ def test_removed_questions_are_dropped_from_the_stored_answers(upload, fake_ai, 
     assert fake_ai.calls["ocr"] == 1
 
 
-def test_bulk_reprocess_regrades_every_completed_sheet_without_ocr(upload, fake_ai, client, ai_ready, monkeypatch):
+def test_bulk_reprocess_regrades_every_completed_sheet_without_ocr(demo_data, upload, fake_ai, client, ai_ready, monkeypatch):
     monkeypatch.setenv("WORKER_CONCURRENCY", "1")  # FakeAI's call counters are not thread-safe
     client.post("/api/demo/seed")
     live = [upload(student_name=f"Live {n}").json()["id"] for n in range(2)]
@@ -121,11 +121,13 @@ def test_bulk_reprocess_regrades_every_completed_sheet_without_ocr(upload, fake_
     assert len(body["queued_submission_ids"]) == 14 and set(live) <= set(body["queued_submission_ids"])
     assert fake_ai.calls["ocr"] == 2 and fake_ai.calls["evaluation"] == 4  # 2 uploads + 2 re-grades
     listing = client.get("/api/submissions", params={"rubric_id": body["rubric"]["id"]}).json()
-    assert len(listing) == 14 and all(s["status"] == "COMPLETED" for s in listing)
-    assert client.get("/api/submissions", params={"rubric_id": parent}).json()[0]["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert [s["status"] for s in listing].count("COMPLETED") == 14
+    # the held demo sheet follows the edited key too: approving it grades with v2
+    assert [s["status"] for s in listing if s["status"] != "COMPLETED"] == ["HUMAN_REVIEW_REQUIRED"]
+    assert client.get("/api/submissions", params={"rubric_id": parent}).json() == []
 
 
-def test_demo_rows_are_regraded_synthetically_without_ai(client, forbid_ai):
+def test_demo_rows_are_regraded_synthetically_without_ai(demo_data, client, forbid_ai):
     client.post("/api/demo/seed")
     demo = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
     before = client.get(f"/api/results/{demo['id']}").json()
@@ -148,7 +150,7 @@ def test_demo_rows_are_regraded_synthetically_without_ai(client, forbid_ai):
     assert after["cost"]["synthetic"] is True
 
 
-def test_demo_marks_are_clamped_to_the_new_maximum(client, forbid_ai):
+def test_demo_marks_are_clamped_to_the_new_maximum(demo_data, client, forbid_ai):
     client.post("/api/demo/seed")
     demo = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
     v2 = new_version(client, genetics_id(client), v2_content(q1_marks=1))["rubric"]
@@ -247,7 +249,7 @@ def test_concurrent_bulk_reevaluation_completes_every_sheet(upload, fake_ai, cli
     assert fake_ai.calls["ocr"] == 6 and fake_ai.calls["evaluation"] == 12
 
 
-def test_version_endpoints_list_and_serve_archived_snapshots(client, forbid_ai):
+def test_version_endpoints_list_and_serve_archived_snapshots(demo_data, client, forbid_ai):
     client.post("/api/demo/seed")
     demo = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
     only = client.get(f"/api/results/{demo['id']}/versions").json()
@@ -267,6 +269,108 @@ def test_version_endpoints_list_and_serve_archived_snapshots(client, forbid_ai):
     missing = client.get(f"/api/results/{demo['id']}/versions/9")
     assert missing.status_code == 404 and missing.json()["code"] == "unknown_version"
     assert client.get("/api/results/99999/versions").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# One-call re-grade with an edited answer key (inline rubric)
+# --------------------------------------------------------------------------- #
+def rubric_count(db_session) -> int:
+    from sqlalchemy import func, select
+
+    from database import Rubric
+
+    return db_session.scalar(select(func.count()).select_from(Rubric))
+
+
+def test_inline_rubric_creates_a_snapshot_and_regrades_without_ocr(upload, fake_ai, client, ai_ready, db_session):
+    sub = upload().json()
+    before = rubric_count(db_session)
+    edited = {**v2_content(drop_q5=True, q1_marks=2), "name": "Biology - Genetics (edited key)"}
+    response = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": edited})
+    assert response.status_code == 202, response.text
+    snapshot_id = response.json()["rubric_id"]
+    assert snapshot_id != sub["rubric_id"] and rubric_count(db_session) == before + 1
+    snapshot = next(r for r in client.get("/api/rubrics").json() if r["id"] == snapshot_id)
+    assert (snapshot["name"], snapshot["version"], snapshot["status"], snapshot["parent_id"]) == (
+        "Biology - Genetics (edited key)", "custom-1", "AUTHOR_DRAFT", None)
+
+    result = client.get(f"/api/results/{sub['id']}").json()
+    assert result["submission"]["status"] == "COMPLETED" and result["rubric"]["id"] == snapshot_id
+    assert fake_ai.calls == {"preprocess": 1, "ocr": 1, "evaluation": 2}  # no new OCR call
+    assert [q["question"] for q in result["question_evaluations"]] == [1, 2, 3, 4]
+    assert result["total_marks"] == 14 and result["total_score"] == 10  # Q1 capped at 2
+    assert [(v["version"], v["current"]) for v in result["versions"]] == [(1, False), (2, True)]
+    log = [e["message"] for e in result["processing_log"]]
+    assert any(m.startswith("Re-evaluation queued against rubric 'Biology - Genetics (edited key)' (custom-1).")
+               for m in log)
+
+
+def test_inline_rubric_on_a_demo_row_regrades_synthetically(demo_data, client, forbid_ai):
+    client.post("/api/demo/seed")
+    demo = next(s for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
+    response = client.post(f"/api/submissions/{demo['id']}/reevaluate", json={"rubric": v2_content(add_q6=True)})
+    assert response.status_code == 202, response.text
+    assert response.json()["status"] == "COMPLETED" and response.json()["rubric_id"] != demo["rubric_id"]
+    assert forbid_ai == []
+
+
+def test_inline_rubric_errors_store_nothing(upload, fake_ai, client, ai_ready, db_session):
+    sub = upload().json()
+    before = rubric_count(db_session)
+    both = client.post(f"/api/submissions/{sub['id']}/reevaluate",
+                       json={"rubric": v2_content(), "rubric_id": sub["rubric_id"]})
+    assert both.status_code == 422 and both.json() == {
+        "detail": "Send either rubric_id or rubric, not both.", "code": "invalid_rubric"}
+    bad = v2_content()
+    bad["questions"][0] = {**bad["questions"][0], "max_marks": 0}
+    invalid = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": bad})
+    assert invalid.status_code == 422 and invalid.json()["code"] == "invalid_rubric"
+    assert invalid.json()["detail"].startswith("Invalid rubric - questions[0].max_marks")
+    not_object = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": "Q1 B"})
+    assert not_object.status_code == 422 and not_object.json()["code"] == "invalid_rubric"
+    assert rubric_count(db_session) == before
+    assert client.get(f"/api/results/{sub['id']}").status_code == 200 and fake_ai.calls["evaluation"] == 1
+
+
+def test_inline_rubric_is_not_stored_without_a_transcript(upload, fake_ai, client, ai_ready, db_session, tmp_path):
+    sub = upload().json()
+    (tmp_path / "artifacts" / str(sub["id"]) / "ocr.json").unlink()
+    before = rubric_count(db_session)
+    response = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": v2_content()})
+    assert response.status_code == 409 and response.json()["code"] == "no_transcript"
+    assert rubric_count(db_session) == before
+    assert client.get(f"/api/results/{sub['id']}").json()["submission"]["status"] == "COMPLETED"
+
+
+def test_inline_rubric_needs_a_configured_ai(upload, fake_ai, client, db_session):
+    sub = upload().json()
+    before = rubric_count(db_session)
+    response = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": v2_content()})
+    assert response.status_code == 503 and response.json()["code"] == "ai_not_configured"
+    assert rubric_count(db_session) == before
+
+
+def test_a_concurrent_reevaluation_loses_and_stores_nothing(upload, fake_ai, client, db_session, monkeypatch):
+    """The sheet was queued by another request after it was read: 409, no snapshot, result kept."""
+    import ai
+
+    from tests.test_rerun import flip_status
+
+    sub = upload().json()
+    before = rubric_count(db_session)
+
+    def ready_then_flip():
+        flip_status(sub["id"], "PENDING")
+        return True, []
+
+    monkeypatch.setattr(ai, "ai_readiness", ready_then_flip)
+    response = client.post(f"/api/submissions/{sub['id']}/reevaluate", json={"rubric": v2_content()})
+    assert response.status_code == 409 and response.json()["code"] == "invalid_state"
+    assert rubric_count(db_session) == before
+    flip_status(sub["id"], "COMPLETED")
+    versions = client.get(f"/api/results/{sub['id']}/versions").json()
+    assert [(v["version"], v["current"]) for v in versions] == [(1, True)]  # nothing archived
+    assert client.get(f"/api/results/{sub['id']}").json()["total_score"] == 14 and fake_ai.calls["evaluation"] == 1
 
 
 def test_institutions_and_health_defaults(client):

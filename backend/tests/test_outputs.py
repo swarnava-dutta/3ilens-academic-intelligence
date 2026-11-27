@@ -22,7 +22,7 @@ def _completed(upload, client) -> int:
 # --------------------------------------------------------------------------- #
 # Bundle
 # --------------------------------------------------------------------------- #
-def test_bundle_zip_has_every_completed_student_pdf_plus_the_cohort_pdf(client):
+def test_bundle_zip_has_every_completed_student_pdf_plus_the_cohort_pdf(demo_data, client):
     client.post("/api/demo/seed")
     response = client.get("/api/reports/bundle.zip")
     assert response.status_code == 200, response.text
@@ -43,7 +43,7 @@ def test_bundle_zip_has_every_completed_student_pdf_plus_the_cohort_pdf(client):
         assert len(archive.namelist()) == 4 + 1
 
 
-def test_bundle_respects_batch_and_rubric_filters(client):
+def test_bundle_respects_batch_and_rubric_filters(demo_data, client):
     client.post("/api/demo/seed", params={"set": "all"})
     filters = client.get("/api/filters").json()
     neet_b = next(b for b in filters["batches"] if b["name"] == "NEET-B")
@@ -148,7 +148,7 @@ def test_delivery_is_never_sent_masks_the_recipient_and_issues_a_working_link(cl
     assert [d["id"] for d in client.get("/api/deliveries").json()] == [delivery["id"]]
 
 
-def test_simulate_mode_and_bulk_delivery_without_recipient(client, monkeypatch):
+def test_simulate_mode_and_bulk_delivery_without_recipient(demo_data, client, monkeypatch):
     monkeypatch.setenv("WHATSAPP_MODE", "simulate")
     client.post("/api/demo/seed")
     completed = [s["id"] for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED"][:3]

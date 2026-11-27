@@ -18,9 +18,8 @@ from typing import Annotated, Any, Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, selectinload
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import ai
@@ -28,6 +27,7 @@ import cohort
 import costing
 import pipeline
 import result_view
+import rubric_sources
 import rubric_store
 import seed
 import uploads
@@ -37,6 +37,7 @@ from database import (
     INPUT_DOCUMENT,
     INPUT_VOICE,
     Batch,
+    EvaluationResult,
     Institution,
     ModelInvocation,
     Rubric,
@@ -53,6 +54,7 @@ from routers import voice_routes
 from schemas import (
     LANGUAGE_HINTS,
     CohortOut,
+    CohortSitting,
     DemoSeedOut,
     HealthOut,
     ReevaluationEstimate,
@@ -70,7 +72,6 @@ DbSession = Annotated[Session, Depends(get_db)]
 UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
 DemoSetQuery = Literal["genetics", "mixed", "all", "insights"]
 
-MAX_STUDENT_NAME = 120
 MAX_ROLL_NO = 40
 CHUNK_SIZE = uploads.CHUNK_SIZE
 INTAKE_BATCH_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -96,6 +97,7 @@ async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         seed.seed_base(db)
         pipeline.recover_interrupted_jobs(db)
+        pipeline.recheck_held_sheets(db)  # held rows of older builds: the review reason, no AI call
     ready, missing = _ai_readiness()
     if not ready:
         logger.warning("AI providers not ready - missing configuration: %s", ", ".join(missing) or "unknown")
@@ -146,7 +148,8 @@ app.add_middleware(  # added last = outermost, so even error responses carry COR
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d{1,5})?",
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Total-Count", "Content-Disposition"],  # LMS export paging + CSV file names
+    # LMS export paging + CSV file names; intake preview page count and file type
+    expose_headers=["X-Total-Count", "Content-Disposition", "X-Page-Count", "X-File-Type"],
 )
 
 
@@ -190,25 +193,10 @@ _inspect_document = uploads.inspect_document
 _human_size = uploads.human_size
 
 
-def _format_validation_errors(exc: ValidationError, limit: int = 5) -> str:
-    parts = []
-    for err in exc.errors()[:limit]:
-        loc = ""
-        for piece in err["loc"]:
-            loc += f"[{piece}]" if isinstance(piece, int) else (f".{piece}" if loc else str(piece))
-        msg = str(err["msg"]).removeprefix("Value error, ")
-        parts.append(f"{loc}: {msg}" if loc else msg)
-    extra = exc.error_count() - limit
-    return "; ".join(parts) + (f" (+{extra} more)" if extra > 0 else "")
+_format_validation_errors = rubric_store.format_validation_errors
 
 
-def _validate_student_name(raw: str | None) -> str:
-    name = " ".join((raw or "").split())
-    if not name:
-        raise _unprocessable("Student name is required.", "invalid_student_name")
-    if len(name) > MAX_STUDENT_NAME:
-        raise _unprocessable(f"Student name must be at most {MAX_STUDENT_NAME} characters.", "invalid_student_name")
-    return name
+_validate_student_name = uploads.validate_student_name  # shared with PATCH /api/submissions/{id}
 
 
 def _validate_roll_no(raw: str | None) -> str | None:
@@ -261,9 +249,13 @@ def _resolve_batch(db: Session, batch_id: str | None) -> Batch | None:
 
 
 def _resolve_rubric(
-    db: Session, rubric_id: str | None, rubric_json: str | None
+    db: Session, rubric_id: str | None, rubric_json: str | None, rubric_hash: str | None = None
 ) -> tuple[Rubric | None, RubricContentIn | None]:
-    """Returns (existing rubric, None) or (None, validated custom content)."""
+    """Returns (existing rubric, None) or (None, validated custom content). Every upload names its
+    answer key: rubric_json (inline - a new per-intake snapshot row is created for it) or rubric_id
+    (the snapshot an earlier upload of the same intake created, or an API client's rubric; with
+    rubric_hash, that row must still hold that content - ids restart after a data reset). There
+    is no default rubric: neither -> 422 rubric_required."""
     if rubric_json and rubric_json.strip():
         try:
             data = json.loads(rubric_json)
@@ -272,12 +264,7 @@ def _resolve_rubric(
                 f"rubric_json is not valid JSON ({exc.msg} at line {exc.lineno}, column {exc.colno}).",
                 "invalid_rubric",
             ) from exc
-        if not isinstance(data, dict):
-            raise _unprocessable("rubric_json must be a JSON object with name, subject and questions.", "invalid_rubric")
-        try:
-            return None, RubricContentIn.model_validate(data)
-        except ValidationError as exc:
-            raise _unprocessable(f"Invalid rubric_json - {_format_validation_errors(exc)}", "invalid_rubric") from exc
+        return None, rubric_store.validate_content(data, "rubric_json")
 
     if rubric_id and rubric_id.strip():
         try:
@@ -287,12 +274,15 @@ def _resolve_rubric(
         rubric = db.get(Rubric, rid)
         if rubric is None:
             raise _unprocessable(f"Rubric {rid} does not exist.", "unknown_rubric")
+        if rubric_hash and rubric_hash.strip() and rubric_hash.strip().lower() != rubric.rubric_hash:
+            raise _unprocessable(
+                f"Rubric {rid} is no longer this intake's answer key (the data was reset) - add the question "
+                "paper or answer key again.",
+                "unknown_rubric",
+            )
         return rubric, None
 
-    rubric = seed.get_default_rubric(db)
-    if rubric is None:
-        _, _, rubric = seed.seed_base(db)
-    return rubric, None
+    raise _unprocessable(rubric_store.RUBRIC_REQUIRED_DETAIL, "rubric_required")
 
 
 def _validate_voice_question(
@@ -426,18 +416,29 @@ def upload_answer_sheet(
     student_name: Annotated[str | None, Form()] = None,
     rubric_id: Annotated[str | None, Form()] = None,
     rubric_json: Annotated[str | None, Form()] = None,
+    rubric_hash: Annotated[str | None, Form()] = None,
     roll_no: Annotated[str | None, Form()] = None,
     language_hints: Annotated[str | None, Form()] = None,
     batch_id: Annotated[str | None, Form()] = None,
     intake_batch_id: Annotated[str | None, Form()] = None,
     voice_question: Annotated[str | None, Form()] = None,
+    rubric_source_file: Annotated[UploadFile | None, File()] = None,
+    rubric_key_file: Annotated[UploadFile | None, File()] = None,
+    rubric_source_role: Annotated[str | None, Form()] = None,
 ) -> SubmissionOut:
     """A scanned / typed answer sheet or a voice answer (FR-2.8: MP3 / WAV / M4A / OGG, sniffed
     from the bytes). voice_question = the rubric question one recording answers; omit it for a
-    whole-paper recording. It is ignored for documents."""
+    whole-paper recording. It is ignored for documents.
+
+    rubric_source_file / rubric_key_file: the question paper and a separate answer-key file the
+    inline rubric_json was drafted from (an intake's first upload). Checked like intake preview
+    before anything is saved and kept with the new rubric snapshot for the report's preview
+    (rubric_sources); ignored when the upload names an existing rubric_id. rubric_source_role: what
+    rubric_source_file is, for its label - question_paper (default), rubric_file or marked_copy (an
+    unknown value is ignored)."""
     settings = get_settings()
     name = _validate_student_name(student_name)
-    rubric, custom_rubric = _resolve_rubric(db, rubric_id, rubric_json)  # validated before saving the upload
+    rubric, custom_rubric = _resolve_rubric(db, rubric_id, rubric_json, rubric_hash)  # before saving the upload
     roll = _validate_roll_no(roll_no)
     languages = _validate_language_hints(language_hints)
     chosen_batch = _resolve_batch(db, batch_id)
@@ -447,15 +448,24 @@ def upload_answer_sheet(
             f"Attach an answer sheet ({uploads.ACCEPTED_LABEL}) or a voice answer (MP3, WAV, M4A or OGG).",
             "missing_file",
         )
+    sources: list[rubric_sources.StagedSource] = []
+    if custom_rubric is not None:  # the files an inline key was drafted from; ignored with rubric_id
+        for kind, source_file in (("paper", rubric_source_file), ("key", rubric_key_file)):
+            staged = rubric_sources.stage(kind, source_file, rubric_source_role if kind == "paper" else None)
+            if staged is not None:
+                sources.append(staged)
 
     original_filename = _display_filename(file.filename)
     path, mime_type, size, sha256 = _store_upload(file, original_filename, settings)
     is_voice = uploads.is_audio_mime(mime_type)
+    kept_sources: int | None = None  # rubric id whose source files were written
     try:
         description, page_count = _inspect_document(path, mime_type, settings)
         question = _validate_voice_question(voice_question, rubric, custom_rubric) if is_voice else None
         if custom_rubric is not None:
             rubric = _create_custom_rubric(db, custom_rubric)
+            if sources and rubric_sources.store(rubric.id, sources):
+                kept_sources = rubric.id
         assert rubric is not None
         batch = chosen_batch or _context(db)[1]
         sub = StudentSubmission(
@@ -497,7 +507,13 @@ def upload_answer_sheet(
             )
         pipeline.append_log(sub, "Ingestion", received)
         uploads.duplicate_notice(db, sub)
-        uploads.paper_notice(sub, path, mime_type, settings)
+        uploads.paper_notice(sub, path, mime_type, settings, rubric=rubric)
+        if kept_sources is not None:
+            pipeline.append_log(
+                sub, "Ingestion",
+                f"Answer key drafted from {rubric_sources.describe(sources)} - kept with rubric '{rubric.name}' "
+                f"({rubric.version}) for preview.",
+            )
         pipeline.append_log(
             sub, "Queue",
             f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric '{rubric.name}' ({rubric.version}).",
@@ -507,6 +523,8 @@ def upload_answer_sheet(
     except BaseException:
         db.rollback()
         _discard(path)
+        if kept_sources is not None:
+            rubric_sources.remove(kept_sources)
         raise
 
     background_tasks.add_task(pipeline.process_submission, sub.id)
@@ -522,9 +540,18 @@ def list_submissions(
     urgency: UrgencyQuery | None = None,
     intake_batch_id: str | None = None,
 ) -> list[SubmissionOut]:
+    # Only the columns result_view.submission_out reads: no logs, page confidences, question JSON or rubric content.
     query = (
         select(StudentSubmission)
-        .options(selectinload(StudentSubmission.result), selectinload(StudentSubmission.rubric))
+        .options(
+            defer(StudentSubmission.processing_log),
+            defer(StudentSubmission.page_confidences),
+            selectinload(StudentSubmission.result).load_only(
+                EvaluationResult.total_score, EvaluationResult.total_marks, EvaluationResult.topic_mastery,
+                EvaluationResult.release_status, EvaluationResult.llm_cost_inr,
+            ),
+            selectinload(StudentSubmission.rubric).load_only(Rubric.total_marks, Rubric.rubric_hash),
+        )
         .order_by(StudentSubmission.created_at.desc(), StudentSubmission.id.desc())
     )
     if batch_id is not None:
@@ -567,8 +594,25 @@ def get_cohort(
     rubric_id: int | None = None,
     urgency: UrgencyQuery | None = None,
     topic: str | None = None,
+    test_id: int | None = None,
+    per_student: bool = False,
 ) -> CohortOut:
-    return cohort.build_cohort(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic)
+    """test_id: any version of a test (every key version of it counts). per_student=true: one
+    row per student (their latest completed sheet in scope) plus the cohort page fields."""
+    out = cohort.build_cohort(
+        db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic, test_id=test_id,
+        per_student=per_student,
+    )
+    if per_student:
+        return out
+    # The v1 payload (pinned by older clients and tests) without the empty page fields.
+    return JSONResponse(content=out.model_dump(mode="json", exclude=cohort.PAGE_FIELDS))
+
+
+@app.get("/api/cohort/sittings", response_model=list[CohortSitting])
+def get_cohort_sittings(db: DbSession, batch_id: int | None = None) -> list[dict]:
+    """Every (batch, test) sitting, newest first; is_class marks those with 3+ students."""
+    return cohort.list_sittings(db, batch_id=batch_id)
 
 
 @app.post("/api/demo/seed", response_model=DemoSeedOut)
@@ -576,6 +620,8 @@ def seed_demo(
     db: DbSession,
     demo_set: Annotated[DemoSetQuery, Query(alias="set")] = "genetics",
 ) -> DemoSeedOut:
+    if not seed.demo_data_enabled():
+        raise ApiError(403, seed.DEMO_DISABLED_DETAIL, "demo_data_disabled")
     try:
         created = seed.seed_demo_set(db, demo_set)
     except Exception as exc:  # noqa: BLE001
@@ -602,3 +648,5 @@ app.include_router(owner_routes.router)
 app.include_router(insights_routes.router)
 # Intake: local paper detection before upload (printed MCQ papers, answer-key papers).
 app.include_router(intake_routes.router)
+from routers import preview_routes  # noqa: E402 - intake thumbnails (POST /api/intake/preview)
+app.include_router(preview_routes.router)

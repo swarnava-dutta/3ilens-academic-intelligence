@@ -18,7 +18,7 @@ MEMORISERS = {"Farhan Qureshi", "Lavanya Pillai", "Rahul Bansal"}
 
 
 @pytest.fixture
-def seeded(client, db_session):
+def seeded(demo_data, client, db_session):
     assert client.post("/api/demo/seed", params={"set": "insights"}).json()["created"] == 25
     batch = db_session.query(Batch).filter(Batch.name == seed_insights.BATCH_NAME).one()
     subs = db_session.query(StudentSubmission).filter(StudentSubmission.batch_id == batch.id).all()
@@ -28,7 +28,7 @@ def seeded(client, db_session):
     return batch, mock09, mock10, voice
 
 
-def test_created_25_then_0_all_demo_and_labelled(client, db_session, seeded):
+def test_created_25_then_0_all_demo_and_labelled(demo_data, client, db_session, seeded):
     batch, mock09, mock10, voice = seeded
     assert client.post("/api/demo/seed", params={"set": "insights"}).json()["created"] == 0
     assert len(mock09) == len(mock10) == 12
@@ -51,7 +51,7 @@ def test_created_25_then_0_all_demo_and_labelled(client, db_session, seeded):
     assert len({r.rubric_hash for r in db_session.query(Rubric).filter(Rubric.name.like("%(sample)")).all()}) == 3
 
 
-def test_set_all_is_unchanged_and_names_never_collide(client, monkeypatch):
+def test_set_all_is_unchanged_and_names_never_collide(demo_data, client, monkeypatch):
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
     assert seed_insights.name_collisions() == []
     assert len(seed_insights.STUDENTS) == 12

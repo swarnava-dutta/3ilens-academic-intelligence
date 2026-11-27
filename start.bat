@@ -15,7 +15,7 @@ rem       portable Node.js 24 LTS into .tools\node (SHA-256 verified)
 rem    4. install the frontend packages (npm ci / npm install) when
 rem       node_modules is missing or package.json / package-lock.json changed
 rem    5. create .env from .env.example if it is missing
-rem    6. seed the database (institution, batch, Genetics rubric)
+rem    6. seed the database (institution and batch only - every upload brings its own answer key)
 rem    7. start the FastAPI backend   in a window titled "3iLens API :<port>"
 rem    8. start the Next.js frontend  in a window titled "3iLens Web :<port>"
 rem    9. wait for the app to respond and open it in your browser
@@ -196,7 +196,7 @@ if defined AKEY if "%AKEY:~0,1%"=="#" set "AKEY="
 if defined AKEY goto :key_ok
 echo  [warn]  ANTHROPIC_API_KEY is empty in .env - live AI grading of uploaded sheets
 echo          will be marked FAILED with a clear message until you add the key.
-echo          Works without a key: the "blurry" human-review demo and "Load demo cohort".
+echo          Works without a key: the "blurry" human-review demo (with a JSON answer key).
 goto :key_done
 :key_ok
 echo  [ok]    ANTHROPIC_API_KEY is set in .env.
@@ -204,7 +204,7 @@ echo  [ok]    ANTHROPIC_API_KEY is set in .env.
 set "AKEY="
 
 rem ---------------------------------------------------------------------------
-rem  4. Database seed (idempotent: institution, batch, Biology - Genetics rubric)
+rem  4. Database seed (idempotent: institution and batch; no rubric unless SEED_DEMO_DATA=1)
 rem ---------------------------------------------------------------------------
 echo  [....]  Seeding the database...
 "%VENV_PY%" "%BACKEND%\seed.py"

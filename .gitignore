@@ -16,6 +16,8 @@ uploads/*
 !uploads/.gitkeep
 artifacts/*
 !artifacts/.gitkeep
+# scripts/reset_data.py --yes: database copy + the moved uploads/ and artifacts/
+backups/
 logs/
 .run/
 test-results/

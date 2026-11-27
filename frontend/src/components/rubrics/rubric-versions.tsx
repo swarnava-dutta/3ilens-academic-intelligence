@@ -64,22 +64,30 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 /**
- * Collapsible "Rubric versions" card on /cohort: pick a rubric, edit it in the review table and
- * save it as the next version. Re-running asks for confirmation first, showing how many students
- * will be re-graded and the estimated cost (OCR is reused, so 0 vision calls).
+ * Collapsible "Answer keys used" card on /cohort: pick an intake's key, edit it in the review table and
+ * save it as the next version. Re-grading asks for confirmation first, showing how many students will
+ * be re-graded and the estimated cost (the saved reading of each sheet is reused: no sheet is read again).
  */
 export function RubricVersionsPanel({
   preferredRubricId,
+  defaultOpen = false,
   onRerunQueued,
   onToast,
 }: {
-  /** Rubric to open first (the test filter, or the cohort's rubric). */
+  /** Answer key to open first (the test filter, or the cohort's key). */
   preferredRubricId: number | null;
+  /** Start expanded; turning true later ("Check the key") expands it too. */
+  defaultOpen?: boolean;
   onRerunQueued: () => Promise<void> | void;
   onToast: (toast: ToastMessage) => void;
 }) {
   const ids = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  const [wasDefaultOpen, setWasDefaultOpen] = useState(defaultOpen);
+  if (defaultOpen !== wasDefaultOpen) {
+    setWasDefaultOpen(defaultOpen);
+    if (defaultOpen) setOpen(true);
+  }
   const [rubrics, setRubrics] = useState<Rubric[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -169,14 +177,14 @@ export function RubricVersionsPanel({
       const compat = result.compatibility;
       const compatText = compat
         ? compat.reusable
-          ? "same question numbers, stored OCR reused as-is"
+          ? "same question numbers, the saved reading of each sheet is reused"
           : `question numbers changed (added ${questionList(compat.added)}, removed ${questionList(compat.removed)})`
         : "";
       onToast({
         kind: "success",
         message: reprocess
-          ? `${plural(queued, "report")} queued for regeneration - 0 OCR calls. ${result.rubric.name} ${versionLabel(result.rubric.version)} saved; ${compatText}.`
-          : `${result.rubric.name} ${versionLabel(result.rubric.version)} saved (no reports re-run); ${compatText}.`,
+          ? `${plural(queued, "report")} queued to be re-graded - no sheet is read again. ${result.rubric.name} ${versionLabel(result.rubric.version)} saved; ${compatText}.`
+          : `${result.rubric.name} ${versionLabel(result.rubric.version)} saved (no reports re-graded); ${compatText}.`,
       });
       // Show the new version in the picker and keep editing from it.
       setRubrics((prev) => [...(prev ?? []).filter((r) => r.id !== result.rubric.id), result.rubric]);
@@ -188,10 +196,10 @@ export function RubricVersionsPanel({
       const status = errorStatus(err);
       const message =
         !errorCode(err) && (status === 404 || status === 405)
-          ? "Rubric versions are not available on this API build yet."
+          ? "Editing answer keys is not available on this server yet."
           : errorMessage(err);
       setSaveError(message);
-      onToast({ kind: "error", message: `Rubric version not saved: ${message}` });
+      onToast({ kind: "error", message: `Answer key not saved: ${message}` });
     } finally {
       setSaving(false);
     }
@@ -211,11 +219,11 @@ export function RubricVersionsPanel({
         <span className="flex min-w-0 items-start gap-3">
           <span className="min-w-0">
             <span id={`${ids}-title`} className="block text-base font-semibold text-brand-navy">
-              Rubric versions · edit &amp; re-run
+              Answer keys used · edit &amp; re-grade
             </span>
             <span className="mt-0.5 block text-xs text-slate-500">
-              Fix the answer key or marks, save it as the next version and re-grade every report from the stored OCR
-              (no new vision calls).
+              Fix the answer key or marks, save it as the next version and re-grade every report from the saved
+              reading of its sheet (no sheet is read again).
             </span>
           </span>
         </span>
@@ -226,21 +234,24 @@ export function RubricVersionsPanel({
         {!rubrics ? (
           loadError ? (
             <p role="alert" className="text-sm text-rose-700">
-              Could not load rubrics: {loadError}
+              Could not load the answer keys: {loadError}
             </p>
           ) : (
             <p className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> Loading rubrics…
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> Loading answer keys…
             </p>
           )
         ) : rubrics.length === 0 || !selected || !editing ? (
-          <p className="text-sm text-slate-500">No rubrics yet. Create one from the intake page.</p>
+          <p className="text-sm text-slate-500">
+            No answer keys yet. Every intake brings its own: add the question paper or answer key with the sheets on
+            the intake page.
+          </p>
         ) : (
           <>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-1.5">
                 <label htmlFor={`${ids}-rubric`} className="text-sm font-medium text-slate-700">
-                  Rubric to revise
+                  Answer key to revise
                 </label>
                 <select
                   id={`${ids}-rubric`}
@@ -258,7 +269,7 @@ export function RubricVersionsPanel({
                 <p className="text-xs text-slate-500">
                   {rubricStatusLabel(selected.status)}
                   {selected.rubric_hash ? (
-                    <span className="font-mono" title={`Rubric SHA-256 ${selected.rubric_hash}`}>
+                    <span className="font-mono" title={`Answer key fingerprint (SHA-256) ${selected.rubric_hash}`}>
                       {" "}
                       · {selected.rubric_hash.slice(0, 10)}…
                     </span>
@@ -321,7 +332,7 @@ export function RubricVersionsPanel({
               />
             </div>
 
-            {/* Preview of what the re-run will do */}
+            {/* Preview of what re-grading will do */}
             <div
               className={cn(
                 "rounded-md border border-slate-200 px-4 py-3 text-sm",
@@ -330,29 +341,29 @@ export function RubricVersionsPanel({
               aria-live="polite"
             >
               {!anyChange ? (
-                <p>No changes yet. Edit a question above to preview the re-run.</p>
+                <p>No changes yet. Edit a question above to see what re-grading will do.</p>
               ) : (
                 <>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium text-brand-navy">
                     {students !== null
-                      ? `${plural(students, "report")} will regenerate; OCR reused for ${students}`
-                      : "Every completed report on this rubric will regenerate; OCR is reused"}
-                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
-                      0 OCR calls
+                      ? `${plural(students, "report")} will be re-graded from the saved reading of each sheet`
+                      : "Every completed report on this answer key will be re-graded from the saved reading of its sheet"}
+                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
+                      No sheet read again
                     </span>
                   </p>
                   {diff ? (
                     <p className="mt-1 text-xs text-slate-600">
                       Questions added: {questionList(diff.added)} · removed: {questionList(diff.removed)} · changed:{" "}
                       {questionList(diff.changed)}
-                      {policyChanged ? " · marking policy changed (every question re-scored)" : ""}
+                      {policyChanged ? " · marking policy changed (every question re-graded)" : ""}
                       {paperCodeChanged ? ` · paper code / set: ${paperCodeOf(baseline) || "none"} → ${paperCodeOf(normalized) || "none"}` : ""}
                     </p>
                   ) : null}
                   {diff && !diff.reusable ? (
                     <p className="mt-1 text-xs text-amber-800">
-                      Question numbers differ from {versionLabel(selected.version)}: stored transcripts are matched by
-                      question number, so added questions have no stored answer until a sheet is re-scanned.
+                      Question numbers differ from {versionLabel(selected.version)}: the saved reading of each sheet is
+                      matched by question number, so added questions have no answer until the sheet is uploaded again.
                     </p>
                   ) : null}
                   {current?.error ? (
@@ -385,7 +396,7 @@ export function RubricVersionsPanel({
                 Save version only
               </button>
               <button type="button" onClick={() => setConfirmOpen(true)} disabled={!canSave} className={btnPrimary}>
-                Save &amp; re-run reports…
+                Save &amp; re-grade reports…
               </button>
             </div>
           </>
@@ -397,9 +408,9 @@ export function RubricVersionsPanel({
         onClose={() => {
           if (!saving) setConfirmOpen(false);
         }}
-        eyebrow="Confirm bulk re-evaluation"
+        eyebrow="Confirm re-grading"
         title={selected ? `Re-grade reports on ${selected.name} ${versionLabel(selected.version)}?` : "Re-grade reports?"}
-        description="Each live report is graded again by Claude against the new version. Stored OCR is reused."
+        description="Each report is re-graded against the new version from the saved reading of its sheet; no sheet is read again."
         footer={
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setConfirmOpen(false)} disabled={saving} className={btnSecondary}>
@@ -407,7 +418,7 @@ export function RubricVersionsPanel({
             </button>
             <button type="button" onClick={() => void save(true)} disabled={saving || !canSave} className={btnPrimary}>
               {saving ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> : null}
-              {students !== null ? `Re-run ${plural(students, "report")}` : "Re-run reports"}
+              {students !== null ? `Re-grade ${plural(students, "report")}` : "Re-grade reports"}
             </button>
           </div>
         }
@@ -416,9 +427,9 @@ export function RubricVersionsPanel({
           <div className="space-y-3 text-sm">
             <dl className="grid grid-cols-2 divide-slate-200 overflow-hidden rounded-md border border-slate-200 sm:grid-cols-4 sm:divide-x">
               {[
-                ["Students", String(est.students), `${est.live_students} live · ${est.demo_students} demo`],
-                ["Grading calls", String(est.evaluation_calls), "one per live student"],
-                ["OCR calls", String(est.ocr_calls), "stored OCR reused"],
+                ["Students", String(est.students), `${est.live_students} uploaded · ${est.demo_students} sample`],
+                ["AI grading calls", String(est.evaluation_calls), "one per uploaded sheet"],
+                ["Sheets read again", String(est.ocr_calls), "saved reading reused"],
                 ["Estimated cost", inr(est.estimated_cost_inr), `${inr(est.estimated_cost_per_student_inr)} per student`],
               ].map(([label, value, hint]) => (
                 <div key={label} className="border-b border-slate-200 px-3 py-2 sm:border-b-0">
@@ -431,12 +442,12 @@ export function RubricVersionsPanel({
             {est.basis ? <p className="text-xs text-slate-500">Basis: {est.basis}</p> : null}
             {est.demo_students > 0 ? (
               <p className="text-xs text-slate-500">
-                Demo rows are re-scored without an AI call (synthetic), so they add no cost.
+                Sample (demo) sheets are re-graded without an AI call, so they add no cost.
               </p>
             ) : null}
             {est.students === 0 ? (
               <p className="border-l-2 border-amber-500 pl-3 text-xs text-amber-900">
-                No completed report uses this rubric yet - the new version is saved and nothing is re-run.
+                No completed report uses this answer key yet - the new version is saved and nothing is re-graded.
               </p>
             ) : null}
           </div>
@@ -447,7 +458,7 @@ export function RubricVersionsPanel({
                 ? `The cost estimate could not be loaded (${current.error}).`
                 : "Loading the number of students and the estimated cost…"}
             </p>
-            <p>Every COMPLETED report on this rubric will be re-graded with 0 OCR calls.</p>
+            <p>Every completed report on this answer key will be re-graded; no sheet is read again.</p>
           </div>
         )}
         {saveError ? (

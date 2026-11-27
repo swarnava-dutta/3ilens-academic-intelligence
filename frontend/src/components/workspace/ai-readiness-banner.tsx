@@ -131,7 +131,7 @@ export function AiReadinessBanner({ health, error, loading, refresh }: HealthSta
         <p className="text-sm text-slate-700">
           <span className="font-medium">Works without keys:</span> the{" "}
           <span className="font-medium">&ldquo;blurry&rdquo;</span> human-review demo (any file name containing
-          &ldquo;blurry&rdquo;) and the synthetic demo cohort.
+          &ldquo;blurry&rdquo;).
         </p>
       </div>
       <RetryButton onRetry={refresh} tone="amber" />

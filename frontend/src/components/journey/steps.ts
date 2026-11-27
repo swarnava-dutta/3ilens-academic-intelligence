@@ -82,7 +82,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "implemented",
       text:
-        "Rubric from a saved list, JSON, pasted text or a PDF/DOCX question paper (Claude drafts it; faculty review and approve it in an editable table). Rubrics are hashed and versioned; the exam date is editable on the Cohort page.",
+        "No saved rubrics: every intake drafts its own answer key from one drop zone - the question paper (PDF/DOCX - the student's printed paper works too), its answer-key file, or both - and grades straight away; a key file added after the paper is applied to the draft without reading the paper again. The draft stays visible and editable, and questions the key cannot settle (more than one answer, bonus, no key) stay flagged. Each intake's key is hashed and kept with its sheets; the exam date is editable on the Cohort page.",
       href: "/#upload",
       linkLabel: "Open intake",
     },
@@ -315,9 +315,9 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "implemented",
       text:
-        "Edit a rubric on the Cohort page and save it as the next version. After a confirmation that shows the number of students and the estimated cost, every report is re-graded from the stored OCR (0 vision calls); earlier versions are archived and their PDFs marked superseded.",
+        "Edit an intake's answer key on the Cohort page (Answer keys used) and save it as the next version. After a confirmation that shows the number of students and the estimated cost, every report is re-graded from the stored OCR (0 vision calls); earlier versions are archived and their PDFs marked superseded. On a report page a single sheet can be re-graded (or, when held, re-run) with a key drafted from the right question paper.",
       href: "/cohort",
-      linkLabel: "Open Rubric versions",
+      linkLabel: "Open Answer keys used",
     },
   },
   {

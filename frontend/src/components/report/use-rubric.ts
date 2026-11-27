@@ -28,11 +28,15 @@ export function useRubric(rubricId: number | null | undefined): Rubric | null {
   return rubric && rubric.id === rubricId ? rubric : null;
 }
 
-/** "Biology - Genetics · v1" (accepts versions with or without a leading "v"). */
+/**
+ * "Physics · v2" (a numeric version gets a "v", with or without one already) / "NEET Mock 12 · custom-3"
+ * (any other version is shown as it is: never "vcustom-3").
+ */
 export function rubricLabel(rubric: { name: string; version?: string | null }): string {
   const version = String(rubric.version ?? "").trim();
   if (!version) return rubric.name;
-  return `${rubric.name} · ${/^v/i.test(version) ? version : `v${version}`}`;
+  const numeric = /^v?\d+(?:\.\d+)*$/i.test(version);
+  return `${rubric.name} · ${numeric ? `v${version.replace(/^v/i, "")}` : version}`;
 }
 
 /** Question number -> prompt text from the rubric content. */
