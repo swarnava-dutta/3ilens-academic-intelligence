@@ -59,7 +59,10 @@ def test_pages_list_processed_and_original_images(upload, real_preprocessing, cl
 def test_page_paths_cannot_escape_the_artifact_folder(upload, real_preprocessing, client, make_pdf, path):
     sub = upload(filename="two.pdf", content=make_pdf(2)).json()
     response = client.get(f"/api/submissions/{sub['id']}/pages/{path}")
-    assert response.status_code == 404
+    # ".." is normalised by the client to /api/submissions/{id}, which only has PATCH (rename): 405.
+    # Either way no file is ever served.
+    assert response.status_code in (404, 405)
+    assert not response.headers.get("content-type", "").startswith("image/")
 
 
 def test_page_variant_is_validated(upload, real_preprocessing, client, make_pdf):
@@ -84,7 +87,7 @@ def test_blurry_sheet_pages_are_rendered_lazily_without_ai(upload, forbid_ai, cl
     assert forbid_ai == []
 
 
-def test_demo_rows_have_no_pages(client):
+def test_demo_rows_have_no_pages(demo_data, client):
     client.post("/api/demo/seed")
     sub = client.get("/api/submissions").json()[0]
     assert client.get(f"/api/submissions/{sub['id']}/pages").json() == []
@@ -95,3 +98,9 @@ def test_skewed_photo_is_deskewed_end_to_end(upload, real_preprocessing, client)
     sub = upload(filename="photo.png", content=png_of(skewed)).json()
     log = [e["message"] for e in client.get(f"/api/results/{sub['id']}").json()["processing_log"]]
     assert any("deskewed -4.0 deg" in m for m in log)
+
+
+@pytest.fixture(autouse=True)
+def _master_dpi_300(monkeypatch):
+    """These tests pin the 300 DPI master geometry; the shipped default is 200 (printed papers)."""
+    monkeypatch.setenv("PDF_MASTER_DPI", "300")

@@ -16,6 +16,10 @@ Each reading also carries the first words of the printed question ("stem", also 
 questions), and each reply the printed paper code / set; they are returned as
 OcrResult.question_stems / paper_code, and the pipeline checks with them that the sheet is the
 rubric's paper and version (paper_match).
+
+When the key has no question text (a key-only rubric), the stems are skipped and each reading
+carries the NCERT chapter of the printed question instead (OcrResult.question_chapters, from the
+NEET-UG syllabus list in the weightage matrix), so the report can be grouped by chapter (pipeline.chapter_rubric).
 """
 from __future__ import annotations
 
@@ -31,14 +35,16 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
 import ai
+import analytics
 import marking
+import paper_match
 import paper_pages
 from ai_schemas import OcrAnswer, OcrResult, PageAssessment, PreparedPage
 from config import Settings, get_settings
 
 logger = logging.getLogger("3ilens.mcq_marks")
 
-MARKS_PROMPT_VERSION = "marks-v2"
+MARKS_PROMPT_VERSION = "marks-v4"  # v3: chapters for a key without question text; v4: NCERT chapter list
 MARKS_EFFORT = "medium"
 READER = "marks"
 # A rubric is "MCQ-heavy" (read with this reader) when at least this share of at least this many
@@ -107,7 +113,7 @@ MARKS_CONTEXT_LABEL = (
 
 MARKS_JSON_KEYS_NOTE = (
     "Reply with ONE JSON object with exactly these keys: paper_code, questions[{question, stem, marked, "
-    "confidence, page}], page_assessments[{page, legibility_confidence}]."
+    "confidence, page}] (plus chapter when asked for), page_assessments[{page, legibility_confidence}]."
 )
 
 # Readings that mean "nothing marked" (marking.normalise_option returns None for these too).
@@ -122,6 +128,7 @@ class _MarkedQuestionWire(BaseModel):
 
     question: int = Field(description="The question number exactly as printed on the paper.")
     stem: str = Field(description='The first words (about 12) of the printed question text, as printed; "" when not printed.')
+    chapter: str = Field("", description="Only when the instruction asks for it: the chapter of the printed question.")
     marked: str = Field(description='The option(s) the student marked, e.g. "3" or "2, 3"; "" when none.')
     confidence: float = Field(description="Certainty that marked is right, between 0 and 1.")
     page: int = Field(description="The page number on which the question number appears.")
@@ -147,6 +154,7 @@ class MarkedOptionsWire(BaseModel):
 class _MarkParse(BaseModel):
     question: Any = None
     stem: Any = ""
+    chapter: Any = ""
     marked: Any = ""
     confidence: Any = None
     page: Any = None
@@ -190,6 +198,14 @@ def mcq_heavy(rubric_content: dict | None) -> bool:
     return mcqs / len(questions) >= MCQ_HEAVY_SHARE
 
 
+def reads_ticks(rubric_content: dict | None) -> bool:
+    """The answer keys this (printed-MCQ) reader takes: MCQ-heavy and every question an MCQ. It
+    skips written questions, so a key with any goes to the handwriting reader (ticks and text).
+    One rule for pipeline.ocr_reader and the upload hint (paper_detect.ingestion_hint)."""
+    questions = _questions(rubric_content)
+    return mcq_heavy(rubric_content) and all(marking.question_type(q) == "mcq" for q in questions)
+
+
 def _mcq_options(rubric_content: dict | None) -> dict[int, int | None]:
     """MCQ number -> option count (None when the rubric lists no options)."""
     out: dict[int, int | None] = {}
@@ -203,6 +219,11 @@ def _mcq_options(rubric_content: dict | None) -> dict[int, int | None]:
 
 def _rubric_numbers(rubric_content: dict | None) -> set[int]:
     return {n for q in _questions(rubric_content) if (n := _number(q.get("question"))) is not None}
+
+
+def _neet_chapters() -> dict[str, list[str]]:
+    """Subject -> NCERT chapter names of the NEET-UG syllabus (the weightage matrix's 'syllabus')."""
+    return (analytics.load_matrix("NEET") or {}).get("syllabus") or {}
 
 
 def calls_for(page_count: int, settings: Settings | None = None) -> int:
@@ -263,10 +284,21 @@ def _instruction(rubric_content: dict, chunk: list[PreparedPage], total: int,
         notes.append(f"page {after.page_number}")
     context_note = f" (with {' and '.join(notes)} as context only)" if notes else ""
     name = str((rubric_content or {}).get("name") or "Exam paper") if isinstance(rubric_content, dict) else "Exam paper"
-    return MARKS_INSTRUCTION_TEMPLATE.format(
+    instruction = MARKS_INSTRUCTION_TEMPLATE.format(
         span=ai._page_span(first, last), total=total, name=" ".join(name.split())[:200],
         context_note=context_note, low=numbers[0], high=numbers[-1], first=first,
     )
+    if not paper_match._rubric_texts(rubric_content)[0]:
+        # The key has no question text to check stems against (e.g. a key-only rubric): skip them -
+        # about a quarter of the output tokens, which cost the most and set the latency. A short
+        # chapter name instead lets the report group the key's questions by chapter.
+        listing = "\n".join(f"{subject}: {'; '.join(names)}" for subject, names in _neet_chapters().items())
+        instruction += (
+            "\nThis paper's key has no question text: return stem as \"\" for every question, and add chapter to "
+            "every question - the NCERT chapter its printed text is from, exactly one of these names as written "
+            "(by subject, separated by \";\"); \"\" when unsure or none fits.\n" + listing
+        )
+    return instruction
 
 
 def _claude_request(settings: Settings, images, total: int, instruction: str) -> dict[str, Any]:
@@ -328,10 +360,10 @@ def _read_call(settings: Settings, provider: str, images, total: int, instructio
             model = response.model if isinstance(getattr(response, "model", None), str) else settings.anthropic_model
             return parsed, text, "anthropic", model
 
-        return ai._with_fallback(
-            settings, purpose="ocr", primary=primary,
-            fallback=lambda: openai_call(settings.llm_fallback_model, True), on_usage=on_usage,
-        )
+        # No cross-vendor fallback for ticks: a live run on gpt-4o moved ticks and filled blanks
+        # (304/720 vs 402) at 0.95 confidence. A transient Claude error goes to the pipeline's
+        # retry with backoff instead, and a sheet that still fails shows Retry - never wrong marks.
+        return primary()
     return openai_call(settings.openai_vision_model, False)
 
 
@@ -358,6 +390,7 @@ class _MarksChunk:
     dropped: list[int] = field(default_factory=list)
     stems: dict[int, str] = field(default_factory=dict)
     paper_code: str = ""
+    chapters: dict[int, str] = field(default_factory=dict)
 
 
 def _stem(value: Any) -> str:
@@ -415,6 +448,7 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
     readings: list[_Reading] = []
     dropped: list[int] = []
     stems: dict[int, str] = {}
+    chapters: dict[int, str] = {}
     for item in parsed.questions:
         number = _number(item.question)
         if number is None:
@@ -422,6 +456,8 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
         stem = _stem(item.stem)
         if len(stem) > len(stems.get(number, "")):
             stems[number] = stem
+        if isinstance(item.chapter, str) and item.chapter.strip():
+            chapters.setdefault(number, " ".join(item.chapter.split()))
         if number not in rubric_numbers:
             dropped.append(number)
             continue
@@ -442,7 +478,7 @@ def _chunk_result(parsed: _MarkedOptionsParse, chunk: list[PreparedPage], image_
         first=own[0], last=own[-1], readings=readings,
         page_assessments=[PageAssessment(page=p, legibility_confidence=v) for p, v in sorted(assessments.items())],
         raw_text=raw_text, provider=provider, model=model, dropped=sorted(set(dropped)), stems=stems,
-        paper_code=_paper_code(parsed.paper_code),
+        paper_code=_paper_code(parsed.paper_code), chapters=chapters,
     )
 
 
@@ -577,6 +613,18 @@ def read_marked_options(
             if len(stem) > len(stems.get(number, "")):
                 stems[number] = stem
     paper_code = next((chunk.paper_code for chunk in done if chunk.paper_code), None)
+    # Chapters are asked for only when the key has no question text: a name from the NEET-UG list
+    # (case and punctuation ignored) whose subject fits the rubric question's; the first request
+    # that gave one wins.
+    chapters: dict[int, str] = {}
+    if not paper_match._rubric_texts(rubric_content)[0]:
+        allowed = {analytics._key(name): (name, subject) for subject, names in _neet_chapters().items() for name in names}
+        subjects = {n: q.get("subject") for q in _questions(rubric_content) if (n := _number(q.get("question"))) is not None}
+        for chunk in done:
+            for number, name in chunk.chapters.items():
+                hit = allowed.get(analytics._key(name))
+                if hit is not None and number in subjects and analytics._subject_ok(hit[1], subjects[number]):
+                    chapters.setdefault(number, hit[0])
     raw_response = json.dumps(
         {
             "reader": MARKS_PROMPT_VERSION,
@@ -590,10 +638,10 @@ def read_marked_options(
     )
     logger.info(
         "Marked-option reader: %d marked answer(s) from %d page(s) in %d call(s) via %s/%s%s; overall confidence "
-        "%.2f; dropped question number(s): %s; %d question stem(s); paper code %s",
+        "%.2f; dropped question number(s): %s; %d question stem(s); %d chapter(s); paper code %s",
         len(answers), total, len(done), served_by.provider, served_by.model,
         f" ({len(fallback_chunks)} chunk(s) served by the fallback)" if fallback_chunks else "",
-        overall, dropped or "none", len(stems), "seen" if paper_code else "not seen",
+        overall, dropped or "none", len(stems), len(chapters), "seen" if paper_code else "not seen",
     )
     return OcrResult(
         answers=answers,
@@ -608,4 +656,5 @@ def read_marked_options(
         language_hints=hints,
         question_stems=dict(sorted(stems.items())),
         paper_code=paper_code,
+        question_chapters=dict(sorted(chapters.items())),
     )

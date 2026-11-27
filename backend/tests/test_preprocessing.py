@@ -36,6 +36,12 @@ class LogCollector(list):
         self.append(message)
 
 
+@pytest.fixture(autouse=True)
+def _master_dpi_300(monkeypatch):
+    """These tests pin the 300 DPI master geometry; the shipped default is 200 (printed papers)."""
+    monkeypatch.setenv("PDF_MASTER_DPI", "300")
+
+
 @pytest.fixture
 def log() -> LogCollector:
     return LogCollector()

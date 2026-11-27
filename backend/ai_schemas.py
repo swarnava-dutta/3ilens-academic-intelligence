@@ -73,6 +73,9 @@ class OcrResult(BaseModel):
     # printed paper code / set when one was seen - used to check the sheet is the rubric's paper.
     question_stems: dict[int, str] = Field(default_factory=dict)
     paper_code: str | None = None
+    # A key without question text (mcq_marks): the NEET chapter of each printed question, by number,
+    # so the report can group the paper by chapter (pipeline.chapter_rubric).
+    question_chapters: dict[int, str] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

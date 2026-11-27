@@ -177,7 +177,7 @@ def test_marks_become_answers_scored_as_options(monkeypatch):
     assert result.language_hints == ["en"]
     assert [(p.page, p.legibility_confidence) for p in result.page_assessments] == [(1, 0.9), (2, 0.9), (3, 0.9)]
     raw = json.loads(result.raw_response)
-    assert raw["reader"] == "marks-v2" and [c["pages"] for c in raw["chunks"]] == [[1, 2], [3, 3]]
+    assert raw["reader"] == "marks-v4" and [c["pages"] for c in raw["chunks"]] == [[1, 2], [3, 3]]
 
     policy = marking.policy_for({"marking_policy": {"negative_marks": 1}})
     scored = {a.question: marking.score_mcq(_mcq(a.question), a.answer, policy) for a in result.answers}
@@ -267,7 +267,7 @@ def test_the_request_asks_for_stems_and_the_paper_code(monkeypatch):
     assert '"stem": ' in instruction_of(fake.calls[0]) and '"paper_code": ' in instruction_of(fake.calls[0])
     assert "- stem: the first words" in mcq_marks.MARKS_SYSTEM_PROMPT
     assert "- paper_code: the paper code" in mcq_marks.MARKS_SYSTEM_PROMPT
-    assert mcq_marks.MARKS_PROMPT_VERSION == "marks-v2"
+    assert mcq_marks.MARKS_PROMPT_VERSION == "marks-v4"
     assert "paper_code, questions[{question, stem, marked" in mcq_marks.MARKS_JSON_KEYS_NOTE
 
 
@@ -340,7 +340,9 @@ def test_usage_is_reported_on_the_calling_thread(monkeypatch):
     assert len(threads) == 5 and set(threads) == {caller}
 
 
-def test_a_chunk_served_by_the_fallback_labels_the_result(monkeypatch):
+def test_a_claude_timeout_is_retried_never_read_by_another_vendor(monkeypatch):
+    """No cross-vendor fallback for ticks (a gpt-4o reading moved ticks and filled blanks): a Claude
+    timeout surfaces as a transient error for the pipeline's retry, and no other model is called."""
     monkeypatch.setenv("OPENAI_API_KEY", OPENAI_KEY)
 
     def reply(kw):
@@ -350,29 +352,11 @@ def test_a_chunk_served_by_the_fallback_labels_the_result(monkeypatch):
 
     _use(monkeypatch, MarksClaude(reply))
     gpt_calls: list[dict[str, Any]] = []
-
-    def gpt_create(**kwargs):
-        gpt_calls.append(kwargs)
-        message = SimpleNamespace(content=json.dumps(_marks([(6, "4", 0.9, 4)], [3, 4])), refusal=None)
-        return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")],
-                               model="gpt-4o-2024-08-06", usage=SimpleNamespace(prompt_tokens=900, completion_tokens=50),
-                               _request_id="req_gpt")
-
     monkeypatch.setattr(ai, "_openai_client", lambda settings: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=gpt_create))))
-    usages: list[ModelUsage] = []
-    result = mcq_marks.read_marked_options(_pages(5), RUBRIC, on_usage=usages.append)
-
-    assert len(gpt_calls) == 1
-    messages = gpt_calls[0]["messages"]
-    assert messages[0]["content"] == mcq_marks.MARKS_SYSTEM_PROMPT
-    texts = [c["text"] for c in messages[1]["content"] if c["type"] == "text"]
-    assert texts[0] == "Page 3 of 5:" and texts[2].startswith("Page 5 of 5 (context only")
-    assert mcq_marks.MARKS_JSON_KEYS_NOTE in texts[-1]
-    assert result.provider == "openai" and result.model == "gpt-4o-2024-08-06"
-    assert {a.question for a in result.answers} == {1, 6}
-    assert any(u.provider == "openai" and u.fell_back and u.image_count == 3 for u in usages)
-
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: gpt_calls.append(kw)))))
+    with pytest.raises(ai.AIServiceError) as caught:
+        mcq_marks.read_marked_options(_pages(5), RUBRIC)
+    assert caught.value.transient and gpt_calls == []
 
 def test_a_failed_chunk_fails_the_read(monkeypatch):
     def reply(kw):
@@ -408,8 +392,14 @@ def _sub(mime: str = "application/pdf", path: str = "missing.pdf") -> SimpleName
         (RUBRIC, "application/pdf", 19, "marks"),
         ({"name": "Mixed", "questions": [_mcq(n) for n in range(1, 8)] + [_descriptive(n) for n in range(8, 11)]},
          "application/pdf", 5, "ocr"),
+        # MCQ-heavy but with written questions: the tick reader would skip Q11-Q12 (mock09 lost 8 marks)
+        ({"name": "Mostly MCQ", "questions": [_mcq(n) for n in range(1, 11)] + [_descriptive(11), _descriptive(12)]},
+         "application/pdf", 19, "ocr"),
+        ({"name": "Mostly MCQ", "questions": [_mcq(n) for n in range(1, 11)] + [_descriptive(11), _descriptive(12)]},
+         "image/png", 1, "ocr"),
         ({"name": "Short MCQ", "questions": [_mcq(n) for n in range(1, 6)]}, "application/pdf", 5, "ocr"),
-        (RUBRIC, "image/png", 1, "ocr"),
+        (RUBRIC, "image/png", 1, "marks"),  # a photo of a printed MCQ paper
+        (RUBRIC, "image/jpeg", 1, "marks"),
         (RUBRIC, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 4, "ocr"),
     ],
 )
@@ -507,6 +497,106 @@ def test_a_printed_mcq_paper_is_read_by_the_marks_reader_and_scored(client, uplo
                and "2 page(s) per call" in m and "(2 calls;" in m for m in log)
     # 8 correct (B) x 4, Q3 "1" = A wrong -1, Q4 two options -1; Q11-Q12 blank
     assert body["total_score"] == 30
+
+
+def _key_only(number: int, subject: str) -> dict[str, Any]:
+    """A question of a key built from the answer-key file alone: no question text, no chapter."""
+    return {"question": number, "topic": subject, "subject": subject, "max_marks": 4, "question_type": "mcq",
+            "options": [ai.UNTRANSCRIBED_OPTION.format(letter=letter) for letter in "ABCD"], "correct_option": "B",
+            "expected_answer": "", "grading_criteria": ["4 marks: correct option"], "effort_hours": 1}
+
+
+KEY_ONLY = {
+    "name": "AIPMT 2016 key",
+    "questions": [_key_only(n, "Physics" if n <= 4 else "Chemistry" if n <= 8 else "Biology") for n in range(1, 13)],
+    "marking_policy": {"partial_credit": "all_or_nothing", "negative_marks": 1},
+}
+
+
+def test_a_key_only_paper_is_reported_by_the_chapters_read_from_the_paper(client, upload, fake_ai, make_pdf,
+                                                                          monkeypatch):
+    import database
+    import insights
+    import preprocessing
+    from ai_schemas import EvaluationOutput
+
+    def preprocess(file_path, mime_type, artifact_dir, log, **kwargs):
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return [PreparedPage(page_number=n, media_type="image/png", data=b"png", path=artifact_dir / f"page_{n}.png")
+                for n in (1, 2, 3)]
+
+    def reply(kw):  # (question, marked, chapter): a name off the list, or of another subject, is dropped
+        items = ([(1, "2", "Laws of Motion"), (2, "1", "Laws of Motion"), (3, "2", "Ray Optics"), (4, "", ""),
+                  (5, "2", "hydrocarbons"), (6, "2", "Evolution")] if own_pages(kw)[0] == 1 else
+                 [(7, "3", "Chemical Bonding and Molecular Structure"), (8, "2", ""), (9, "2", "Evolution"),
+                  (10, "1", "Evolution"), (11, "2", "Ecosystem"), (12, "", "Human Reproduction")])
+        payload = _marks([(q, m, 0.95, own_pages(kw)[0]) for q, m, _c in items], own_pages(kw))
+        for entry, (_q, _m, chapter) in zip(payload["questions"], items):
+            entry.update(stem="", chapter=chapter)
+        return _reply(payload)
+
+    monkeypatch.setattr(preprocessing, "preprocess_document", preprocess)
+    fake = _use(monkeypatch, MarksClaude(reply))
+    response = upload(filename="aipmt_2016.pdf", content=make_pdf(3), rubric_json=json.dumps(KEY_ONLY))
+    assert response.status_code == 202, response.text
+    body = client.get(f"/api/results/{response.json()['id']}").json()
+
+    assert "\nPhysics: Units and Measurement; Motion in a Straight Line; " in instruction_of(fake.calls[0])
+    bonding = "Chemical Bonding and Molecular Structure"
+    assert [(t["topic"], t["subject"], t["chapter"], t["questions"]) for t in body["topic_mastery"]] == [
+        ("Laws of Motion", "Physics", "Laws of Motion", [1, 2]), ("Physics", "Physics", None, [3, 4]),
+        ("Hydrocarbons", "Chemistry", "Hydrocarbons", [5]), ("Chemistry", "Chemistry", None, [6, 8]),
+        (bonding, "Chemistry", bonding, [7]), ("Evolution", "Biology", "Evolution", [9, 10]),
+        ("Ecosystem", "Biology", "Ecosystem", [11]), ("Human Reproduction", "Biology", "Human Reproduction", [12]),
+    ]
+    # Marks are those of the key itself: +4 / -1 / 0 per question, 25 in all.
+    answers = [OcrAnswer(question=q["question"], answer=q["student_answer"], confidence=0.95)
+               for q in body["question_evaluations"] if q["student_answer"]]
+    plain = insights.build_evaluation_report(KEY_ONLY, answers, EvaluationOutput(evaluations=[], overall_strengths=[],
+                                                                                 overall_gaps=[]))
+    assert body["total_score"] == plain["total_score"] == 25
+    assert [q["estimated_marks"] for q in body["question_evaluations"]] == [
+        q["estimated_marks"] for q in plain["question_evaluations"]]
+    with database.SessionLocal() as session:  # the stored rubric keeps the key's own topics
+        rubric = session.get(database.Rubric, body["rubric"]["id"])
+        assert [(q["topic"], q.get("chapter")) for q in rubric.content["questions"]] == [
+            (q["subject"], None) for q in KEY_ONLY["questions"]]
+
+
+def test_an_ncert_chapter_is_kept_for_its_own_subject_only(monkeypatch):
+    import analytics
+
+    items = [(1, "Current Electricity"), (2, "Chemical Kinetics"), (5, "chemical kinetics"),
+             (6, "Current Electricity"), (9, "Molecular Basis of Inheritance"), (10, "Chemical Kinetics")]
+
+    def reply(kw):
+        payload = _marks([(q, "2", 0.95, 1) for q, _c in items], own_pages(kw))
+        for entry, (_q, chapter) in zip(payload["questions"], items):
+            entry.update(stem="", chapter=chapter)
+        return _reply(payload)
+
+    _use(monkeypatch, MarksClaude(reply))
+    result = mcq_marks.read_marked_options(_pages(1), KEY_ONLY)  # Q1-4 Physics, Q5-8 Chemistry, Q9-12 Biology
+    assert result.question_chapters == {1: "Current Electricity", 5: "Chemical Kinetics",
+                                        9: "Molecular Basis of Inheritance"}
+    syllabus = mcq_marks._neet_chapters()
+    assert {s: len(n) for s, n in syllabus.items()} == {"Physics": 28, "Chemistry": 20, "Biology": 32}
+    keys = [analytics._key(name) for names in syllabus.values() for name in names]
+    assert len(keys) == len(set(keys))  # topics are keyed by name: no chapter is in two subjects
+
+
+def test_a_key_with_question_text_is_not_regrouped(monkeypatch):
+    def reply(kw):
+        payload = _stemmed([(1, "A body of mass 2 kg moves on a rough surface", "2", 1)], own_pages(kw))
+        payload["questions"][0]["chapter"] = "Mechanics"  # volunteered, never asked for
+        return _reply(payload)
+
+    fake = _use(monkeypatch, MarksClaude(reply))
+    result = mcq_marks.read_marked_options(_pages(1), RUBRIC)
+    assert "chapter" not in instruction_of(fake.calls[0]) and result.question_chapters == {}
+    assert pipeline.chapter_rubric(RUBRIC, {1: "Mechanics"}) is RUBRIC
+    chaptered = {**KEY_ONLY, "questions": [{**KEY_ONLY["questions"][0], "chapter": "Kinematics"}]}
+    assert pipeline.chapter_rubric(chaptered, {1: "Mechanics"}) is chaptered
 
 
 def test_pages_are_reencoded_to_the_reader_size():

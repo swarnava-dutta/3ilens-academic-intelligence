@@ -162,14 +162,14 @@ class Settings:
     max_upload_bytes: int = 20 * 1024 * 1024
     max_pdf_pages: int = 40                     # MAX_PDF_PAGES (clamped 1-100): full printed papers (NEET: ~20 pages)
     ocr_pages_per_call: int = 10                # OCR_PAGES_PER_CALL (clamped 1-20): longer sheets are read in page chunks
-    mcq_ocr_pages_per_call: int = 2             # MCQ_OCR_PAGES_PER_CALL (clamped 1-20): pages per call of the marked-option
+    mcq_ocr_pages_per_call: int = 5             # MCQ_OCR_PAGES_PER_CALL (clamped 1-20): pages per call of the marked-option
                                                 # reader (mcq_marks) for printed MCQ papers
     rubric_pages_per_call: int = 2              # RUBRIC_PAGES_PER_CALL (clamped 1-10): question-paper PDFs drafted page by page
-    ai_chunk_concurrency: int = 3               # AI_CHUNK_CONCURRENCY (clamped 1-8): parallel page-chunk calls per sheet / paper
+    ai_chunk_concurrency: int = 5               # AI_CHUNK_CONCURRENCY (clamped 1-8): parallel page-chunk calls per sheet / paper
     allowed_mime_types: tuple[str, ...] = field(default=ALLOWED_MIME_TYPES)
     # --- OCR / pre-processing (FR-2.x) ---------------------------------------------------
     ocr_cache_enabled: bool = True              # OCR_CACHE: reuse OCR for identical file bytes (SHA-256)
-    pdf_master_dpi: int = 300                   # PDF_MASTER_DPI
+    pdf_master_dpi: int = 200                   # PDF_MASTER_DPI
     vision_max_edge_px: int = 2000              # VISION_MAX_EDGE_PX (clamped 800-2576)
     preprocess_enhance: bool = True             # PREPROCESS_ENHANCE: deskew + contrast + sharpen
     preprocess_contrast: float = 1.4            # PREPROCESS_CONTRAST (BRD says 1.8; 1.4 keeps faint pencil)
@@ -204,6 +204,11 @@ class Settings:
     lms_api_key: str = field(default="", repr=False)  # LMS_API_KEY: optional static key; never logged or returned
     lms_max_rows: int = 5000                    # LMS_MAX_ROWS (clamped 100-50000)
     default_intervention_hours: float = 3.0     # INTERVENTION_DEFAULT_HOURS (clamped 0.5-40)
+    # --- demo data ---------------------------------------------------------------------------
+    # SEED_DEMO_DATA: off (default) = a fresh database holds no rubric, sheet, result or insight;
+    # every upload brings its own answer key. On = the Biology - Genetics sample rubric is created
+    # at start-up and POST /api/demo/seed loads the synthetic sample sets.
+    seed_demo_data: bool = False
 
     @property
     def max_upload_mb(self) -> int:
@@ -233,11 +238,11 @@ def get_settings() -> Settings:
         openai_base_url=(env("OPENAI_BASE_URL") or DEFAULT_OPENAI_BASE_URL).strip(),
         max_pdf_pages=max(1, min(100, _int("MAX_PDF_PAGES", 40))),
         ocr_pages_per_call=max(1, min(20, _int("OCR_PAGES_PER_CALL", 10))),
-        mcq_ocr_pages_per_call=max(1, min(20, _int("MCQ_OCR_PAGES_PER_CALL", 2))),
+        mcq_ocr_pages_per_call=max(1, min(20, _int("MCQ_OCR_PAGES_PER_CALL", 5))),
         rubric_pages_per_call=max(1, min(10, _int("RUBRIC_PAGES_PER_CALL", 2))),
-        ai_chunk_concurrency=max(1, min(8, _int("AI_CHUNK_CONCURRENCY", 3))),
+        ai_chunk_concurrency=max(1, min(8, _int("AI_CHUNK_CONCURRENCY", 5))),
         ocr_cache_enabled=_bool("OCR_CACHE", True),
-        pdf_master_dpi=max(72, min(600, _int("PDF_MASTER_DPI", 300))),
+        pdf_master_dpi=max(72, min(600, _int("PDF_MASTER_DPI", 200))),
         vision_max_edge_px=max(800, min(2576, _int("VISION_MAX_EDGE_PX", 2000))),
         preprocess_enhance=_bool("PREPROCESS_ENHANCE", True),
         preprocess_contrast=max(0.5, min(3.0, _float("PREPROCESS_CONTRAST", 1.4))),
@@ -267,6 +272,7 @@ def get_settings() -> Settings:
         lms_api_key=(env("LMS_API_KEY") or "").strip(),
         lms_max_rows=max(100, min(50000, _int("LMS_MAX_ROWS", 5000))),
         default_intervention_hours=max(0.5, min(40.0, _float("INTERVENTION_DEFAULT_HOURS", 3.0))),
+        seed_demo_data=_bool("SEED_DEMO_DATA", False),
     )
 
 

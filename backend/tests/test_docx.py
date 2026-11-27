@@ -309,3 +309,9 @@ def test_jpeg_and_png_are_not_mistaken_for_audio():
     assert uploads.sniff_audio(b"\xff\xd8\xff\xe0" + b"\x00" * 16) is None
     assert uploads.sniff_audio(b"RIFF\x24\x00\x00\x00WEBPVP8 ") is None
     assert uploads.sniff_audio(b"RIFF\x24\x00\x00\x00WAVEfmt ") == "audio/wav"
+
+
+@pytest.fixture(autouse=True)
+def _master_dpi_300(monkeypatch):
+    """These tests pin the 300 DPI master geometry; the shipped default is 200 (printed papers)."""
+    monkeypatch.setenv("PDF_MASTER_DPI", "300")
