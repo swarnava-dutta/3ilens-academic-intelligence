@@ -149,7 +149,7 @@ const MATCH_CHECK_NOTE = "Check the answer key before uploading: this sheet woul
 /**
  * True when the server's paper check runs on upload for this file: a PDF or Word file with any
  * rubric. What it then does with a mismatch: the printed-MCQ reader (a PDF with an MCQ-heavy rubric)
- * holds a paper whose question stems do not match; the handwriting reader compares the text layer
+ * holds a paper whose question stems do not match; the transcription reader compares the text layer
  * with the rubric and holds a mismatch only when fewer than half the rubric questions get an
  * answer (the answers mapped: graded); a long printed paper against a small key (the size check,
  * sizeMismatch) is held either way. So the copy says "held unless its answers map to the key". A

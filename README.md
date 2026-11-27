@@ -92,15 +92,17 @@ and LMS export). Requirement ids (FR-x.y) refer to the V5 requirements document.
   needs one call to read the key. A printed ticked paper uploaded as the answer sheet is then
   read by the tick reader. Measured on the real 19-page AIPMT 2016 sheet with
   `aipmt-2016-Answer-Key-Code-A-P-W-v2.pdf`: **Rs 20.50 and 63 s, 4 AI calls** (Rs 27.24 and
-  73.6 s before the tick-reader changes above).
+  73.6 s before the tick-reader changes above). Cheaper reader settings (Haiku, smaller pages,
+  compact output, lower effort, context-page changes) were measured against ground truth and
+  rejected, so a 19-page printed sheet stays at about Rs 21 (`STATUS.md`).
 - **Typed answer sheets from their text:** a PDF or Word file whose answers are typed is read
   from the file's text layer instead of page images (`typed_sheets.py`, `TYPED_TEXT_PATH=1`): a
-  typed MCQ answer list ("12. B", "Q13 (2)", "14. -") with no AI call, typed written answers with
+  typed MCQ answer list ("12. B", "Q13 (2)", "14. -") with no AI call (Rs 0), typed written answers with
   one text-only mapping call (superscripts kept as `^`) that must use the sheet's own words.
   Anything in doubt - a printed paper, a scan or photo, a picture, pen marks or formatting that
   could carry an answer, a list the two parsers read differently - takes the usual route.
 - Pre-processing: 200 DPI PDF master, deskew, contrast and sharpen; the page image work runs on
-  `PREPROCESS_WORKERS` threads (4) with byte-identical output (19-page paper: about 24 s -> 14 s).
+  `PREPROCESS_WORKERS` threads (4) with byte-identical output (19-page paper: 23.6 s -> 14.1 s).
 - SHA-256 custody and an OCR cache: re-uploading identical bytes reuses the stored OCR
   ("OCR cache hit - no vision call (Rs 0.00)").
 - OCR keeps the student's literal answer (it never "corrects" towards the textbook answer),
@@ -504,7 +506,7 @@ sheet (step 5).
    intake, add the publisher's answer-key PDF (or paste its `Que./Ans.` grid, or a photo of the
    key) in the Answer key panel: it builds a 180-question +4/-1 key with no AI drafting. Then
    upload the student's ticked paper (PDF scan or photos). The tick reader grades a 19-page
-   paper in about a minute for about Rs 20 (4 AI calls), with topics per NCERT chapter. A
+   paper in about a minute for about Rs 21 (4 AI calls), with topics per NCERT chapter. A
    paper from another code / set, or a sheet with no answers for the key, is held for review
    with its reason; **Re-run** it with the right key from the report.
 6. **Voice answer (needs `OPENAI_API_KEY`).** Drop `samples/voice_answer_genetics_hinglish.mp3`,
@@ -649,7 +651,8 @@ npm run lint
 npm run build
 ```
 
-`test-pages/` holds 25 synthetic handwritten answer sheets from the original brief and
+`test-pages/` holds 25 synthetic handwritten answer sheets from the original brief (a legacy
+corpus; real input is printed or typed) and
 `run_live_test.py` for live end-to-end runs (real AI calls; see `test-pages/README.md`).
 
 ---

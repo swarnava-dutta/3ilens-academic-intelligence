@@ -8,7 +8,7 @@ import type { CohortChapter } from "@/lib/types";
 import { btnPrimary, btnSecondary, Dialog, fieldClass } from "./dialog";
 import { formatPct, RETEACH_LINE } from "./format";
 
-export const DEFAULT_CLASS_ACTION = "10-min re-teach + 5 unseen questions";
+const DEFAULT_CLASS_ACTION = "10-min re-teach + 5 unseen questions";
 
 export interface LogTarget {
   chapter: CohortChapter;

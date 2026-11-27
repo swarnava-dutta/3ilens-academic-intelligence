@@ -5,9 +5,9 @@ import { errorCode, errorMessage, getCohortView, type CohortViewQuery } from "@/
 import type { Cohort } from "@/lib/types";
 
 /** While any sheet is still being read. */
-export const COHORT_FAST_MS = 10_000;
+const COHORT_FAST_MS = 10_000;
 /** Otherwise: a quiet refresh, plus one on focus / when the tab becomes visible again. */
-export const COHORT_SLOW_MS = 60_000;
+const COHORT_SLOW_MS = 60_000;
 const FOCUS_MIN_GAP_MS = 5_000;
 
 interface CohortState {

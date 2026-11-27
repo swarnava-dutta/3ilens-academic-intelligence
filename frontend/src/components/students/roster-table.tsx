@@ -47,7 +47,7 @@ const WAITING_WORD: Record<SubmissionStatus, string> = {
 
 export type RosterDetail = "technique" | "release" | "waiting" | null;
 
-export interface RosterTableProps {
+interface RosterTableProps {
   rows: RosterRow[];
   /** Which group gets the inline tag (the minority of real vs demo records), or none. */
   tag: DemoTag;

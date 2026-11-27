@@ -6,11 +6,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Mastery values are already 0-100. */
-export function formatMastery(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : `${Math.round(value)}%`;
-}
-
 /**
  * Why a HUMAN_REVIEW_REQUIRED sheet was held, for the review panel and the queue row:
  * "paper" = another paper / the wrong rubric, or another code / set of the paper (error_message is

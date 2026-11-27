@@ -19,7 +19,7 @@ const ERRORS: Record<string, string> = {
 };
 
 /** Suggested action for a topic: its teaching nudge, else the ROI intervention's "teach" line. */
-export function suggestedAction(result: Result, topic: string): { text: string; source: ContentSource } | null {
+function suggestedAction(result: Result, topic: string): { text: string; source: ContentSource } | null {
   const nudge = result.teaching_nudges.find((n) => n.topic === topic && n.text.trim());
   if (nudge) return { text: nudge.text.trim(), source: nudge.source };
   const roi = result.roi_recommendations.find((p) => p.topic === topic && p.intervention?.teach?.trim());

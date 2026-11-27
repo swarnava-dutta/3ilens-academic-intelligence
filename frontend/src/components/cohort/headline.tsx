@@ -11,7 +11,7 @@ import type { CohortTab, ParamPatch } from "./url";
 type Tone = "good" | "bad" | "neutral";
 
 /** "▲ 5.9 pts" with sr-only up/down; colour only says whether the move is good. */
-export function Delta({ value, tone, unit = " pts" }: { value: number; tone: Tone; unit?: string }) {
+function Delta({ value, tone, unit = " pts" }: { value: number; tone: Tone; unit?: string }) {
   if (value === 0) return <span className="text-slate-600">no change</span>;
   const up = value > 0;
   return (

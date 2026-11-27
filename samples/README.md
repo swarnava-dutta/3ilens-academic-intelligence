@@ -26,7 +26,7 @@ backend\.venv\Scripts\python.exe samples\generate_samples.py
 | `answer_sheet_mcq_mock09_sample.png` | Synthetic handwritten-style sheet for the "NEET MCQ Practice - Mock 09 (sample)" rubric: option letters for Q1-Q24 plus short worked answers for the descriptive Q25 and Q26 | NEET +4 / -1 / 0 scoring with no grading call for the MCQs. Q5, Q13 and Q21 (all Organic Chemistry) are wrong and Q20 and Q23 are blank, so Organic Chemistry shows as over-attempting (high negative-marking risk). Expect 81/104 if the sheet is read correctly. |
 | `generate_mcq_sample.py` | Generator | Re-creates the sheet from `backend/rubrics/neet_mcq_mock09_sample.json` (Pillow only). |
 
-Add `backend/rubrics/neet_mcq_mock09_sample.json` as the answer key in the intake, then upload the sheet. It is a synthetic sample, not a real student.
+Add `backend/rubrics/neet_mcq_mock09_sample.json` as the answer key in the intake, then upload the sheet. It is a synthetic sample, not a real student, and like the Genetics sheets it shows the pipeline, not real input (a real MCQ sheet is a ticked printed paper or a typed answer list).
 
 ```
 backend\.venv\Scripts\python.exe samples\generate_mcq_sample.py

@@ -189,6 +189,5 @@ export function dayText(iso: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-/** Table cell / card label classes shared by the owner tables. */
-export const tdCls = "px-3 py-2 align-top text-sm text-slate-700";
+/** Link classes shared by the owner tables. */
 export const linkCls = `font-medium ${linkText} hover:underline ${focusRing}`;

@@ -27,7 +27,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { DocPreview, type DocPreviewProps } from "./doc-preview";
 
-export interface PreviewPairProps {
+interface PreviewPairProps {
   left: DocPreviewProps;
   right: DocPreviewProps;
   caption?: ReactNode;

@@ -98,7 +98,7 @@ Built for two kinds of PDF the client will upload: a scanned NEET question paper
   - intake check: 2016 paper vs its rubric -> match (90/101); vs the same rubric with numbers shuffled (stand-in for another code) -> reordered; the 2025 Physics paper vs the 2016 rubric -> mismatch; vs its own rubric -> match (38/43);
   - pipeline: 2016 paper vs its rubric -> "match (148 of 153 compared)", graded 521/720 (Rs 27.26); vs the shuffled rubric -> reordered and paper code A vs P, held for review unscored (Rs 27.18).
 - **Review hardening:** the paper check never holds a sheet against a rubric whose questions are short typed summaries (questions need 5+ distinctive words and at least half the rubric needs question text), checks each subject block on its own (a version that reorders only one section is held), holds two different printed codes even when the text lines up (versions that shuffle only the options), and is skipped at intake for typed answer sheets. The answer-key parser skips and warns rather than guessing on gaps, blank grid cells, unlabelled number columns and multi-answer entries.
-- **Cost note:** a 19-page printed paper cost about Rs 22-27 to read then, Rs 20.50 since 2026-11-27 (see below) - still above the Rs 5 per-student target, which was sized for sheets of a few pages.
+- **Cost note:** a 19-page printed paper cost about Rs 22-27 to read then, about Rs 21 since 2026-11-27 (Rs 20.50 measured, see below) - still above the Rs 5 per-student target, which was sized for sheets of a few pages.
 
 ### Answer keys per intake (2026-11-27)
 - **No saved rubrics.** Every intake drafts its own answer key from the question paper it uploads (plus an optional separate answer-key file) and grades straight away; the first upload sends the key inline (`rubric_json`) and becomes a per-intake snapshot, later sheets of the same intake reuse it. There is no rubric library and no default rubric (`rubric_required`). `/cohort` lists the keys a cohort was graded with under "Answer keys used".
@@ -128,7 +128,7 @@ Every lever was measured against today's reader (Sonnet 5.5, effort medium, 1800
 - **Not adopted - compact output** (rows, chapter numbers): 26% cheaper but it read blank 2016 questions (Q124, Q130, Q133) as marked at high confidence.
 - **Not adopted - lower effort / no thinking:** the reader does no thinking at effort medium (0 thinking tokens in every call), so neither saves anything; effort low read a double mark as one option in 2 of 2 runs.
 - **Not adopted - context page changes:** no next page saves Rs 1.55 but missed 7 marks on questions split across pages; the top 30% of the next page made 7 wrong against 5 on the 2016 sheet; 10 pages per call added a false mark and one 70 s call.
-- **Result:** a 19-page printed paper still costs about Rs 21 to read; it is ready for the reader about 9.5 s sooner. Bench scripts and results are in `.run/bench/` (not in the repo).
+- **Result:** a 19-page printed paper still costs about Rs 21 to read (every cost lever was rejected against ground truth); it is ready for the reader about 9.5 s sooner (23.6 s -> 14.1 s), and a typed MCQ answer list costs Rs 0. Bench scripts and results are in `.run/bench/` (not in the repo).
 
 ### Fixes to earlier known issues
 - Voice transcripts are cached like OCR: a repeated recording makes no transcription call (Rs 0).

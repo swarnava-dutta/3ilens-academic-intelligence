@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { btnPrimary, btnSecondary, Dialog, fieldClass } from "./dialog";
 
 /** The API accepts at most this many submission ids per POST /api/deliveries. */
-export const MAX_DELIVERY_IDS = 200;
+const MAX_DELIVERY_IDS = 200;
 
 const STATUS_LOOK: Record<DeliveryStatus, { label: string; className: string }> = {
   BLOCKED_TEMPLATE_PENDING: {

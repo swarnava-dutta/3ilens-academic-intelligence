@@ -86,7 +86,7 @@ const CODE_HINTS: Record<string, string> = {
 };
 
 /** errorMessage() plus a hint for coded errors, and a clear note when a route is missing on an older API. */
-export function describeError(err: unknown): { message: string; hint: string | null; code: string | null } {
+function describeError(err: unknown): { message: string; hint: string | null; code: string | null } {
   const code = errorCode(err);
   if (code === null && errorStatus(err) === 404) {
     return {

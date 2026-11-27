@@ -9,14 +9,14 @@ export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const DEFAULT_MAX_PDF_PAGES = 40;
 /** Files above this are fine in the PoC (one streamed POST); production would use S3 presigned multipart. */
 export const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
-export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-export const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".docx"] as const;
-export const ACCEPTED_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", DOCX_MIME] as const;
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".docx"] as const;
+const ACCEPTED_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", DOCX_MIME] as const;
 /** Voice answers (FR-2.8): accepted when the server has VOICE_ANSWERS on (Health.voice_enabled). */
-export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg"] as const;
+const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg"] as const;
 export const ACCEPT_ATTR = [...ACCEPTED_EXTENSIONS, ...ACCEPTED_MIME_TYPES, ...AUDIO_EXTENSIONS, "audio/*"].join(",");
 /** Human list used in copy ("PDF, image or Word"). */
-export const ACCEPTED_LABEL = "PDF, image (JPG, PNG, WEBP), Word (.docx) or a voice answer (MP3, WAV, M4A, OGG)";
+const ACCEPTED_LABEL = "PDF, image (JPG, PNG, WEBP), Word (.docx) or a voice answer (MP3, WAV, M4A, OGG)";
 export const VOICE_DISABLED_TEXT = "Voice answers are switched off on this server";
 
 /** Voice-answer settings from /api/health (null health = assume on; the server decides). */
@@ -59,11 +59,11 @@ export function extensionOf(name: string): string {
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
 }
 
-export function isPdf(file: File): boolean {
+function isPdf(file: File): boolean {
   return file.type === "application/pdf" || extensionOf(file.name) === ".pdf";
 }
 
-export function isDocx(file: File): boolean {
+function isDocx(file: File): boolean {
   return file.type === DOCX_MIME || extensionOf(file.name) === ".docx";
 }
 

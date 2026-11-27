@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { FOCUS_RING, fullDate } from "./format";
 
 /** "NEET-C (sample) · NEET MCQ Practice - Mock 10 · sat 24 Nov 2026 · 12 students". Never batch.exam_type. */
-export function scopeSentence(cohort: Cohort): string {
+function scopeSentence(cohort: Cohort): string {
   const scope = cohort.scope;
   if (!scope) return cohort.batch?.name ?? "All batches";
   const batch = scope.batch_name ?? "All batches";

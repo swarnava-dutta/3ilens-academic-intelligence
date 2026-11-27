@@ -24,12 +24,6 @@ export function pct(value: number | null | undefined, digits = 0): string {
   return v === null ? "—" : `${fmt(v, digits)}%`;
 }
 
-/** 0-1 share as a percentage, e.g. 0.5 -> "50%". */
-export function share(value: number | null | undefined): string {
-  const v = numOrNull(value);
-  return v === null ? "—" : `${Math.round(v * 100)}%`;
-}
-
 /** "2026-11-20" or an ISO datetime -> "20 Nov 2026" (input returned unchanged when unparsable). */
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -55,6 +49,3 @@ export function fmtShortDate(iso: string): string {
 
 /** Tooltip shown on every total that may be negative. */
 export const NET_TOOLTIP = "Net of negative marking (NEET MCQs: +4 correct, -1 wrong, 0 blank)";
-
-/** Label shown next to every pattern threshold. */
-export const THRESHOLD_NOTE = "default - confirm with academic lead";

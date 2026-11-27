@@ -7,7 +7,7 @@ import type { InterventionKind, OutcomeStatus, RosterRow, Trend, Urgency } from 
 export const TREND_PTS = 5;
 export const SMALL_TEST_QUESTIONS = 10;
 export const WEAK_MASTERY = 60;
-export const VERY_WEAK_MASTERY = 40;
+const VERY_WEAK_MASTERY = 40;
 
 const IST = "Asia/Kolkata";
 
@@ -36,14 +36,6 @@ export function fmtDay(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return new Intl.DateTimeFormat("en-GB", { timeZone: IST, day: "numeric", month: "short" }).format(d);
-}
-
-/** "24 Nov 2026" in India Standard Time (CSV and titles). */
-export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-GB", { timeZone: IST, day: "numeric", month: "short", year: "numeric" }).format(d);
 }
 
 /** ISO date (YYYY-MM-DD) in IST, for the CSV. */
@@ -179,11 +171,6 @@ export function shortReason(row: RosterRow): string {
     return `${plural(row.very_weak_count, "topic")} below ${VERY_WEAK_MASTERY}%`;
   }
   return "";
-}
-
-/** The score rule behind a status, for titles: "score below 55%" / "score 55-70%" / "score 70%+". */
-export function bandRule(urgency: Urgency): string {
-  return urgency === "at_risk" ? "score below 55%" : urgency === "needs_attention" ? "score 55–70%" : "score 70% or more";
 }
 
 /** "Mock 08 · 12 Qs, 48 marks" for a previous paper of a different kind. */

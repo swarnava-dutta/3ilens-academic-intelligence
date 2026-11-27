@@ -16,7 +16,7 @@ export function urgencyOf(pct: number): Urgency {
 }
 
 /** The one urgency rule used everywhere (backend analytics.classify_urgency). */
-export const URGENCY_RULE =
+const URGENCY_RULE =
   ">=70% on track, 55-70% needs attention, <55% at risk; one level worse when 2+ topics are below 40%";
 
 export const URGENCY_LABELS: Record<Urgency, string> = {
@@ -24,9 +24,6 @@ export const URGENCY_LABELS: Record<Urgency, string> = {
   needs_attention: "Needs attention",
   at_risk: "At risk",
 };
-
-/** Sort order for lists: most urgent first. */
-export const URGENCY_ORDER: Record<Urgency, number> = { at_risk: 0, needs_attention: 1, on_track: 2 };
 
 const STYLES: Record<Urgency, string> = {
   on_track: "bg-brand-lime-50 text-lime-800",

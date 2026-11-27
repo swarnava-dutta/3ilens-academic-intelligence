@@ -14,7 +14,7 @@ import { WhatIfSimulator } from "./what-if";
 
 export type OwnerTab = "progress" | "topics" | "behaviour" | "faculty" | "interventions" | "whatif" | "cost";
 
-export const OWNER_TABS: { id: OwnerTab; label: string }[] = [
+const OWNER_TABS: { id: OwnerTab; label: string }[] = [
   { id: "progress", label: "Progress" },
   { id: "topics", label: "Topics" },
   { id: "behaviour", label: "Exam behaviour" },

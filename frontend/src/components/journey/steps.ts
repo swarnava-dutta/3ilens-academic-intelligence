@@ -145,7 +145,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     title: "Pre-process, OCR & human review",
     person: "Document intelligence worker",
     summary:
-      "Improve scan quality, extract text with confidence and stop unsafe grading when handwriting is unreadable.",
+      "Improve scan quality, extract text with confidence and stop unsafe grading when a page is unreadable.",
     action: "Switch sample page confidence between 0.92 and 0.62 to see the human gate.",
     input: "PDF page images at 300 DPI, raster settings, per-page source hash.",
     mechanics: [

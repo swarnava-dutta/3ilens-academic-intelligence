@@ -1773,7 +1773,7 @@ export interface RubricDraft {
  * POST /api/intake/inspect: a local read of an intake file's text layer (no AI call, nothing stored).
  * answer_key_paper = printed questions with their answer key (draft the rubric from it);
  * question_paper = printed MCQ paper without a printed key (ticks are read as the student's answers);
- * answer_sheet = handwritten / scanned sheet; unknown = could not tell.
+ * answer_sheet = typed or scanned answer sheet; unknown = could not tell.
  */
 export interface PaperInspection {
   /** pdf | jpeg | png | webp | docx | mp3 | wav | m4a | ogg */

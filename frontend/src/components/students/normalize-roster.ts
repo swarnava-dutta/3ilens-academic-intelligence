@@ -164,7 +164,7 @@ function nonNull<T>(items: (T | null)[]): T[] {
   return items.filter((x): x is T => x !== null);
 }
 
-export function normalizeRow(v: unknown): RosterRow | null {
+function normalizeRow(v: unknown): RosterRow | null {
   const r = obj(v);
   if (!r || !str(r.student_ref)) return null;
   const actions = obj(r.actions);

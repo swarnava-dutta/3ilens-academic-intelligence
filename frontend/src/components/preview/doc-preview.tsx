@@ -55,7 +55,7 @@ import { Modal } from "@/components/report/dialog";
 import { API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type DocSource =
+type DocSource =
   | { kind: "file"; file: File }
   | { kind: "url"; pageUrl: (page: number) => string; pageCount: number };
 
@@ -68,7 +68,7 @@ export interface DocPreviewProps {
   className?: string;
 }
 
-export const NO_PREVIEW_MESSAGE = "No preview for this file type";
+const NO_PREVIEW_MESSAGE = "No preview for this file type";
 
 /** Rendered widths requested from the API: 2x the thumbnail for sharp scans; the dialog at the API's cap (120-1200). */
 const THUMB_WIDTH = { sm: 240, md: 480 } as const;

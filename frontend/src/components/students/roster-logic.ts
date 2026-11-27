@@ -4,10 +4,10 @@ import { URGENCIES, URGENCY_LABELS } from "@/components/shared/urgency-badge";
 import type { RosterRow, Urgency } from "@/lib/types";
 import { WEAK_MASTERY } from "./format";
 
-export type RosterView = "trend" | "technique" | "waiting" | "flagged" | "ungraded";
+type RosterView = "trend" | "technique" | "waiting" | "flagged" | "ungraded";
 export type RosterSort = "priority" | "lowest" | "drop" | "gain" | "name" | "marks_lost";
 export type ReleaseFilter = "unreleased" | "released";
-export type StudentsTab = "students" | "topics";
+type StudentsTab = "students" | "topics";
 
 export interface RosterParams {
   urgency: Urgency | null;
@@ -30,7 +30,7 @@ export const SORT_LABELS: Record<RosterSort, string> = {
   marks_lost: "Most marks lost",
 };
 
-export const VIEW_LABELS: Record<RosterView, string> = {
+const VIEW_LABELS: Record<RosterView, string> = {
   trend: "moved 5+ pts since a comparable paper",
   technique: "exam technique flagged",
   waiting: "a sheet held, failed or being marked",
@@ -62,22 +62,22 @@ const fold = (text: string) => text.normalize("NFKD").replace(/\s+/g, " ").trim(
 
 /** The report's attempts insight flags the paper: wrong answers costing marks, or blanks
  * holding the score back (the same verdict the student's report shows). */
-export function techniqueFlagged(row: RosterRow): boolean {
+function techniqueFlagged(row: RosterRow): boolean {
   const verdict = row.negative_marking?.verdict;
   return verdict === "guessing" || verdict === "skipping";
 }
 
 /** A sheet in scope is held for review, failed or still being marked (summary.waiting_students). */
-export function waitingOnFaculty(row: RosterRow): boolean {
+function waitingOnFaculty(row: RosterRow): boolean {
   return row.waiting.length > 0;
 }
 
 /** A comparable-paper change of 5+ points (the Moving tile's up / down counts). */
-export function moved(row: RosterRow): boolean {
+function moved(row: RosterRow): boolean {
   return row.trend === "improving" || row.trend === "slipping";
 }
 
-export function weakIn(row: RosterRow, topic: string): boolean {
+function weakIn(row: RosterRow, topic: string): boolean {
   const wanted = fold(topic);
   return row.topics.some((t) => fold(t.topic) === wanted && t.mastery < WEAK_MASTERY);
 }

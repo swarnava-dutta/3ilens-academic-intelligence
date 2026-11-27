@@ -350,7 +350,7 @@ export function commonWrongPick(item: CohortItem): string | null {
 }
 
 /** "Q16 Mechanics - 5 of 12 right · 4 blank · common wrong pick A (2)". */
-export function itemLine(item: CohortItem): string {
+function itemLine(item: CohortItem): string {
   const parts =
     item.type === "mcq"
       ? [`${item.correct} of ${item.n} right`]

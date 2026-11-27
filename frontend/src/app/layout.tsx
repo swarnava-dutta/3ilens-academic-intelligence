@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     template: "%s · 3iLens Academic Intelligence",
   },
   description:
-    "Handwritten answer sheet OCR, rubric grading, student reports and cohort analytics for NEET coaching institutes.",
+    "Printed and typed answer sheet OCR, rubric grading, student reports and cohort analytics for NEET coaching institutes.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

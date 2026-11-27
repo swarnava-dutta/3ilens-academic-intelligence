@@ -49,7 +49,7 @@ export function useHealth(): HealthState {
 }
 
 /** Used until GET /api/health answers (or when it is unreachable); the backend default (BRD FR-2.4). */
-export const DEFAULT_OCR_THRESHOLD = 0.7;
+const DEFAULT_OCR_THRESHOLD = 0.7;
 
 /** Auto-grade OCR confidence threshold (0-1): below it a sheet goes to human review. */
 export function useOcrThreshold(): number {

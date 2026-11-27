@@ -55,7 +55,7 @@ function techniqueText(r: RosterRow): string {
   return nm.verdict === "guessing" ? "wrong answers costing marks" : nm.verdict === "skipping" ? "skipping too many" : "working";
 }
 
-export function rosterCsv(rows: RosterRow[]): string {
+function rosterCsv(rows: RosterRow[]): string {
   const lines = [COLUMNS.join(",")];
   for (const r of rows) {
     const l = r.latest;

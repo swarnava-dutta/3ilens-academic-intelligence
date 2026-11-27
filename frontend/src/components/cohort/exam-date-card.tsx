@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { btnPrimary, btnSecondary, fieldClass } from "./dialog";
 import { POPOVER_PANEL } from "./format";
 
-export const STRATEGY_LOOK: Record<StrategyMode, { label: string; range: string; text: string }> = {
+const STRATEGY_LOOK: Record<StrategyMode, { label: string; range: string; text: string }> = {
   broad: {
     label: "Broad",
     range: "90+ days",

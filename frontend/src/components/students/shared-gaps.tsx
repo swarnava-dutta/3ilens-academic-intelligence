@@ -12,7 +12,7 @@ const LINK =
 
 /** Chapter topics, most students below 60% first (whole-subject rows from untagged papers are
  * left out: "Physics 1 of 1" is not a shared gap). Same order as the Topics tab. */
-export function rankGaps(topics: RosterTopic[]): RosterTopic[] {
+function rankGaps(topics: RosterTopic[]): RosterTopic[] {
   return topics
     .filter((t) => t.below_60 > 0 && !t.subject_level)
     .sort(

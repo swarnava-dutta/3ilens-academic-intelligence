@@ -7,10 +7,10 @@ import type { DashboardFilters, Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { URGENCIES, URGENCY_LABELS } from "./urgency-badge";
 
-export type FilterKey = "batch" | "test" | "urgency" | "topic";
+type FilterKey = "batch" | "test" | "urgency" | "topic";
 
 /** URL search-param name for each filter. */
-export const FILTER_PARAMS: Record<FilterKey, "batch_id" | "rubric_id" | "urgency" | "topic"> = {
+const FILTER_PARAMS: Record<FilterKey, "batch_id" | "rubric_id" | "urgency" | "topic"> = {
   batch: "batch_id",
   test: "rubric_id",
   urgency: "urgency",
@@ -26,7 +26,7 @@ function positiveId(value: string | null): number | null {
 }
 
 /** DashboardQuery from URL search params (invalid values are ignored). */
-export function readDashboardQuery(params: { get(name: string): string | null }): DashboardQuery {
+function readDashboardQuery(params: { get(name: string): string | null }): DashboardQuery {
   const urgency = params.get("urgency");
   const topic = params.get("topic")?.trim();
   return {

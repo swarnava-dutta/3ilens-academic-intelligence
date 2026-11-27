@@ -6,7 +6,7 @@ import { masteryTone } from "@/lib/utils";
 // Exam weightage comes from the API (Priority.weightage, StudyPlan topics' exam_marks and RoiBasis);
 // nothing here hard-codes subject weights.
 
-export type Tone = "good" | "ok" | "weak";
+type Tone = "good" | "ok" | "weak";
 
 /** Visual tokens per mastery tone. Text always uses dark ink, fills carry the tone. */
 export const TONE: Record<
@@ -148,7 +148,7 @@ export function fmtRulePct(pct: number): string {
 }
 
 /** "4 h 15 min" (45 -> "45 min", 120 -> "2 h"). */
-export function fmtMinutes(minutes: number): string {
+function fmtMinutes(minutes: number): string {
   const total = Math.max(0, Math.round(minutes));
   const h = Math.floor(total / 60);
   const m = total % 60;
@@ -300,9 +300,6 @@ export function isBonusNote(note: string | null | undefined): boolean {
   return /\bbonus question\b/i.test(note ?? "");
 }
 
-/** The "Bonus" tag next to a bonus question's outcome (it scores full marks, attempted or not). */
-export const BONUS_TAG = { label: "Bonus", title: "Bonus question: full marks to everyone, attempted or not" } as const;
-
 export const OUTCOME_LOOK: Record<
   "FULL" | "PARTIAL" | "ZERO" | "BLANK",
   { label: string; short: string; pill: string; fill: string; dot: string }
@@ -377,10 +374,3 @@ export const SOURCE_LABEL: Record<"ai" | "template" | "faculty", string> = {
   template: "Rule template",
   faculty: "Faculty",
 };
-
-/** Topic-screening colour groups (presentation aids, not psychometric mastery). */
-export function priorityGroup(rank: number | null | undefined): { fill: string; label: string } {
-  if (typeof rank === "number" && rank >= 1 && rank <= 2) return { fill: "bg-rose-500", label: `P${rank}` };
-  if (typeof rank === "number" && rank >= 3 && rank <= 5) return { fill: "bg-amber-500", label: `P${rank}` };
-  return { fill: "bg-sky-600", label: "Other" };
-}

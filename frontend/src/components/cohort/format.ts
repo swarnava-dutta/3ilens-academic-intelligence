@@ -1,7 +1,6 @@
 // Cohort-only presentation helpers. Shared formatters live in @/lib/format.
 import { numOrNull } from "@/lib/coerce";
 import { clampPct, MINUS } from "@/lib/format";
-import type { Cohort } from "@/lib/types";
 import { masteryTone } from "@/lib/utils";
 
 /** 12 -> "12", 12.345 -> "12.3" (drops trailing zeros). */
@@ -33,11 +32,6 @@ export function formatRoi(value: number | null | undefined): string {
 export function formatHours(value: number | null | undefined): string {
   const v = numOrNull(value);
   return v === null ? "—" : `${formatNumber(v)} h`;
-}
-
-/** True when there is at least one evaluated result to chart. */
-export function hasResults(cohort: Cohort): boolean {
-  return (cohort.total_submissions ?? 0) > 0 && numOrNull(cohort.average_score) !== null;
 }
 
 export type Tone = "good" | "ok" | "weak";
@@ -155,7 +149,7 @@ export const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-
 export const POPOVER_PANEL =
   "min-w-0 w-[min(22rem,calc(100vw-2rem))] border-slate-300 p-3 text-sm text-slate-700 shadow-none print:block";
 
-export const LOW_CHAPTER = 40;
+const LOW_CHAPTER = 40;
 
 export type ChapterTone = "low" | "under" | "ok";
 
@@ -171,7 +165,7 @@ export const CHAPTER_TONES: Record<ChapterTone, { label: string; bar: string; ch
 };
 
 
-export function chapterToneKey(value: number | null | undefined): ChapterTone {
+function chapterToneKey(value: number | null | undefined): ChapterTone {
   const v = clampPct(value);
   return v < LOW_CHAPTER ? "low" : v < RETEACH_LINE ? "under" : "ok";
 }

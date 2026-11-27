@@ -30,7 +30,7 @@ const FLAG_LOOK: Record<string, { label: string; className: string }> = {
 
 /** Right / partly right / wrong / blank as one small stacked bar, with the counts in text. Written
  * answers lead with the share of the marks (what "hard" is measured on). */
-export function AnswerBar({ item }: { item: CohortItem }) {
+function AnswerBar({ item }: { item: CohortItem }) {
   const parts = [
     { n: item.correct, fill: "bg-brand-lime-600", word: item.type === "mcq" ? "right" : "full" },
     { n: item.partial, fill: "bg-amber-400", word: "partly" },

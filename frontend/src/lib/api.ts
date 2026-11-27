@@ -61,7 +61,7 @@ import type {
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-export const api = axios.create({
+const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30_000,
 });
@@ -125,7 +125,7 @@ export interface DashboardQuery {
 type QueryValue = string | number | boolean | null | undefined;
 
 /** Plain params object with empty values (null, undefined, "") omitted. */
-export function queryParams(query?: Record<string, QueryValue> | DashboardQuery): Record<string, string> {
+function queryParams(query?: Record<string, QueryValue> | DashboardQuery): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === null || value === undefined) continue;
@@ -261,7 +261,7 @@ export async function inspectPaper(file: File, rubricId?: number | null): Promis
   return (await api.post<PaperInspection>("/api/intake/inspect", form, { timeout: INSPECT_TIMEOUT_MS })).data;
 }
 
-export type ResultResponse =
+type ResultResponse =
   | { kind: "ready"; result: Result }
   | { kind: "pending"; pending: ResultPending };
 
@@ -518,7 +518,7 @@ export function downloadUrl(relativePath: string): string {
 
 /** Roster scope: batch + test + demo (false = real records only, true = demo only, null = both).
  * urgency / topic narrow the rows only; summary and topics always describe the scope. */
-export interface RosterQuery {
+interface RosterQuery {
   batch_id?: number | null;
   rubric_id?: number | null;
   demo?: boolean | null;
@@ -641,7 +641,7 @@ export async function revokeApiKey(id: number): Promise<ApiKey> {
 }
 
 /** Query params of the LMS export endpoints (released results only unless include_provisional). */
-export interface LmsQuery {
+interface LmsQuery {
   batch_id?: number | null;
   rubric_id?: number | null;
   /** ISO date or datetime */

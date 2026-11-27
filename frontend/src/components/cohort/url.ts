@@ -5,7 +5,7 @@ import { useCallback, useMemo } from "react";
 import { URGENCIES } from "@/components/shared/urgency-badge";
 import type { CohortItemFlag, Urgency } from "@/lib/types";
 
-export const TABS = ["students", "chapters", "questions", "behaviour", "progress"] as const;
+const TABS = ["students", "chapters", "questions", "behaviour", "progress"] as const;
 export type CohortTab = (typeof TABS)[number];
 
 const FLAGS: CohortItemFlag[] = ["possible_key_error", "hard", "often_skipped", "weak_discrimination"];
@@ -33,7 +33,7 @@ function positiveId(value: string | null): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-export function readCohortParams(params: { get(name: string): string | null }): CohortParams {
+function readCohortParams(params: { get(name: string): string | null }): CohortParams {
   const tab = params.get("tab");
   const urgency = params.get("urgency");
   const topic = params.get("topic")?.trim();
@@ -55,24 +55,13 @@ export function readCohortParams(params: { get(name: string): string | null }): 
 export type ParamPatch = Record<string, string | number | null | undefined>;
 
 /** The current search params with `patch` applied (null / undefined / "" removes a key). */
-export function patchQuery(current: string, patch: ParamPatch): string {
+function patchQuery(current: string, patch: ParamPatch): string {
   const next = new URLSearchParams(current);
   for (const [key, value] of Object.entries(patch)) {
     if (value === null || value === undefined || value === "") next.delete(key);
     else next.set(key, String(value));
   }
   return next.toString();
-}
-
-/** Merge a backend summary href ("?tab=students&urgency=at_risk") into the current scope. */
-export function mergeHref(pathname: string, current: string, href: string): string {
-  const extra = new URLSearchParams(href.startsWith("?") ? href.slice(1) : href);
-  const patch: ParamPatch = {};
-  extra.forEach((value, key) => {
-    patch[key] = value;
-  });
-  const qs = patchQuery(current, patch);
-  return qs ? `${pathname}?${qs}` : pathname;
 }
 
 /** Cohort URL state: read it, build links from it and replace it (no scroll, no history entry). */

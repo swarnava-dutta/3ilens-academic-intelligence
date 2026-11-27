@@ -15,7 +15,7 @@ const selectClass =
   "h-10 min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 focus-visible:border-brand-cyan sm:h-9";
 
 type Segment = { key: string; label: string; count: number; checked: boolean; apply: ParamUpdate };
-export type SegmentCounts = ReturnType<typeof segmentCounts>;
+type SegmentCounts = ReturnType<typeof segmentCounts>;
 
 /** Status segments; each count is the rows that segment shows under the other active filters. */
 function segments(summary: RosterSummary, counts: SegmentCounts, p: RosterParams): Segment[] {

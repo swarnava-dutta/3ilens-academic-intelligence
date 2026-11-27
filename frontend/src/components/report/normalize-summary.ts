@@ -26,7 +26,7 @@ import type {
 } from "@/lib/types";
 
 /** The ROI engine's target mastery (backend analytics.TARGET_MASTERY). */
-export const TARGET_MASTERY = 85;
+const TARGET_MASTERY = 85;
 
 type Rec = Record<string, unknown>;
 
@@ -34,7 +34,7 @@ type Rec = Record<string, unknown>;
 const tidy = (n: number) => Math.round(n * 100) / 100;
 
 /** max(0, 0.85 x max - score) on unrounded marks. */
-export function gainToTarget(score: number, max: number): number {
+function gainToTarget(score: number, max: number): number {
   return Math.max(0, tidy((TARGET_MASTERY / 100) * max - score));
 }
 
@@ -66,7 +66,7 @@ export function kindCounts(qs: QuestionEvaluation[]) {
 }
 
 /** skipping (blanks >= 2x wrong), wrong_answers (wrong >= 2x blanks), mixed, or solid (>= 70%). */
-export function diagnose(pct: number, wrong: number, blank: number): SubjectDiagnosis {
+function diagnose(pct: number, wrong: number, blank: number): SubjectDiagnosis {
   if (pct >= ON_TRACK_FROM) return "solid";
   if (wrong + blank === 0) return "mixed";
   if (blank >= 2 * wrong) return "skipping";
@@ -436,7 +436,7 @@ function normalizeBloom(raw: unknown): { buckets: BloomBucket[]; informative: bo
 }
 
 /** First half vs second half of each subject's section, on answered (non-bonus) questions only. */
-export function subjectPacing(questions: QuestionEvaluation[], subjectOf: Map<number, string>): SubjectPacing[] {
+function subjectPacing(questions: QuestionEvaluation[], subjectOf: Map<number, string>): SubjectPacing[] {
   const groups = new Map<string, QuestionEvaluation[]>();
   for (const q of [...questions].sort((a, b) => a.question - b.question)) {
     const s = subjectOf.get(q.question);

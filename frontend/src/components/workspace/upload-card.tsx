@@ -286,7 +286,7 @@ export function UploadCard({
               Answer sheet intake
             </h2>
             <p className="text-xs text-slate-500">
-              PDF (up to {maxPages} pages) - handwritten sheets or printed MCQ papers with ticked options, photo/scan
+              PDF (up to {maxPages} pages) - printed MCQ papers with ticked options or typed answer sheets, photo/scan
               or Word{voice.enabled ? ", or a voice answer (MP3/WAV/M4A/OGG)" : ""} · max {Math.round(maxMb)} MB per
               file · checked by magic bytes and SHA-256
             </p>
