@@ -18,6 +18,7 @@ import {
   toneColor,
   useChart,
   VGrid,
+  wrap,
   type Tone,
 } from "./core";
 
@@ -64,13 +65,15 @@ export function Scatter({
     .slice(0, LABELLED)
     .flatMap((p) => {
       const cx = x(p.x);
-      const w = textWidth(p.label);
+      // Long names (chapter titles) are cut so more of them fit; the tooltip has the full name.
+      const text = wrap(p.label, 160, 1)[0];
+      const w = textWidth(text);
       const flip = cx + r(p) + 4 + w > right;
       const lx = flip ? cx - r(p) - 4 - w : cx + r(p) + 4;
       const box: [number, number, number, number] = [lx, y(p.y) - 7, lx + w, y(p.y) + 7];
       if (lx < 0 || boxes.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) return [];
       boxes.push(box);
-      return [{ p, x: flip ? cx - r(p) - 4 : cx + r(p) + 4, anchor: flip ? ("end" as const) : ("start" as const) }];
+      return [{ p, text, x: flip ? cx - r(p) - 4 : cx + r(p) + 4, anchor: flip ? ("end" as const) : ("start" as const) }];
     });
 
   let summary = `Scatter of ${points.length} points, ${yLabel} against ${xLabel}.`;
@@ -123,7 +126,7 @@ export function Scatter({
           paintOrder="stroke"
           className="pointer-events-none"
         >
-          {l.p.label}
+          {l.text}
         </text>
       ))}
     </Plot>

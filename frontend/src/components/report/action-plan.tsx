@@ -16,7 +16,7 @@ export function interventionFor(p: Priority): Intervention {
   return {
     teach: `Re-teach ${p.topic}: walk through the missed rubric points from the trigger questions.`,
     practice: `5 unseen ${p.topic} questions of the same type, worked with full steps.`,
-    check_criterion: `>=4/5 correct on fresh ${p.topic} items; teacher checks the working.`,
+    check_criterion: `≥4/5 correct on fresh ${p.topic} items; teacher checks the working.`,
     source: "template",
   };
 }
@@ -56,7 +56,14 @@ function OpenSourcePage({ result, questions }: { result: Result; questions: numb
 }
 
 /** Segmented P1..Pn chooser with the Teach / Practice / Check intervention for the chosen topic. */
-export function InterventionChooser({ result }: { result: Result }) {
+export function InterventionChooser({
+  result,
+  showTriggers = true,
+}: {
+  result: Result;
+  /** False where the action-plan table below already lists each priority's questions. */
+  showTriggers?: boolean;
+}) {
   const priorities = observedPriorities(result);
   const [index, setIndex] = useState(0);
   const current = priorities[Math.min(index, priorities.length - 1)];
@@ -74,6 +81,15 @@ export function InterventionChooser({ result }: { result: Result }) {
   const iv = interventionFor(current);
   const qs = triggerQuestions(result, current);
   const row = topicRow(result, current.topic);
+  // The report's counts: right / wrong / blank / bonus (a bonus is never folded into "full").
+  const own = result.question_evaluations.filter((q) => q.topic === current.topic);
+  const kind = (k: string) => own.filter((q) => q.result_kind === k).length;
+  const mcq = own.length > 0 && own.every((q) => q.question_type === "mcq");
+  const counts = row
+    ? mcq
+      ? [`${kind("right")} right`, `${kind("wrong")} wrong`, `${kind("blank")} blank`, kind("bonus") ? `${kind("bonus")} bonus` : null]
+      : [`${row.full} full`, `${row.partial} partial`, `${row.zero} zero`, `${row.blank} blank`]
+    : [];
   const steps = [
     { key: "Teach", text: iv.teach },
     { key: "Practice", text: iv.practice },
@@ -123,7 +139,7 @@ export function InterventionChooser({ result }: { result: Result }) {
               <span className="font-semibold tabular-nums">
                 {row ? fraction(row.score, row.max_marks) : `${fmtNumber(current.mastery, 0)}%`}
               </span>
-              {row ? ` · ${row.full} full, ${row.partial} partial, ${row.zero} zero, ${row.blank} blank` : ""}
+              {counts.length ? ` · ${counts.filter(Boolean).join(" · ")}` : ""}
             </p>
           </div>
           <span className="text-xs text-slate-500">{SOURCE_LABEL[iv.source]}</span>
@@ -139,8 +155,16 @@ export function InterventionChooser({ result }: { result: Result }) {
         </dl>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-slate-500">Trigger questions</span>
-          {qs.length ? qs.map((q) => <QRefChip key={q} q={q} />) : <span className="text-xs text-slate-500">—</span>}
+          {showTriggers ? (
+            <>
+              <span className="text-xs font-medium text-slate-500">Trigger questions</span>
+              {qs.length ? qs.map((q) => <QRefChip key={q} q={q} />) : <span className="text-xs text-slate-500">—</span>}
+            </>
+          ) : (
+            <span className="text-xs text-slate-500">
+              {qs.length} trigger {qs.length === 1 ? "question" : "questions"}, listed in the table below.
+            </span>
+          )}
           <span className="ml-auto">
             <OpenSourcePage result={result} questions={qs} />
           </span>

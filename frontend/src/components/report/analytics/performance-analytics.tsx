@@ -4,11 +4,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage, getCohort } from "@/lib/api";
 import type { Result } from "@/lib/types";
 import { CohortComparison, ScorePosition, ScoreTrend, type CohortState } from "./cohort-charts";
-import { BloomAccuracy, QuestionMarks, Stamina } from "./paper-charts";
+import { cn } from "@/lib/utils";
+import { BloomAccuracy, GRID_FROM, QuestionMarks, Stamina, WrongAnswers } from "./paper-charts";
 import { FocusQuadrant, PlanLoad, ProjectedGain, TopicTargets } from "./topic-charts";
 
-const Panel = ({ children }: { children: ReactNode }) => (
-  <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 print:break-inside-avoid">
+const Panel = ({ children, wide }: { children: ReactNode; wide?: boolean }) => (
+  <div
+    className={cn(
+      "min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 print:break-inside-avoid",
+      wide && "lg:col-span-2",
+    )}
+  >
     {children}
   </div>
 );
@@ -30,9 +36,14 @@ export function PerformanceAnalytics({ result }: { result: Result }) {
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 print:grid-cols-1 [print-color-adjust:exact]">
-      <Panel>
+      <Panel wide={result.question_evaluations.length >= GRID_FROM}>
         <QuestionMarks result={result} />
       </Panel>
+      {result.patterns?.negative_marking ? (
+        <Panel>
+          <WrongAnswers result={result} />
+        </Panel>
+      ) : null}
       <Panel>
         <TopicTargets result={result} />
       </Panel>

@@ -56,7 +56,7 @@ function RowLabel({ L, i, text }: { L: Layout; i: number; text: string }) {
   );
 }
 
-/** Full-width transparent row so the whole row is the hover/focus target. */
+/** Full-width transparent row so the whole row is the hover target. */
 const Hit = ({ L, i, w }: { L: Layout; i: number; w: number }) => (
   <rect y={i * L.rowH} width={w} height={L.rowH} fill="transparent" />
 );
@@ -183,7 +183,9 @@ export function StackedBars({
 }) {
   const c = useChart();
   if (!rows.length) return <Empty />;
-  const names = seriesOrder.slice(0, 3);
+  // Three coloured series at most; the catch-all (context grey) may come on top as a fourth.
+  const coloured = seriesOrder.filter((n) => n !== rest).slice(0, 3);
+  const names = rest && seriesOrder.includes(rest) ? [...coloured, rest] : coloured;
   const color = (k: number) => (names[k] === rest ? CONTEXT : SERIES[k]);
   const stacks = rows.map((r) => {
     const segs: { name: string; color: string; value: number; from: number; to: number }[] = [];

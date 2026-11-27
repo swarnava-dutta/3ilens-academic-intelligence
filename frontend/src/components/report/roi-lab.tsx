@@ -16,7 +16,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Notice, btnSecondary } from "./dialog";
-import { clampPct, fmtHours, fmtISTDate, fmtNumber, fmtRoi, safeNumber } from "./format";
+import { clampPct, fmtHours, fmtISTDate, fmtMarks, fmtNumber, fmtPctValue, fmtRoi, plannedMinutesText, safeNumber } from "./format";
 import { QRefChip } from "./immediate-reading";
 import { normalizePlan } from "./normalize";
 import { MeterBar, Pill, SectionCard } from "./primitives";
@@ -24,7 +24,8 @@ import { MeterBar, Pill, SectionCard } from "./primitives";
 type Order = "observed" | "roi";
 
 const DAY_MIN = 1;
-const DAY_MAX = 150;
+/** The slider reaches at least 150 days, and always the batch's real days to the exam. */
+const DAY_MAX_MIN = 150;
 const HOURS_MIN = 3;
 const HOURS_MAX = 40;
 const DEBOUNCE_MS = 200;
@@ -77,23 +78,24 @@ const QUADRANTS: { key: Quadrant; label: string; desc: string; dot: string; fill
 
 const QUADRANT_BY_KEY = Object.fromEntries(QUADRANTS.map((q) => [q.key, q])) as Record<Quadrant, (typeof QUADRANTS)[number]>;
 
+// The same words as the focus list and the calendar.
 const ACTION_LABEL: Record<PlanAction, string> = {
   learn: "Learn",
-  drill: "Drill",
+  drill: "Fix errors",
   fix_errors: "Fix errors",
-  maintain: "Maintain",
+  maintain: "Keep warm",
   none: "—",
 };
 
 const ACTIVITY_LOOK: Record<CalendarActivity, { label: string; cls: string }> = {
   learn: { label: "Learn", cls: "border-l-sky-600" },
-  drill: { label: "Drill", cls: "border-l-brand-cyan" },
+  drill: { label: "Fix errors", cls: "border-l-brand-cyan" },
   fix_errors: { label: "Fix errors", cls: "border-l-rose-500" },
   review: { label: "Review", cls: "border-l-brand-lime-600" },
   checkpoint: { label: "Checkpoint", cls: "border-l-amber-500" },
 };
 
-const clampDays = (n: number) => Math.min(DAY_MAX, Math.max(DAY_MIN, Math.round(safeNumber(n, 120))));
+const clampDays = (n: number, max: number) => Math.min(max, Math.max(DAY_MIN, Math.round(safeNumber(n, 120))));
 const clampHours = (n: number) => Math.min(HOURS_MAX, Math.max(HOURS_MIN, Math.round(safeNumber(n, 18))));
 
 /** Top-five rows: observed-gap order (qualitative_rank) or the illustrative ROI ranking. */
@@ -154,7 +156,7 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
           <p className="mt-2 text-xs text-slate-500">
             {batch.exam_date
               ? `Exam date ${fmtISTDate(batch.exam_date)}${
-                  batch.exam_date_assumed ? " is assumed (NEET_EXAM_DATE default), not a faculty-entered date" : " (set for this batch)"
+                  batch.exam_date_assumed ? " is an assumed default, not a date set for this batch" : " (set for this batch)"
                 }.`
               : "No exam date is set for this batch."}
             {touched ? ` What-if: ${days} days; the batch's actual figure is ${batch.days_to_exam ?? "unknown"} days.` : ""}
@@ -164,11 +166,11 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
           <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <span className="text-slate-600">Projected score (illustrative)</span>
             <span className="font-semibold tabular-nums text-brand-navy">
-              {fmtNumber(ps.current)} → {fmtNumber(ps.expected)}
+              {fmtPctValue(ps.current)} → {fmtPctValue(ps.expected)}
             </span>
           </div>
           <p className="text-right text-xs tabular-nums text-slate-500">
-            range {fmtNumber(ps.low)}-{fmtNumber(ps.high)} of {fmtNumber(scale)}
+            range {fmtPctValue(ps.low)}–{fmtPctValue(ps.high)}
           </p>
           <div className="relative mt-2 h-2 w-full rounded-sm bg-slate-100 [print-color-adjust:exact]" aria-hidden>
             <div className="absolute inset-y-0 left-0 rounded-sm bg-brand-navy" style={{ width: `${clampPct((ps.current / scale) * 100)}%` }} />
@@ -191,14 +193,14 @@ function StrategyCard({ plan, result, touched, days }: { plan: StudyPlan; result
   );
 }
 
-function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result; order: Order }) {
+function TopFiveTable({ plan, result, order, showRoi }: { plan: StudyPlan; result: Result; order: Order; showRoi: boolean }) {
   const rows = topRows(plan, result, order);
   if (rows.length === 0) {
     return <p className="text-sm text-slate-500">No topic with a recoverable gap.</p>;
   }
   return (
     <div className="relative overflow-x-auto print:overflow-visible">
-      <table className="w-full min-w-[52rem] border-collapse text-sm print:min-w-0">
+      <table className={cn("w-full border-collapse text-sm print:min-w-0", showRoi ? "min-w-[52rem]" : "min-w-[36rem]")}>
         <caption className="sr-only">Next five topics</caption>
         <thead>
           <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
@@ -206,9 +208,9 @@ function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result
             <th scope="col" className="px-2 py-2 font-medium">Topic</th>
             <th scope="col" className="px-2 py-2 text-right font-medium">Mastery</th>
             <th scope="col" className="px-2 py-2 text-right font-medium">Exam marks</th>
-            <th scope="col" className="px-2 py-2 text-right font-medium">Base h</th>
-            <th scope="col" className="px-2 py-2 text-right font-medium">Allocated h</th>
-            <th scope="col" className="px-2 py-2 text-right font-medium">ROI</th>
+            {showRoi ? <th scope="col" className="px-2 py-2 text-right font-medium">Base h</th> : null}
+            {showRoi ? <th scope="col" className="px-2 py-2 text-right font-medium">Allocated h</th> : null}
+            {showRoi ? <th scope="col" className="px-2 py-2 text-right font-medium">ROI</th> : null}
             <th scope="col" className="px-2 py-2 font-medium">Action</th>
             <th scope="col" className="px-2 py-2 text-right font-medium">Current → target</th>
             <th scope="col" className="px-2 py-2 text-right font-medium">+marks (range)</th>
@@ -225,19 +227,21 @@ function TopFiveTable({ plan, result, order }: { plan: StudyPlan; result: Result
                   {row.chapter && row.chapter !== row.topic ? ` · ${row.chapter}` : ""}
                 </span>
               </th>
-              <td className="px-2 py-2 text-right tabular-nums">{fmtNumber(row.mastery, 0)}%</td>
-              <td className="px-2 py-2 text-right tabular-nums">{fmtNumber(row.exam_marks)}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{fmtHours(row.effort_hours)}</td>
-              <td className="px-2 py-2 text-right font-medium tabular-nums text-brand-navy">{fmtHours(row.allocated_hours)}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{fmtRoi(row.roi)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{fmtPctValue(row.mastery)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{fmtMarks(row.exam_marks)}</td>
+              {showRoi ? <td className="px-2 py-2 text-right tabular-nums">{fmtHours(row.effort_hours)}</td> : null}
+              {showRoi ? (
+                <td className="px-2 py-2 text-right font-medium tabular-nums text-brand-navy">{fmtHours(row.allocated_hours)}</td>
+              ) : null}
+              {showRoi ? <td className="px-2 py-2 text-right tabular-nums">{fmtRoi(row.roi)}</td> : null}
               <td className="px-2 py-2 text-slate-700">{ACTION_LABEL[row.action] ?? row.action}</td>
               <td className="px-2 py-2 text-right tabular-nums">
-                {fmtNumber(row.mastery, 0)}% → {fmtNumber(row.target_mastery, 0)}%
+                {fmtPctValue(row.mastery)} → {fmtPctValue(row.target_mastery)}
               </td>
               <td className="px-2 py-2 text-right tabular-nums">
-                +{fmtNumber(row.gain_marks)}{" "}
+                +{fmtMarks(row.gain_marks)}{" "}
                 <span className="text-xs tabular-nums text-slate-500">
-                  ({fmtNumber(row.gain_low)}-{fmtNumber(row.gain_high)})
+                  ({fmtMarks(row.gain_low)}–{fmtMarks(row.gain_high)})
                 </span>
               </td>
             </tr>
@@ -255,8 +259,11 @@ const PR = 12;
 const PT = 14;
 const PB = 30;
 
-function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
-  const top = topics.reduce((m, t) => Math.max(m, t.roi), 0);
+function QuadrantScatter({ topics, showRoi }: { topics: PlanTopic[]; showRoi: boolean }) {
+  // With placeholder effort hours (1 h each) ROI per hour is just the gain: plot and name the gain instead.
+  const yOf = (t: PlanTopic) => (showRoi ? t.roi : t.gain_marks);
+  const yName = showRoi ? "ROI" : "gain";
+  const top = topics.reduce((m, t) => Math.max(m, yOf(t)), 0);
   const yMax = top > 0 ? top * 1.15 : 1;
   const x = (mastery: number) => PL + (clampPct(mastery) / 100) * (SW - PL - PR);
   const y = (roi: number) => PT + (1 - Math.min(Math.max(roi, 0), yMax) / yMax) * (SH - PT - PB);
@@ -265,7 +272,7 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
   const taken: { cx: number; cy: number }[] = [];
   const placed = numbered(topics).map(({ t, n }) => {
     let cx = x(t.mastery);
-    const cy = Math.min(y(t.roi), SH - PB - 7);
+    const cy = Math.min(y(yOf(t)), SH - PB - 7);
     let guard = 0;
     while (taken.some((p) => Math.abs(p.cx - cx) < 13 && Math.abs(p.cy - cy) < 13) && guard < 12) {
       cx += cx > (PL + SW - PR) / 2 ? -14 : 14;
@@ -279,7 +286,7 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
       viewBox={`0 0 ${SW} ${SH}`}
       className="h-auto w-full [print-color-adjust:exact]"
       role="img"
-      aria-label={`Mastery versus ROI: ${topics.map((t) => `${t.topic} ${fmtNumber(t.mastery, 0)}% ROI ${fmtRoi(t.roi)}`).join("; ")}`}
+      aria-label={`Mastery versus ${showRoi ? "ROI" : "expected gain"}: ${topics.map((t) => `${t.topic} ${fmtPctValue(t.mastery)} ${yName} ${showRoi ? fmtRoi(t.roi) : fmtMarks(t.gain_marks)}`).join("; ")}`}
     >
       <rect x={PL} y={PT} width={SW - PL - PR} height={SH - PT - PB} className="fill-white stroke-slate-200" />
       <line x1={x(70)} x2={x(70)} y1={PT} y2={SH - PB} className="stroke-slate-400" strokeDasharray="4 3" />
@@ -295,7 +302,7 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
         Mastery % (threshold 70)
       </text>
       <text x={10} y={(PT + SH - PB) / 2} textAnchor="middle" transform={`rotate(-90 10 ${(PT + SH - PB) / 2})`} className="fill-slate-500 text-[9px]">
-        ROI (½ of top = high)
+        {showRoi ? "ROI (½ of top = high)" : "Expected gain, marks"}
       </text>
       <text x={PL + 4} y={PT + 10} className="fill-rose-700 text-[8px] font-medium">Priority focus</text>
       <text x={SW - PR - 4} y={PT + 10} textAnchor="end" className="fill-lime-800 text-[8px] font-medium">Maintain</text>
@@ -304,7 +311,7 @@ function QuadrantScatter({ topics }: { topics: PlanTopic[] }) {
       {placed.map(({ t, n, cx, cy }) => (
         <g key={t.topic}>
           <circle cx={cx} cy={cy} r={6.5} className={cn(QUADRANT_BY_KEY[t.quadrant]?.fill ?? "fill-slate-400", "stroke-white")} strokeWidth={1.5}>
-            <title>{`${n}. ${t.topic}: mastery ${fmtNumber(t.mastery, 0)}%, ROI ${fmtRoi(t.roi)} (${QUADRANT_BY_KEY[t.quadrant]?.label ?? t.quadrant})`}</title>
+            <title>{`${n}. ${t.topic}: mastery ${fmtPctValue(t.mastery)}, ${yName} ${showRoi ? fmtRoi(t.roi) : fmtMarks(t.gain_marks)} (${QUADRANT_BY_KEY[t.quadrant]?.label ?? t.quadrant})`}</title>
           </circle>
           <text x={cx} y={cy + 2.8} textAnchor="middle" className="pointer-events-none fill-white text-[7.5px] font-semibold">
             {n}
@@ -322,7 +329,7 @@ function numbered(topics: PlanTopic[]): { t: PlanTopic; n: number }[] {
     .map((t, i) => ({ t, n: i + 1 }));
 }
 
-function ScatterLegend({ topics }: { topics: PlanTopic[] }) {
+function ScatterLegend({ topics, showRoi }: { topics: PlanTopic[]; showRoi: boolean }) {
   return (
     <ol className="mt-2 grid gap-x-3 gap-y-0.5 text-xs tabular-nums text-slate-600 sm:grid-cols-2">
       {numbered(topics).map(({ t, n }) => (
@@ -337,7 +344,7 @@ function ScatterLegend({ topics }: { topics: PlanTopic[] }) {
             {n}
           </span>
           <span className="truncate" title={t.quadrant_reason || t.topic}>
-            {t.topic} · {fmtNumber(t.mastery, 0)}% · ROI {fmtRoi(t.roi)}
+            {t.topic} · {fmtPctValue(t.mastery)} · {showRoi ? `ROI ${fmtRoi(t.roi)}` : `+${fmtMarks(t.gain_marks)} marks`}
           </span>
         </li>
       ))}
@@ -399,27 +406,43 @@ function RoiBars({ topics }: { topics: PlanTopic[] }) {
   );
 }
 
-function Explain({ plan, result }: { plan: StudyPlan; result: Result }) {
+/**
+ * The engine's formula and arithmetic for #1. With placeholder effort hours (1 h each) the "÷ effort
+ * hours" step changes nothing, so it is dropped and the figure is named the expected gain.
+ */
+function gainOnly(text: string): string {
+  return text
+    .replace(/\bROI\b/g, "Expected gain")
+    .replace(/\s*[/÷]\s*effort hours/gi, "")
+    .replace(/\s*[/÷]\s*1(?:\.0+)?\s*h\b/g, "");
+}
+
+function Explain({ plan, showRoi }: { plan: StudyPlan; showRoi: boolean }) {
   const ex = plan.explanation;
-  const brd = [...result.roi_recommendations].sort((a, b) => b.roi - a.roi)[0];
+  const formula = ex ? (showRoi ? ex.formula : gainOnly(ex.formula)) : "";
+  const arithmetic = ex ? (showRoi ? ex.arithmetic : gainOnly(ex.arithmetic)) : "";
   return (
     <div className="space-y-3">
       {ex ? (
         <>
           <p className="text-sm text-slate-700">
-            <span className="font-semibold text-brand-navy">#1 {ex.topic}.</span> {ex.formula}
+            <span className="font-semibold text-brand-navy">#1 {ex.topic}.</span> {formula}
           </p>
           <pre className="whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-relaxed text-slate-800">
-            {ex.arithmetic}
+            {arithmetic}
           </pre>
           <dl className="grid grid-cols-3 divide-x divide-slate-200 border-y border-slate-200 text-xs sm:grid-cols-6">
             {[
-              ["Exam marks", fmtNumber(ex.inputs.exam_marks)],
-              ["Mastery", `${fmtNumber(ex.inputs.mastery)}%`],
+              ["Exam marks", fmtMarks(ex.inputs.exam_marks)],
+              ["Mastery", fmtPctValue(ex.inputs.mastery)],
               ["Target", `${fmtNumber(ex.inputs.target_mastery)}%`],
               ["Time factor", fmtNumber(ex.inputs.time_factor, 3)],
-              ["Effort", fmtHours(ex.inputs.effort_hours)],
-              ["ROI", fmtRoi(ex.inputs.roi)],
+              ...(showRoi
+                ? [
+                    ["Effort", fmtHours(ex.inputs.effort_hours)],
+                    ["ROI", fmtRoi(ex.inputs.roi)],
+                  ]
+                : []),
             ].map(([k, v]) => (
               <div key={k} className="px-2 py-1.5">
                 <dt className="text-slate-500">{k}</dt>
@@ -431,29 +454,32 @@ function Explain({ plan, result }: { plan: StudyPlan; result: Result }) {
       ) : (
         <p className="text-sm text-slate-500">No ranked topic to explain for these inputs.</p>
       )}
-      {brd ? (
-        <p className="font-mono text-xs leading-relaxed text-slate-600">
-          BRD §6.4 (stored top-5): ROI = weightage × gain potential ÷ effort hours = {fmtNumber(brd.weightage, 3)} ×{" "}
-          {fmtNumber(brd.gain_potential)} ÷ {fmtNumber(brd.effort_hours)} h = {fmtRoi(brd.roi)} for {brd.topic}.
+      {showRoi ? null : (
+        <p className="text-xs leading-relaxed text-slate-600">
+          Effort hours for these topics are a placeholder (1 h each), so no per-hour figure is shown: the order follows the
+          marks each topic can still add.
         </p>
-      ) : null}
+      )}
     </div>
   );
 }
 
-function weekday(date: string | null): string {
+/** "Fri, 27 Nov" (the report's date format, without the year inside one week). */
+function dayLabel(date: string | null): string {
   if (!date) return "";
   const t = Date.parse(`${date}T12:00:00+05:30`);
-  return Number.isNaN(t) ? "" : new Intl.DateTimeFormat("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" }).format(t);
+  return Number.isNaN(t)
+    ? ""
+    : new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
+        .format(t)
+        .replace(/^(\w+)\s/, "$1, ");
 }
 
-function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
+/** The week's study blocks; `notes` (the student's plan) prints each block's note under it. */
+export function WeeklyCalendar({ plan, notes = false }: { plan: StudyPlan; notes?: boolean }) {
   const days = plan.weekly_calendar.slice(0, 7);
   if (days.length === 0) return <p className="text-sm text-slate-500">No calendar for these inputs.</p>;
-  const plannedMinutes = days.reduce(
-    (sum, d) => sum + d.blocks.reduce((m, b) => m + (b.activity === "checkpoint" ? 0 : safeNumber(b.minutes)), 0),
-    0,
-  );
+  const plannedMinutes = safeNumber(plan.planned_minutes_total);
   // Same window as the engine: the weekly budget, pro-rated when the exam is under 7 days away.
   const daysLeft = plan.days_to_exam;
   const windowHours =
@@ -465,21 +491,18 @@ function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
     <>
     {unplacedHours > 0 ? (
       <p className="mb-2 text-xs text-slate-500">
-        The blocks below total {fmtNumber(plannedMinutes / 60)} h of the {fmtNumber(windowHours)} h budget (at most 2 topics a
-        day, heavy topics on alternate days); spend the rest on mixed timed practice across all topics, as in the allocation
-        above.
+        {notes
+          ? `These blocks take ${plannedMinutesText(plannedMinutes)} of your ${fmtNumber(windowHours)} h a week; spend the rest on timed mixed practice.`
+          : `The blocks below total ${plannedMinutesText(plannedMinutes)} of the ${fmtNumber(windowHours)} h weekly budget (at most 2 topics a day, heavy topics on alternate days); spend the rest on mixed timed practice across all topics.`}
       </p>
     ) : null}
-    <ol className="grid grid-cols-1 gap-2 md:grid-cols-7 print:grid-cols-7">
+    <ol className={cn("grid grid-cols-1 gap-2", notes ? "sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4" : "md:grid-cols-7 print:grid-cols-7")}>
       {days.map((d) => {
         const minutes = d.blocks.reduce((m, b) => m + safeNumber(b.minutes), 0);
         return (
           <li key={d.day} className="min-w-0 rounded-md border border-slate-200 bg-white p-2 print:break-inside-avoid">
             <p className="flex items-baseline justify-between gap-1 text-xs">
-              <span className="font-semibold text-brand-navy">
-                {weekday(d.date) || `Day ${d.day}`}
-                <span className="ml-1 font-normal tabular-nums text-slate-500">{d.date ? d.date.slice(5) : `D${d.day}`}</span>
-              </span>
+              <span className="font-semibold tabular-nums text-brand-navy">{dayLabel(d.date) || `Day ${d.day}`}</span>
               <span className="tabular-nums text-slate-500">{minutes} min</span>
             </p>
             {d.blocks.length ? (
@@ -487,9 +510,10 @@ function WeeklyCalendar({ plan }: { plan: StudyPlan }) {
                 {d.blocks.map((b, i) => {
                   const look = ACTIVITY_LOOK[b.activity] ?? ACTIVITY_LOOK.review;
                   return (
-                    <li key={i} className={cn("border-l-2 bg-slate-50 px-1.5 py-1 text-xs leading-snug [print-color-adjust:exact]", look.cls)} title={b.note}>
+                    <li key={i} className={cn("border-l-2 bg-slate-50 px-1.5 py-1 text-xs leading-snug [print-color-adjust:exact]", look.cls)} title={notes ? undefined : b.note}>
                       <span className="font-medium text-slate-800">{look.label}</span> · <span className="tabular-nums">{b.minutes} min</span>
-                      <span className="block truncate text-slate-600">{b.topic}</span>
+                      <span className={cn("block text-slate-600", !notes && "truncate")}>{b.topic}</span>
+                      {notes && b.note ? <span className="mt-0.5 block text-slate-700">{b.note}</span> : null}
                     </li>
                   );
                 })}
@@ -647,7 +671,8 @@ export function RoiLab({ result }: { result: Result }) {
   const initial = result.study_plan;
   const batch = result.report_meta.batch;
   const pct = result.percentage;
-  const [days, setDays] = useState(() => clampDays(initial.days_to_exam ?? batch.days_to_exam ?? 120));
+  const dayMax = Math.max(DAY_MAX_MIN, initial.days_to_exam ?? 0, batch.days_to_exam ?? 0);
+  const [days, setDays] = useState(() => clampDays(initial.days_to_exam ?? batch.days_to_exam ?? 120, dayMax));
   const [hours, setHours] = useState(() => clampHours(initial.study_hours || 18));
   const [touched, setTouched] = useState(false);
   const [plans, setPlans] = useState<Record<string, StudyPlan>>({});
@@ -688,10 +713,12 @@ export function RoiLab({ result }: { result: Result }) {
   const pending = touched && !cached && !error;
   const topics = plan.topics;
   const basis = result.roi_basis;
+  const showRoi = basis.effort_source_kind !== "placeholder";
+  const shownOrder: Order = showRoi ? order : "observed";
 
   const moveDays = (n: number) => {
     setTouched(true);
-    setDays(clampDays(n));
+    setDays(clampDays(n, dayMax));
   };
   const moveHours = (n: number) => {
     setTouched(true);
@@ -717,16 +744,15 @@ export function RoiLab({ result }: { result: Result }) {
   return (
     <SectionCard
       id="roi-lab"
-      title="Preparation ROI Lab"
-      description="Change days or weekly hours to recalculate the top five, quadrants and plan."
+      title="Study plan lab"
+      description="Change the days or weekly hours to recalculate the top five, the quadrants and the plan."
       action={<IllustrativePill />}
     >
       <div className="space-y-4">
         <div className="text-sm">
           <p className="font-medium text-slate-800">Illustrative deterministic prototype - not a calibrated NEET forecast</p>
           <p className="mt-1 text-xs leading-normal text-slate-600">
-            Chapter weightage ({basis.matrix_version}) and effort hours are sample values: {basis.weightage_source}.
-            Effort: {basis.effort_source}.{" "}
+            Chapter weightage and effort hours are sample values, not from licensed past papers.{" "}
             {result.question_evaluations.some((q) => q.question_type === "mcq")
               ? "MCQ negative marking is already netted into the observed mastery (floored at 0%)."
               : "No negative marking in this rubric."}
@@ -734,11 +760,11 @@ export function RoiLab({ result }: { result: Result }) {
         </div>
 
         <div className="border-l-2 border-amber-400 pl-3">
-          <p className="text-sm font-medium text-amber-900">Forecast status: {basis.forecast_status || "UNAVAILABLE"}</p>
-          <p className="mt-0.5 text-sm text-slate-700">Reason: {basis.reason}.</p>
+          <p className="text-sm font-medium text-amber-900">Not a forecast</p>
+          <p className="mt-0.5 text-sm text-slate-700">There is no calibrated data on how study time turns into marks yet.</p>
           <div className="mt-2 space-y-1 font-mono text-xs leading-relaxed text-slate-600">
-            <p>BRD §6.4: ROI = chapter weightage × mark-gain potential ÷ estimated effort hours</p>
-            <p>Engine ({basis.calculation_version}): ROI = exam marks × (target − mastery)/100 × time factor ÷ effort hours</p>
+            <p>Expected gain = exam marks × (target − mastery) / 100 × time factor</p>
+            {showRoi ? <p>Return per hour = expected gain ÷ effort hours</p> : null}
           </div>
         </div>
 
@@ -752,7 +778,7 @@ export function RoiLab({ result }: { result: Result }) {
               id="roi-days"
               type="range"
               min={DAY_MIN}
-              max={DAY_MAX}
+              max={dayMax}
               value={days}
               onChange={(e) => moveDays(Number(e.target.value))}
               className="mt-2 w-full accent-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
@@ -765,7 +791,7 @@ export function RoiLab({ result }: { result: Result }) {
                   aria-pressed={days === p.days}
                   onClick={() => moveDays(p.days)}
                   className={cn(
-                    "min-h-8 rounded-sm border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+                    "min-h-8 cursor-pointer rounded-sm border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
                     days === p.days ? "border-brand-navy bg-brand-navy text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
                   )}
                 >
@@ -794,13 +820,9 @@ export function RoiLab({ result }: { result: Result }) {
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Recalculating…
                 </>
               ) : touched ? (
-                `Plan for ${plan.days_to_exam ?? days} days at ${fmtNumber(plan.study_hours)} h/week · ${plan.calculation_version}`
+                `Plan for ${plan.days_to_exam ?? days} days at ${fmtNumber(plan.study_hours)} h/week`
               ) : (
-                `Stored plan · ${plan.calculation_version}${
-                  initial.days_to_exam !== null && initial.days_to_exam > DAY_MAX
-                    ? ` · computed for ${initial.days_to_exam} days (the slider stops at ${DAY_MAX})`
-                    : ""
-                }`
+                `Stored plan for ${plan.days_to_exam ?? days} days at ${fmtNumber(plan.study_hours)} h/week`
               )}
             </p>
           </div>
@@ -813,6 +835,7 @@ export function RoiLab({ result }: { result: Result }) {
             <Block
               title="Next five topics"
               aside={
+                showRoi ? (
                 <div role="group" aria-label="Order" className="flex rounded-md border border-slate-300 text-xs print:hidden">
                   {(
                     [
@@ -826,7 +849,7 @@ export function RoiLab({ result }: { result: Result }) {
                       aria-pressed={order === k}
                       onClick={() => setOrder(k)}
                       className={cn(
-"min-h-8 px-2.5 py-1 font-medium transition-colors duration-150 first:rounded-l-md last:rounded-r-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+"min-h-8 cursor-pointer px-2.5 py-1 font-medium transition-colors duration-150 first:rounded-l-md last:rounded-r-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
                         order === k ? "bg-brand-navy text-white" : "bg-white text-slate-600 hover:bg-slate-50",
                       )}
                     >
@@ -834,16 +857,19 @@ export function RoiLab({ result }: { result: Result }) {
                     </button>
                   ))}
                 </div>
+                ) : null
               }
             >
-              <TopFiveTable plan={plan} result={result} order={order} />
+              <TopFiveTable plan={plan} result={result} order={shownOrder} showRoi={showRoi} />
               {plan.allocation_note ? (
                 <p className="mt-2 text-xs text-slate-600">
                   <span className="font-medium text-slate-800">Allocation:</span> {plan.allocation_note}
                 </p>
               ) : null}
               <p className="mt-1 text-xs text-slate-500">
-                Rules engine, not LLM ranking. {order === "observed" ? "Order follows observed wrong/blank evidence (P1 = largest observed gap)." : "Order follows the illustrative ROI."}
+                {shownOrder === "observed"
+                  ? "Ordered by the marks lost on this paper (P1 = most marks lost)."
+                  : "Ordered by the illustrative return per study hour."}
               </p>
             </Block>
           </div>
@@ -855,8 +881,8 @@ export function RoiLab({ result }: { result: Result }) {
               <Block title="Four action quadrants">
                 <QuadrantGrid topics={topics} />
                 <div className="mt-3">
-                  <QuadrantScatter topics={topics} />
-                  <ScatterLegend topics={topics} />
+                  <QuadrantScatter topics={topics} showRoi={showRoi} />
+                  <ScatterLegend topics={topics} showRoi={showRoi} />
                 </div>
               </Block>
               <div className="space-y-4">
@@ -882,15 +908,17 @@ export function RoiLab({ result }: { result: Result }) {
                     </ul>
                   )}
                 </Block>
-                <Block title="Relative ROI by topic">
-                  <RoiBars topics={topics} />
-                </Block>
+                {showRoi ? (
+                  <Block title="Relative ROI by topic">
+                    <RoiBars topics={topics} />
+                  </Block>
+                ) : null}
               </div>
             </div>
           )}
 
           <Block title="How #1 was calculated">
-            <Explain plan={plan} result={result} />
+            <Explain plan={plan} showRoi={showRoi} />
             {plan.focus[0]?.question_refs.length ? (
               <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                 Evidence:
@@ -901,7 +929,10 @@ export function RoiLab({ result }: { result: Result }) {
             ) : null}
           </Block>
 
-          <Block title="This week's calendar" aside={<span className="text-xs tabular-nums text-slate-500">{fmtNumber(plan.study_hours)} h budget</span>}>
+          <Block
+            title="This week's calendar"
+            aside={<span className="text-xs tabular-nums text-slate-500">{plannedMinutesText(safeNumber(plan.planned_minutes_total))} planned</span>}
+          >
             <WeeklyCalendar plan={plan} />
           </Block>
 

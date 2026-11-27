@@ -1,6 +1,6 @@
 import type { ProcessingLogEntry } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
-import { fmtDuration, fmtTime, humanizeStep } from "./format";
+import { fmtDuration, fmtSeconds, fmtTime, humanizeStep } from "./format";
 import { Pill, SectionCard } from "./primitives";
 
 /** Flag for steps that failed or were routed to a human; everything else is plain. */
@@ -16,12 +16,20 @@ export function AuditTrailCard({
   log,
   className,
   emptyText = "No processing events have been recorded yet.",
+  seconds,
 }: {
   log: ProcessingLogEntry[];
   className?: string;
   emptyText?: string;
+  /** The run's measured queue-to-result time (result.latency.seconds): the one timing figure. */
+  seconds?: number | null;
 }) {
-  const duration = log.length > 1 ? fmtDuration(log[0]?.timestamp, log[log.length - 1]?.timestamp) : null;
+  const duration =
+    typeof seconds === "number" && Number.isFinite(seconds)
+      ? fmtSeconds(seconds)
+      : log.length > 1
+        ? fmtDuration(log[0]?.timestamp, log[log.length - 1]?.timestamp)
+        : null;
 
   return (
     <SectionCard

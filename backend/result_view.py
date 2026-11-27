@@ -9,8 +9,9 @@ logged and replaced by its default payload, so a bug in one never breaks the cor
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -43,6 +44,7 @@ from schemas import (
     ProcessingLogEntry,
     ResultOut,
     ResultPendingOut,
+    ReviewReasonLit,
     RubricOut,
     RubricRef,
     StudentCard,
@@ -54,6 +56,7 @@ from schemas import (
 logger = logging.getLogger("3ilens.result_view")
 
 LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
+REVIEW_REASONS: tuple[str, ...] = get_args(ReviewReasonLit)
 
 
 def guarded(name: str, hook: Callable[[], dict[str, Any]], default: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -128,6 +131,14 @@ def _language_hints(sub: StudentSubmission) -> list[str]:
     return hints or ["en"]
 
 
+def _review_reason(sub: StudentSubmission) -> str | None:
+    """The stored hold reason of a held sheet (None for any other status or an unknown code)."""
+    reason = getattr(sub, "review_reason", None)
+    if sub.status != SubmissionStatus.HUMAN_REVIEW_REQUIRED or reason not in REVIEW_REASONS:
+        return None
+    return reason
+
+
 def submission_out(sub: StudentSubmission) -> SubmissionOut:
     settings = get_settings()
     result = sub.result
@@ -149,6 +160,7 @@ def submission_out(sub: StudentSubmission) -> SubmissionOut:
         total_score=result.total_score if completed else None,
         total_marks=result.total_marks if completed else sub.rubric.total_marks,
         rubric_id=sub.rubric_id,
+        rubric_hash=sub.rubric.rubric_hash,
         batch_id=sub.batch_id,
         file_sha256=sub.file_hash,
         file_size=sub.file_size,
@@ -171,14 +183,33 @@ def submission_out(sub: StudentSubmission) -> SubmissionOut:
         audio_seconds=sub.audio_seconds,
         voice_question=sub.voice_question,
         detected_languages=[str(code) for code in (sub.detected_languages or [])],
+        review_reason=_review_reason(sub),
     )
+
+
+_OLD_MASTERY = re.compile(r"(\d+(?:\.\d+)?)% mastery\b")
+
+
+def _reworded(sub: StudentSubmission, entry: dict) -> dict:
+    """Older stored log lines in today's wording (read time only, the stored log is not changed):
+    the Persistence line's rounded '56% mastery' becomes the report's 1-decimal share of the total."""
+    message = str(entry.get("message") or "")
+    result = getattr(sub, "result", None)
+    if entry.get("step") == "Persistence" and _OLD_MASTERY.search(message) and result is not None:
+        try:
+            total, score = float(result.total_marks or 0), float(result.total_score or 0)
+        except (TypeError, ValueError):
+            total = 0.0
+        if total > 0:
+            message = _OLD_MASTERY.sub(f"{score / total * 100.0:.1f}% of the total", message)
+    return {**entry, "message": message} if message != entry.get("message") else entry
 
 
 def processing_log(sub: StudentSubmission) -> list[ProcessingLogEntry]:
     entries: list[ProcessingLogEntry] = []
     for entry in sub.processing_log or []:
         try:
-            entries.append(ProcessingLogEntry.model_validate(entry))
+            entries.append(ProcessingLogEntry.model_validate(_reworded(sub, entry) if isinstance(entry, dict) else entry))
         except ValidationError:
             continue
     return entries
@@ -393,13 +424,15 @@ def student_card(sub: StudentSubmission, *, batches: dict[int, BatchOut] | None 
         "total_marks": sub.rubric.total_marks,
         "is_demo": bool(sub.is_demo),
         "created_at": sub.created_at,
+        "input_kind": sub.input_kind or "document",
     }
     if not is_completed(sub):
         return StudentCard.model_validate(base)
     result = sub.result
     assert result is not None
-    urgency, _reasons, pct = analytics.result_urgency(result)
-    sg = result.strengths_gaps or {}
+    urgency, reasons, pct = analytics.result_urgency(result)
+    base["urgency_reasons"] = reasons
+    sg = analytics.card_strengths_gaps(result, sub.rubric)  # topic-level lines, never one per MCQ
     return StudentCard.model_validate(
         {
             **base,

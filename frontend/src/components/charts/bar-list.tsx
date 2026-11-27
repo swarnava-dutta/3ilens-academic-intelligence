@@ -27,7 +27,7 @@ export function BarList({
               {...c.mark(tipBody(d.label, rows))}
               className="col-span-full grid grid-cols-subgrid items-center gap-y-1.5"
             >
-              <span className="min-w-0 text-slate-700">{d.label}</span>
+              <span className="min-w-0 truncate text-slate-700">{d.label}</span>
               <span className="text-right text-slate-700 tabular-nums @lg:order-last">{value}</span>
               <span className="relative col-span-full h-2.5 bg-slate-100 @lg:col-span-1">
                 <span

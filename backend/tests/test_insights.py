@@ -144,6 +144,8 @@ def test_report_shape_matches_contract():
         # contract v3
         "question_type", "bloom_level", "bloom_source", "demonstrated_level", "concept", "penalty",
         "selected_option", "correct_option", "marking_breakdown", "marking_note",
+        # report redesign: every key letter the MCQ accepts, and the one student vocabulary
+        "accepted_options", "result_kind",
     }
     assert set(report["topic_mastery"][0]) == {
         "topic", "subject", "score", "max_marks", "mastery", "weightage", "effort_hours",
@@ -424,7 +426,7 @@ def test_template_intervention_from_the_first_missed_criterion():
     assert "Meselson" in intervention["teach"]
     assert intervention["practice"].startswith("5 unseen Molecular Basis of Inheritance questions, including ")
     assert intervention["check_criterion"] == (
-        ">=4/5 correct on fresh Molecular Basis of Inheritance items; teacher checks the working"
+        "≥4/5 correct on fresh Molecular Basis of Inheritance items; teacher checks the working"
     )
 
 
@@ -455,7 +457,7 @@ def test_nudges_are_topped_up_to_two_or_three_from_priorities():
     assert [n["priority"] for n in nudges] == ["high", "medium", "low"][: len(nudges)]
     first = nudges[0]
     assert first["label"] == f"Re-teach {first['topic']}"[:200] and len(first["label"].split()) <= 6
-    assert first["text"].endswith("Assign 5 unseen " + first["topic"] + " questions; check >=4/5.")
+    assert first["text"].endswith("Assign 5 unseen " + first["topic"] + " questions; check ≥4/5.")
     assert first["question_refs"] and f"(Q{first['question_refs'][0]})" in first["text"]
 
 
@@ -547,11 +549,11 @@ def test_all_mcq_paper_builds_a_valid_report_with_negative_totals():
     assert gaps == [["Chose C; correct B (-1)"], ["More than one option marked"], ["Chose B; correct C (-1)"],
                     ["Not attempted"]]
     assert report["question_evaluations"][1]["selected_option"] == "MULTI"
-    # No overall lists from the grader: falls back to the question-level items.
+    # No overall lists from the grader: MCQs fall back to topic-level lines, never one line per question.
     assert report["strengths_gaps"]["strengths"] == []
-    assert report["strengths_gaps"]["gaps"][:2] == [
-        "Q1 (Cell Biology): Chose C; correct B (-1)", "Q2 (Cell Biology): More than one option marked",
-    ]
+    assert report["strengths_gaps"]["gaps"] == ["Cell Biology: 2 wrong of 2", "Ecology: 1 wrong and 1 blank of 2"]
+    assert [q["result_kind"] for q in report["question_evaluations"]] == ["wrong", "wrong", "wrong", "blank"]
+    assert [q["accepted_options"] for q in report["question_evaluations"]] == [["B"], ["A"], ["C"], ["D"]]
     assert len(report["teaching_nudges"]) >= 2  # topped up from the priorities
 
 
@@ -595,4 +597,4 @@ def test_mcq_topics_get_an_mcq_intervention_not_the_scoring_rule():
     cell = by_topic["Cell Biology"]
     assert cell["source"] == "template" and "4 marks" not in cell["teach"]
     assert cell["teach"].startswith("Re-teach Cell Biology from the missed MCQs (Q1, Q2)")
-    assert "-1 per wrong answer" in cell["practice"]
+    assert "−1 per wrong answer" in cell["practice"]

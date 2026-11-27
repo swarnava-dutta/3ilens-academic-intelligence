@@ -9,19 +9,28 @@ export function ChartFrame({
   takeaway,
   legend,
   table,
+  titleClassName,
+  className,
   children,
 }: {
   title: string;
   takeaway?: string;
   legend?: { label: string; series: Series }[];
   table?: { columns: string[]; rows: (string | number)[][] };
+  /** Overrides the title's look (e.g. a quieter caption above a hero chart). */
+  titleClassName?: string;
+  className?: string;
   children: ReactNode;
 }) {
-  const numeric = (j: number) => typeof table?.rows[0]?.[j] === "number";
+  // Numbers, and number-like text ("55.8%", "−8", "26/45"), are right-aligned.
+  const numeric = (j: number) => {
+    const v = table?.rows[0]?.[j];
+    return typeof v === "number" || (typeof v === "string" && /^[+−-]?\d[\d.,]*(?:%|\/\d+)?(?: \(.*\))?$/.test(v));
+  };
   return (
-    <figure className="min-w-0 space-y-3">
+    <figure className={cn("min-w-0 space-y-3", className)}>
       <figcaption>
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <h3 className={cn("text-sm font-semibold text-slate-900", titleClassName)}>{title}</h3>
         {takeaway && <p className="text-sm text-slate-600">{takeaway}</p>}
       </figcaption>
       {legend && legend.length > 0 && (
@@ -30,7 +39,9 @@ export function ChartFrame({
       {children}
       {table && table.rows.length > 0 && (
         <details className="text-xs print:hidden">
-          <summary className="w-fit cursor-pointer text-slate-500 hover:text-slate-700">Show data</summary>
+          <summary className="w-fit cursor-pointer rounded-sm text-slate-600 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E40AF]">
+            Show data
+          </summary>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full tabular-nums">
               <thead>

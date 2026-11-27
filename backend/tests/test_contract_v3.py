@@ -32,7 +32,7 @@ def _completed_demo_ids(client) -> list[int]:
 
 
 # (a) seeded Genetics rows carry the v3 read-time defaults ----------------------------------
-def test_genetics_demo_rows_have_v3_defaults(client):
+def test_genetics_demo_rows_have_v3_defaults(demo_data, client):
     assert client.post("/api/demo/seed").json()["created"] == 13
     ids = _completed_demo_ids(client)
     assert ids
@@ -195,7 +195,7 @@ def test_valid_v3_rubric_fields_round_trip():
 
 
 # (f) seeded rubric content and hashes are byte-identical to the JSON files --------------------
-def test_seeded_rubric_hashes_are_unchanged(client):
+def test_seeded_rubric_hashes_are_unchanged(demo_data, client):
     import hashing
 
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
@@ -228,7 +228,7 @@ def test_marking_policy_change_marks_every_shared_question_changed():
 
 
 # (g) demo sets ---------------------------------------------------------------------------------
-def test_insights_demo_set_is_accepted_and_all_is_unchanged(client):
+def test_insights_demo_set_is_accepted_and_all_is_unchanged(demo_data, client):
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
     response = client.post("/api/demo/seed", params={"set": "insights"})
     assert response.status_code == 200, response.text
@@ -253,7 +253,7 @@ def test_batch_faculty_lead_round_trips_and_clears(client):
 
 
 # (i) guarded hooks ---------------------------------------------------------------------------------
-def test_a_failing_extension_hook_never_breaks_the_report_or_cohort(client, monkeypatch):
+def test_a_failing_extension_hook_never_breaks_the_report_or_cohort(demo_data, client, monkeypatch):
     import llm_route
     import patterns
 
@@ -275,7 +275,7 @@ def test_a_failing_extension_hook_never_breaks_the_report_or_cohort(client, monk
 
 
 # voice read side + interfaces -----------------------------------------------------------------------
-def test_voice_rows_expose_voice_info(client, db_session):
+def test_voice_rows_expose_voice_info(demo_data, client, db_session):
     from database import StudentSubmission
 
     client.post("/api/demo/seed")
@@ -358,3 +358,50 @@ def test_outcomes_effectiveness_stub_is_schema_valid():
 
     eff = InterventionEffectiveness.model_validate(outcomes.effectiveness(None, institution_id=1))
     assert eff.records == 0 and eff.institution_id == 1 and "not assumed to cause" in eff.caveat
+
+
+# (report redesign) new Result keys, their defaults, and the read-time question vocabulary -------
+def test_report_redesign_keys_and_defaults(demo_data, client):
+    from schemas import FatigueProfile, KeyInsight, QuestionEvaluationOut, ResultOut, StudentPatterns, SubjectRollup
+
+    client.post("/api/demo/seed")
+    sid = _completed_demo_ids(client)[0]
+    body = client.get(f"/api/results/{sid}").json()
+    assert [i["id"] for i in body["key_insights"]] == ["attempts", "subjects", "gain"]
+    for insight in body["key_insights"]:
+        KeyInsight.model_validate(insight)
+        assert insight["evidence"]["anchor"] and not insight["evidence"]["anchor"].startswith("#")
+    band = body["score_band"]
+    assert band["key"] == body["urgency"] and band["target_pct"] == 70.0
+    assert [t["to_pct"] for t in band["thresholds"]] == [55.0, 70.0, 100.0]
+    assert body["focus_topics"]["level"] in ("chapter", "subject") and body["student_summary"]
+    for q in body["question_evaluations"]:  # descriptive Genetics rows: right / partial / zero / blank
+        assert q["result_kind"] in ("right", "partial", "zero", "blank") and q["accepted_options"] == []
+    rollup = body["subject_rollup"][0]
+    assert {"right", "wrong", "blank_scorable", "attempt_rate", "accuracy_attempted", "gain_to_target", "band",
+            "diagnosis"} <= set(rollup)
+    assert isinstance(body["study_plan"]["planned_minutes_total"], int)
+    assert body["roi_basis"]["effort_source_kind"] in ("matrix", "rubric", "placeholder")
+    assert isinstance(body["patterns"]["bloom_informative"], bool)
+
+    # Older payloads (no redesign keys) still validate with empty defaults.
+    old = {k: v for k, v in body.items() if k not in ("key_insights", "score_band", "focus_topics", "student_summary")}
+    result = ResultOut.model_validate(old)
+    assert (result.key_insights, result.score_band, result.student_summary) == ([], None, [])
+    assert SubjectRollup.model_validate({"subject": "Physics", "questions": 1, "full": 0, "partial": 0, "zero": 0,
+                                         "blank": 1, "score": 0, "max_marks": 4, "pct": 0}).diagnosis == "mixed"
+    assert StudentPatterns().bloom_informative is False
+    assert FatigueProfile.model_fields["within_subject"].default_factory() == []
+    # A stored MCQ row without the new keys: result_kind from its marks, accepted_options from correct_option.
+    wrong = QuestionEvaluationOut.model_validate({
+        "question": 4, "topic": "Optics", "estimated_marks": -1, "max_marks": 4, "evidence": "", "strengths": [],
+        "gaps": [], "student_answer": "C", "confidence": 0.9, "question_type": "mcq", "selected_option": "C",
+        "correct_option": "B", "penalty": 1,
+    })
+    assert (wrong.result_kind, wrong.accepted_options) == ("wrong", ["B"])
+    bonus = QuestionEvaluationOut.model_validate({
+        "question": 5, "topic": "Optics", "estimated_marks": 4, "max_marks": 4, "evidence": "", "strengths": [],
+        "gaps": [], "student_answer": "", "confidence": 0.0, "question_type": "mcq",
+        "marking_note": "Bonus question - full marks to everyone (+4)",
+    })
+    assert (bonus.result_kind, bonus.outcome, bonus.bonus) == ("bonus", "FULL", True)

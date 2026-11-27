@@ -40,6 +40,8 @@ MIN_INSIGHTS = 2
 MAX_NUDGES = 3
 MIN_NUDGES = 2
 MAX_NUDGE_LABEL_WORDS = 6
+MAX_NUDGE_REFS = 5
+SKIPPED_NUDGE_LABEL = "Check skipped questions"
 MAX_CONFUSIONS = 3
 MAX_INTERVENTIONS = 5
 MAX_UNCERTAIN_WORDS = 8
@@ -50,11 +52,12 @@ NOT_ATTEMPTED_GAP = "Not attempted"
 
 OUTCOMES = ("FULL", "PARTIAL", "ZERO", "BLANK")
 NUDGE_PRIORITIES = ("high", "medium", "low")
-CHECK_TEMPLATE = ">=4/5 correct on fresh {topic} items; teacher checks the working"
+SECURE_SHARE = 0.70  # a topic at 70%+ is 'solid' (analytics.URGENCY_ON_TRACK)
+CHECK_TEMPLATE = "≥4/5 correct on fresh {topic} items; teacher checks the working"
 MAINTENANCE_NUDGE = {
     "priority": "low",
     "label": "Maintain with mixed practice",
-    "text": "No topic is below 90%: assign one timed mixed set of 5 unseen questions; check >=4/5.",
+    "text": "No topic is below 90%: assign one timed mixed set of 5 unseen questions; check ≥4/5.",
     "topic": None,
     "question_refs": [],
     "source": "template",
@@ -107,13 +110,15 @@ def build_evaluation_report(
         student_answer = answer.answer if answer else ""
         qtype = marking.question_type(raw)
         penalty, selected, correct, breakdown, note, demonstrated = 0.0, None, None, [], None, None
+        accepted: list[str] = []
         if qtype == "mcq":
             # Deterministic: the option letter decides; any grade from the evaluation call is ignored.
             scored = marking.score_mcq(raw, student_answer, policy)
             marks, penalty, note = scored["marks"], scored["penalty"], scored["note"]
             selected, correct = scored["selected_option"], scored["correct_option"]
+            accepted = list(scored.get("accepted_options") or [])
             evidence = f"Auto-scored MCQ: {note}"
-            strengths, gaps = _mcq_strengths_gaps(selected, correct, penalty)
+            strengths, gaps = _mcq_strengths_gaps(selected, correct, penalty, raw)
         elif grade is None:
             marks, evidence, strengths, gaps = 0.0, NO_EVALUATION_EVIDENCE, [], [NOT_ATTEMPTED_GAP]
         else:
@@ -129,7 +134,9 @@ def build_evaluation_report(
             demonstrated = bloom.parse_level(grade.demonstrated_level)
         if NOTE_TO_EXAMINER.search(student_answer or ""):
             note = f"{note}. {EXAMINER_NOTE_FLAG}" if note else EXAMINER_NOTE_FLAG
-        outcome = question_outcome(student_answer, marks, max_marks)
+        outcome = question_outcome(
+            student_answer, marks, max_marks, bonus=qtype == "mcq" and marking.is_bonus(raw)
+        )
         level, level_source = levels.get(number, (None, None))
         question_evaluations.append(
             {
@@ -154,10 +161,12 @@ def build_evaluation_report(
                 "penalty": float(penalty or 0.0),
                 "selected_option": selected if qtype == "mcq" else None,
                 "correct_option": correct if qtype == "mcq" else None,
+                "accepted_options": accepted,
                 "marking_breakdown": breakdown or [],
                 "marking_note": note,
             }
         )
+        question_evaluations[-1]["result_kind"] = marking.result_kind(question_evaluations[-1])
 
     total_marks = _clean_number(sum(q["max_marks"] for q in questions))
     total_score = _clean_number(sum(item["estimated_marks"] for item in question_evaluations))
@@ -248,7 +257,13 @@ def _raw_questions(rubric_content: dict) -> dict[int, dict[str, Any]]:
     return out
 
 
-def _mcq_strengths_gaps(selected: str | None, correct: str | None, penalty: float) -> tuple[list[str], list[str]]:
+def _mcq_strengths_gaps(
+    selected: str | None, correct: str | None, penalty: float, question: dict[str, Any] | None = None
+) -> tuple[list[str], list[str]]:
+    """A bonus question (full marks to everyone) shows neither; a wrong option on a key that
+    accepts several options names them all ("correct B or C")."""
+    if marking.is_bonus(question):
+        return [], []
     if selected is not None and correct is not None and selected == correct:
         return [f"Correct option {correct}"], []
     if selected is None:
@@ -258,7 +273,8 @@ def _mcq_strengths_gaps(selected: str | None, correct: str | None, penalty: floa
     if selected == marking.UNKNOWN:
         return [], ["Option not identifiable - check the sheet"]
     lost = f"-{_fmt(penalty)}" if penalty else "0"
-    return [], [f"Chose {selected}; correct {correct or '?'} ({lost})"]
+    accepted = marking.accepted_options(question)
+    return [], [f"Chose {selected}; correct {marking.or_join(accepted) if accepted else correct or '?'} ({lost})"]
 
 
 def _index_answers(answers: Iterable[OcrAnswer | dict] | None, known: set[int]) -> dict[int, OcrAnswer]:
@@ -289,13 +305,18 @@ def _index_grades(evaluation: EvaluationOutput, known: set[int]) -> dict[int, An
 # --------------------------------------------------------------------------- #
 # Per-question outcome
 # --------------------------------------------------------------------------- #
-def question_outcome(student_answer: Any, marks: Any, max_marks: Any) -> str:
-    """BLANK without a student answer; FULL at max marks; ZERO when answered but 0; else PARTIAL."""
-    if not str(student_answer or "").strip():
-        return "BLANK"
+def question_outcome(student_answer: Any, marks: Any, max_marks: Any, *, bonus: bool = False) -> str:
+    """BLANK without a student answer; FULL at max marks; ZERO when answered but 0; else PARTIAL.
+    A bonus MCQ (bonus=True) at full marks is FULL even when left blank: it is full credit."""
     try:
         awarded, maximum = float(marks or 0), float(max_marks or 0)
     except (TypeError, ValueError):
+        awarded = maximum = None
+    if bonus and awarded is not None and maximum is not None and maximum > 0 and awarded >= maximum:
+        return "FULL"
+    if not str(student_answer or "").strip():
+        return "BLANK"
+    if awarded is None or maximum is None:
         return "PARTIAL"
     if maximum > 0 and awarded >= maximum:
         return "FULL"
@@ -305,7 +326,10 @@ def question_outcome(student_answer: Any, marks: Any, max_marks: Any) -> str:
 
 
 def outcome_of(item: dict[str, Any]) -> str:
-    """Outcome of a stored question evaluation (old rows lack the key)."""
+    """Outcome of a stored question evaluation (old rows lack the key). A bonus question scored at
+    full marks is FULL (rows graded before that rule stored BLANK for a blank one)."""
+    if marking.bonus_scored(item):
+        return "FULL"
     stored = item.get("outcome")
     if stored in OUTCOMES:
         return stored
@@ -522,16 +546,30 @@ def topic_intervention(
     by_number = {_as_int(q.get("question")): q for q in questions}
     descriptive = [n for n in lost if by_number[n].get("question_type") != "mcq"]
     if not descriptive:
-        # An MCQ's "criteria" are its scoring rule, not a teaching point.
-        return mcq_template_intervention(topic, lost)
+        # An MCQ's "criteria" are its scoring rule, not a teaching point. Wrong answers are cited first.
+        ordered = sorted(lost, key=lambda n: (marking.result_kind(by_number[n]) != "wrong", n))
+        own = [q for q in questions if str(q.get("topic")) == str(topic)]
+        total = sum(float(q.get("max_marks") or 0) for q in own)
+        secure = total > 0 and sum(float(q.get("estimated_marks") or 0) for q in own) / total >= SECURE_SHARE
+        return mcq_template_intervention(topic, ordered, secure=secure)
     return template_intervention(topic, missed_criterion(by_number[descriptive[0]], criteria_by_q.get(descriptive[0])))
 
 
-def mcq_template_intervention(topic: str, questions: list[int]) -> dict[str, Any]:
-    refs = ", ".join(f"Q{n}" for n in questions)
+def refs_text(numbers: Iterable[int], limit: int = 5) -> str:
+    """'Q4, Q12, Q17' - at most `limit` refs, then '+N more' (the full list lives in the
+    question_refs / trigger_questions arrays, never repeated in prose)."""
+    numbers = list(numbers)
+    shown = ", ".join(f"Q{n}" for n in numbers[:limit])
+    return shown + (f" +{len(numbers) - limit} more" if len(numbers) > limit else "")
+
+
+def mcq_template_intervention(topic: str, questions: list[int], *, secure: bool = False) -> dict[str, Any]:
+    """Teach / practice / check for an MCQ topic; a topic already at 70%+ is reviewed, not re-taught."""
+    refs = refs_text(questions)
+    verb = "Review" if secure else "Re-teach"
     return {
-        "teach": f"Re-teach {topic} from the missed MCQs ({refs}): why the right option is right and each distractor is wrong",
-        "practice": f"5 unseen {topic} MCQs under exam timing; skip any you cannot narrow down (-1 per wrong answer)",
+        "teach": f"{verb} {topic} from the missed MCQs ({refs}): why the right option is right and each distractor is wrong",
+        "practice": f"5 unseen {topic} MCQs under exam timing; skip any you cannot narrow down (−1 per wrong answer)",
         "check_criterion": CHECK_TEMPLATE.format(topic=topic),
         "source": "template",
     }
@@ -617,29 +655,66 @@ def top_up_nudges(
     question_evaluations: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Fill up to 3 nudges deterministically: one per top priority with a gap ('Re-teach <topic>'),
-    then other questions with gaps, then a maintenance nudge when nothing is left to fix."""
+    then other topics with gaps, then a 'check skipped questions' nudge, then a maintenance nudge
+    when nothing is left to fix. Wrong (or short) answers are cited before blanks, at most
+    MAX_NUDGE_REFS refs; a single blank question is never the only evidence for a re-teach nudge."""
     out = [dict(n) for n in nudges][:MAX_NUDGES]
     covered = {str(n.get("topic") or "").casefold() for n in out if n.get("topic")}
     labels = {str(n.get("label") or "").casefold() for n in out}
     questions = [q for q in question_evaluations or [] if isinstance(q, dict)]
 
-    def add(topic: str, q: dict[str, Any], rank: int) -> None:
-        number = _as_int(q.get("question"))
-        label = _short_label(f"Re-teach {topic}")
+    def evidence(topic: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """(answered questions that lost marks, blank questions that scored nothing) of a topic."""
+        lost = set(trigger_questions(topic, questions))
+        short, blank = [], []
+        for q in questions:
+            if str(q.get("topic")) != str(topic) or _as_int(q.get("question")) not in lost:
+                continue
+            kind = marking.result_kind(q)
+            if kind == "bonus":
+                continue
+            marks = float(q.get("estimated_marks") or 0)
+            (blank if kind == "blank" and marks <= 0 else short).append(q)
+        return short, blank
+
+    def secure(topic: str) -> bool:
+        """The topic already scores 70%+ on this paper (its diagnosis is 'solid'): keep it sharp."""
+        own = [q for q in questions if str(q.get("topic")) == str(topic)]
+        total = sum(float(q.get("max_marks") or 0) for q in own)
+        return total > 0 and sum(float(q.get("estimated_marks") or 0) for q in own) / total >= SECURE_SHARE
+
+    def add(topic: str, rank: int) -> bool:
+        label = _short_label(f"Keep {topic} sharp" if secure(topic) else f"Re-teach {topic}")
         if label.casefold() in labels:
-            return
+            return False
+        short, blank = evidence(topic)
+        if not short and len(blank) <= 1:
+            return False  # one blank question is not evidence enough to re-teach a topic
+        cited = short + blank
+        refs = [n for n in (_as_int(q.get("question")) for q in cited[:MAX_NUDGE_REFS]) if n is not None]
+        if all(q.get("question_type") == "mcq" for q in cited):
+            wrong_blank = " and ".join(
+                f"{n} {word}" for n, word in ((len(short), "wrong"), (len(blank), "blank")) if n
+            )
+            more = len(cited) - len(refs)
+            text = (f"{wrong_blank} in {topic} ({', '.join(f'Q{n}' for n in refs)}"
+                    f"{f' +{more} more' if more else ''}). Assign 5 unseen {topic} questions; check ≥4/5.")
+        else:
+            refs = refs[:1]
+            text = f"{_first_gap(cited[0])} (Q{refs[0]}). Assign 5 unseen {topic} questions; check ≥4/5."
         labels.add(label.casefold())
         covered.add(topic.casefold())
         out.append(
             {
                 "priority": NUDGE_PRIORITIES[min(rank, len(NUDGE_PRIORITIES) - 1)],
                 "label": label,
-                "text": f"{_first_gap(q)} (Q{number}). Assign 5 unseen {topic} questions; check >=4/5.",
+                "text": text,
                 "topic": topic,
-                "question_refs": [number] if number is not None else [],
+                "question_refs": refs,
                 "source": "template",
             }
         )
+        return True
 
     for rank, priority in enumerate(priorities or []):
         if len(out) >= MAX_NUDGES:
@@ -647,9 +722,7 @@ def top_up_nudges(
         topic = str(priority.get("topic") or "")
         if not topic or topic.casefold() in covered:
             continue
-        lost = trigger_questions(topic, questions)
-        if lost:
-            add(topic, next(q for q in questions if _as_int(q.get("question")) == lost[0]), rank)
+        add(topic, rank)
     if len(out) < MIN_NUDGES:
         ranked = sorted(
             (q for q in questions if outcome_of(q) != "FULL"),
@@ -660,9 +733,33 @@ def top_up_nudges(
                 break
             topic = str(q.get("topic") or "")
             if topic and topic.casefold() not in covered:
-                add(topic, q, len(out))
+                add(topic, len(out))
+    if len(out) < MIN_NUDGES:
+        skipped = [
+            n for q in questions
+            if marking.result_kind(q) == "blank" and float(q.get("estimated_marks") or 0) <= 0
+            and str(q.get("topic") or "").casefold() not in covered and (n := _as_int(q.get("question"))) is not None
+        ]
+        if skipped and SKIPPED_NUDGE_LABEL.casefold() not in labels:
+            labels.add(SKIPPED_NUDGE_LABEL.casefold())
+            out.append({
+                "priority": NUDGE_PRIORITIES[min(len(out), len(NUDGE_PRIORITIES) - 1)],
+                "label": SKIPPED_NUDGE_LABEL,
+                "text": (f"{len(skipped)} question{'s' if len(skipped) != 1 else ''} left blank "
+                         f"({refs_text(skipped, MAX_NUDGE_REFS)}): ask whether time ran out or the topic is "
+                         "unfamiliar before re-teaching."),
+                "topic": None,
+                "question_refs": skipped[:MAX_NUDGE_REFS],
+                "source": "template",
+            })
+    nothing_lost = all(
+        float(q.get("estimated_marks") or 0) >= float(q.get("max_marks") or 0) for q in questions
+    )
     if len(out) < MIN_NUDGES and MAINTENANCE_NUDGE["label"].casefold() not in labels:
-        out.append(dict(MAINTENANCE_NUDGE))
+        # "No topic is below 90%" is only true when nothing lost marks; otherwise keep the rest warm.
+        out.append(dict(MAINTENANCE_NUDGE) if nothing_lost else {**MAINTENANCE_NUDGE, "text": (
+            f"No {'other ' if out else ''}topic shows enough evidence for a re-teach: assign one timed mixed set "
+            "of 5 unseen questions; check ≥4/5.")})
     return out[:MAX_NUDGES]
 
 
@@ -708,12 +805,55 @@ def _strengths_gaps(evaluation: EvaluationOutput, question_evaluations: list[dic
     }
 
 
+def mcq_topic_lines(question_evaluations: Iterable[dict[str, Any]], key: str) -> list[str]:
+    """Topic-level strength / gap lines for the MCQs of a paper (never one line per question):
+    strengths 'Biology: right on 68 of 78 answered' (topics right on at least half of what was
+    answered, best first); gaps 'Physics: 19 blank and 8 wrong of 45' (most marks dropped first).
+    Bonus questions are left out of every count."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for q in question_evaluations or []:
+        if isinstance(q, dict) and q.get("question_type") == "mcq":
+            groups.setdefault(str(q.get("topic") or "General"), []).append(q)
+    rows = []
+    for topic, items in groups.items():
+        kinds = [marking.result_kind(q) for q in items]
+        right, wrong, blank = kinds.count("right"), kinds.count("wrong"), kinds.count("blank")
+        scorable = len(items) - kinds.count("bonus")
+        dropped = sum(
+            float(q.get("max_marks") or 0) - float(q.get("estimated_marks") or 0) for q in items
+        )
+        rows.append((topic, right, wrong, blank, scorable, dropped))
+    lines: list[str] = []
+    if key == "strengths":
+        good = [r for r in rows if r[1] + r[2] > 0 and r[1] >= 1 and r[1] / (r[1] + r[2]) >= 0.5]
+        good.sort(key=lambda r: (-r[1] / (r[1] + r[2]), -(r[1] + r[2]), r[0]))
+        lines = [f"{topic}: right on {right} of {right + wrong} answered" for topic, right, wrong, *_ in good]
+    else:
+        weak = [r for r in rows if r[2] + r[3] > 0]
+        weak.sort(key=lambda r: (-r[5], r[0]))
+        for topic, _right, wrong, blank, scorable, _dropped in weak:
+            parts = sorted(((wrong, "wrong"), (blank, "blank")), key=lambda p: -p[0])  # larger first
+            text = " and ".join(f"{n} {label}" for n, label in parts if n)
+            lines.append(f"{topic}: {text} of {scorable}")
+    return lines[:MAX_INSIGHTS]
+
+
 def _insights(overall: list[str], question_evaluations: list[dict[str, Any]], key: str) -> list[str]:
     items = _clean_list(overall)[:MAX_INSIGHTS]
     if len(items) >= MIN_INSIGHTS:
         return items
     seen = {item.casefold() for item in items}
+    # MCQs: one line per topic, never 'Q2 (Physics): Correct option A' per question.
+    for candidate in mcq_topic_lines(question_evaluations, key):
+        if candidate.casefold() in seen:
+            continue
+        seen.add(candidate.casefold())
+        items.append(candidate)
+        if len(items) >= MAX_INSIGHTS:
+            return items
     for qe in question_evaluations:
+        if qe.get("question_type") == "mcq":
+            continue
         for text in qe[key]:
             candidate = f"Q{qe['question']} ({qe['topic']}): {text}"
             if text.casefold() in seen or candidate.casefold() in seen:

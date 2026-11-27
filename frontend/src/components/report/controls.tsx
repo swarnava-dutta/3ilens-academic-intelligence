@@ -8,6 +8,7 @@ import { cn, formatConfidence } from "@/lib/utils";
 import { Notice, btnSecondary } from "./dialog";
 import { fmtBytes, fmtIST, fmtInr, fmtNumber, fmtSeconds, fraction, shortHash } from "./format";
 import { Pill, SectionCard } from "./primitives";
+import { realMinus } from "./patterns/shared";
 import { rubricLabel } from "./use-rubric";
 import { CopyButton, DeliveryResult } from "./whatsapp-dialog";
 
@@ -96,7 +97,9 @@ export function ProvenanceGatesCard({ result }: { result: Result }) {
       ? "Different papers are not equated for difficulty, so the dated assessments show no reliable trend."
       : "A single assessment shows no trend.",
     `ROI and score projections are illustrative (${result.roi_basis.forecast_status || "UNAVAILABLE"}: ${result.roi_basis.reason}).`,
-    ...(rubric.status === "AUTHOR_DRAFT" ? [`The rubric ${rubricLabel(rubric)} is AUTHOR_DRAFT: the answer key is not faculty-approved.`] : []),
+    ...(rubric.status === "AUTHOR_DRAFT"
+      ? [`The answer key ${rubricLabel(rubric)} was drafted from the uploaded paper and is not faculty-approved.`]
+      : []),
     isDemo
       ? "Synthetic demo record: no scan, no OCR and no AI grading took place."
       : `OCR is vision-LLM transcription by ${ex.ocr_adapter}, not certified OCR.`,
@@ -162,7 +165,7 @@ export function ScoringControlsNote({ result }: { result: Result }) {
     <SectionCard id="scoring-controls" title="Scoring controls" description="How the total was computed.">
       <dl className="grid gap-3 sm:grid-cols-2">
         <Fact label="Marking rule">
-          {sc.marking_rule}
+          {realMinus(sc.marking_rule)}
           {penalty > 0 ? (
             <span className="mt-1 block text-xs font-medium text-rose-700">
               {fmtNumber(-penalty)} marks from negative marking (MCQ penalties); the total is net.

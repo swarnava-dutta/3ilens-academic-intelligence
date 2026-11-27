@@ -7,6 +7,7 @@ fallback ("heuristic"), not a judgement: the highest-level verb found in the pro
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
 
 LEVELS: tuple[str, ...] = ("K1", "K2", "K3", "K4", "K5")
@@ -94,7 +95,12 @@ def _prompt_of(question: dict[str, Any] | None) -> str:
 
 def heuristic_level(question: dict[str, Any] | None) -> tuple[str, str]:
     """(level, rationale) from the verbs in the question prompt; K2 when nothing matches."""
-    prompt = _prompt_of(question)
+    return _heuristic_for_prompt(_prompt_of(question))
+
+
+@lru_cache(maxsize=4096)
+def _heuristic_for_prompt(prompt: str) -> tuple[str, str]:
+    """heuristic_level keyed by the normalised prompt: the same rubric prompts recur on every sheet."""
     if prompt:
         for level in reversed(LEVELS):
             for verb, pattern in _PATTERNS[level]:

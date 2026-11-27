@@ -3,8 +3,8 @@
 import { BarList, ChartFrame, Scatter, StackedBars, Waterfall } from "@/components/charts";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import type { Result } from "@/lib/types";
-import { fmtNumber, fmtRoi } from "../format";
-import { Note, pct, round1, signedPts } from "./shared";
+import { fmtNumber, fmtPct1, fmtRoi, orJoin, plannedMinutesText } from "../format";
+import { Note, pct, round1 } from "./shared";
 
 /** Defaults of the ROI engine (backend analytics.py). */
 const TARGET_MASTERY = 85;
@@ -84,7 +84,8 @@ export function FocusQuadrant({ result }: { result: Result }) {
       title={title}
       takeaway={
         (weak.length
-          ? `${weak.length} of ${topics.length} topics are below ${WEAK_MASTERY}% mastery and at or above the median exam weightage (${fmtNumber(split, 2)}%): ${weak.join(", ")}.`
+          ? `${weak.length} of ${topics.length} topics are below ${WEAK_MASTERY}% mastery and at or above the median exam weightage (${fmtNumber(split, 2)}%): ` +
+            (weak.length > 4 ? `${weak.slice(0, 3).join(", ")} and ${weak.length - 3} more.` : `${weak.join(", ")}.`)
           : `No topic is both below ${WEAK_MASTERY}% mastery and at or above the median exam weightage.`) +
         " Marker size is effort hours."
       }
@@ -126,48 +127,61 @@ export function FocusQuadrant({ result }: { result: Result }) {
   );
 }
 
-export function ProjectedGain({ result }: { result: Result }) {
-  const title = "Projected gain";
-  const plan = result.study_plan;
-  const ps = plan.projected_score;
-  const marks = new Map(result.topic_mastery.map((t) => [t.topic, t.max_marks]));
-  const total = result.topic_mastery.reduce((s, t) => s + t.max_marks, 0);
-  // The projected score's arithmetic: this window's share of each topic's gap, weighted by its marks.
-  const steps = plan.focus
+/**
+ * The projected score as steps in marks on this paper (402 → +89 → +81 → +40 → 612 of 720, 85.0%): each
+ * focus topic's gap to its target from the unrounded score / max, times this window's share of its
+ * effort. The steps add up exactly to the projected score, so the bars, the table and the takeaway agree.
+ */
+export function projectedSteps(result: Result): { label: string; value: number }[] {
+  const own = new Map(result.topic_mastery.map((t) => [t.topic, t]));
+  return result.study_plan.focus
     .slice(0, 5)
     .map((t) => {
+      const row = own.get(t.topic);
+      const max = row?.max_marks ?? 0;
       const share = t.effort_hours > 0 ? Math.min(1, t.allocated_hours / t.effort_hours) : 0;
-      const gain = total ? ((marks.get(t.topic) ?? 0) * share * Math.max(0, t.target_mastery - t.mastery)) / total : 0;
-      return { label: t.topic, value: gain };
+      const gap = max > 0 ? Math.max(0, (t.target_mastery / 100) * max - (row?.score ?? 0)) : 0;
+      return { label: t.topic, value: gap * share };
     })
-    .filter((s) => round1(s.value) > 0);
-  if (!steps.length || ps.expected <= ps.current) {
+    .filter((s) => s.value > 1e-9);
+}
+
+export function ProjectedGain({ result }: { result: Result }) {
+  const title = "Projected gain";
+  const ps = result.study_plan.projected_score;
+  const total = result.total_marks;
+  const start = result.total_score;
+  const steps = projectedSteps(result);
+  if (!steps.length || total <= 0) {
     return (
       <ChartFrame title={title}>
         <Note>No projected gain: no focus topic is below target.</Note>
       </ChartFrame>
     );
   }
-  const running = steps.map((_, i) => round1(steps.slice(0, i + 1).reduce((s, x) => s + x.value, ps.current)));
+  const marks = (v: number) => fmtNumber(Math.round(v * 100) / 100, 2);
+  const pctOf = (v: number) => fmtPct1(v, total);
+  const running = steps.map((_, i) => steps.slice(0, i + 1).reduce((s, x) => s + x.value, start));
   const end = running[running.length - 1];
   const biggest = steps.reduce((m, s) => (s.value > m.value ? s : m));
   return (
     <ChartFrame
       title={title}
       takeaway={
-        `Working the top ${steps.length === 1 ? "topic" : `${steps.length} topics`} could take this paper from ${pct(ps.current)} to ${pct(end)} ` +
-        `(range ${pct(ps.low)}–${pct(ps.high)}); the biggest step is ${biggest.label} (${signedPts(round1(biggest.value))}).`
+        `Working the top ${steps.length === 1 ? "topic" : `${steps.length} topics`} to target could take this paper from ` +
+        `${marks(start)} to ${marks(end)}/${marks(total)} (${pctOf(start)} → ${pctOf(end)}; range ${pct(ps.low)}–${pct(ps.high)}); ` +
+        `the biggest step is ${biggest.label} (+${marks(biggest.value)} marks).`
       }
       table={{
-        columns: ["Step", "Change (pts)", "Running total %"],
+        columns: ["Step", "Change (marks)", "Running total (marks)", "Running total %"],
         rows: [
-          ["Current score", ps.current, ps.current],
-          ...steps.map((s, i) => [s.label, round1(s.value), running[i]]),
-          ["Projected score", round1(end - ps.current), end],
+          ["Current score", marks(start), marks(start), pctOf(start)],
+          ...steps.map((s, i) => [s.label, `+${marks(s.value)}`, marks(running[i]), pctOf(running[i])]),
+          ["Projected score", `+${marks(end - start)}`, marks(end), pctOf(end)],
         ],
       }}
     >
-      <Waterfall start={{ label: "Current score", value: ps.current }} steps={steps} endLabel="Projected score" unit="%" />
+      <Waterfall start={{ label: "Current score", value: start }} steps={steps} endLabel="Projected score" />
       <Tag label="Illustrative · not a calibrated forecast" />
     </ChartFrame>
   );
@@ -185,11 +199,14 @@ export function PlanLoad({ result }: { result: Result }) {
       </ChartFrame>
     );
   }
+  const CHECKPOINT = "Checkpoint mini-test";
   const minutes = new Map<string, number>();
   for (const d of days) for (const b of d.blocks) minutes.set(b.topic, (minutes.get(b.topic) ?? 0) + b.minutes);
-  const ranked = [...minutes].sort((a, b) => b[1] - a[1]).map(([topic]) => topic);
+  // Topics by minutes (the checkpoint is not a topic: its own series, last).
+  const ranked = [...minutes].filter(([t]) => t !== CHECKPOINT).sort((a, b) => b[1] - a[1]).map(([topic]) => topic);
   const OTHER = "Other topics";
-  const names = ranked.length <= 3 ? ranked : [ranked[0], ranked[1], OTHER];
+  const shownTopics = ranked.length <= 3 ? ranked : [ranked[0], ranked[1], OTHER];
+  const names = minutes.has(CHECKPOINT) ? [...shownTopics, CHECKPOINT] : shownTopics;
   const bucket = (topic: string) => (names.includes(topic) ? topic : OTHER);
   const label = (d: (typeof days)[number]) => {
     const t = d.date ? Date.parse(d.date) : NaN;
@@ -200,12 +217,15 @@ export function PlanLoad({ result }: { result: Result }) {
     for (const b of d.blocks) hours.set(bucket(b.topic), (hours.get(bucket(b.topic)) ?? 0) + b.minutes / 60);
     return { label: label(d), segments: names.map((name) => ({ name, value: round1(hours.get(name) ?? 0) })) };
   });
-  const totalH = round1([...minutes.values()].reduce((s, m) => s + m, 0) / 60);
+  const planned = result.study_plan.planned_minutes_total ?? [...minutes.values()].reduce((s, m) => s + m, 0);
+  const most = ranked.length ? (minutes.get(ranked[0]) ?? 0) : 0;
+  const tied = ranked.filter((t) => minutes.get(t) === most);
+  const lead = tied.length > 1 ? `${orJoin(tied).replace(/ or /, " and ")} take the most (${most} min each)` : `${ranked[0]} takes the most (${most} min)`;
   return (
     <ChartFrame
       title={title}
       takeaway={
-        `${fmtNumber(totalH)} h planned over ${days.length} days; ${ranked[0]} takes the most (${fmtNumber(round1(minutes.get(ranked[0])! / 60))} h)` +
+        `${plannedMinutesText(planned)} planned over ${days.length} days; ${lead}` +
         (ranked.length > 3 ? `; ${ranked.length - 2} more topics are grouped as other.` : ".")
       }
       table={{
@@ -217,7 +237,7 @@ export function PlanLoad({ result }: { result: Result }) {
         ]),
       }}
     >
-      <StackedBars rows={rows} seriesOrder={names} unit=" h" rest={OTHER} />
+      <StackedBars rows={rows} seriesOrder={names} unit=" h" rest={minutes.has(CHECKPOINT) ? CHECKPOINT : OTHER} />
     </ChartFrame>
   );
 }

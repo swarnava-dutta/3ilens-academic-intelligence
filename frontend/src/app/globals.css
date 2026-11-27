@@ -2,16 +2,17 @@
 
 /*
  * 3iLens brand tokens, used as Tailwind utilities (bg-brand-navy, text-brand-cyan-600, ...).
- * Page bg #f6f7f9; panels bg-white, border-slate-200, rounded-md, no shadow. Navy for headings and
- * primary actions, cyan as the single interactive accent, lime only for positive data,
- * amber = needs review, red = failure / at risk.
+ * Page bg #f8fafc (slate-50); panels bg-white, border-slate-200, rounded-md, no shadow. Navy for headings and
+ * primary actions, blue as the single interactive accent (the "brand-cyan" names are kept, the
+ * values follow design-system/3ilens/MASTER.md: #1E40AF text and focus rings at 4.5:1+), lime only
+ * for positive data, amber = needs review, red = failure / at risk.
  */
 @theme inline {
-  --color-brand-navy: #0b2545;
-  --color-brand-navy-700: #13315c;
-  --color-brand-cyan: #05a7c5;
-  --color-brand-cyan-600: #0490aa;
-  --color-brand-cyan-50: #e6f7fa;
+  --color-brand-navy: #1e3a8a;
+  --color-brand-navy-700: #1e40af;
+  --color-brand-cyan: #2563eb;
+  --color-brand-cyan-600: #1e40af;
+  --color-brand-cyan-50: #eff6ff;
   --color-brand-lime: #a0d84e;
   --color-brand-lime-600: #7fb52f;
   --color-brand-lime-50: #f3fae8;
@@ -22,7 +23,7 @@
 
 @layer base {
   body {
-    background: #f6f7f9;
+    background: #f8fafc; /* slate-500 muted text on it is 4.55:1 */
     color: #1e293b; /* slate-800 */
     font-size: 14px;
     line-height: 1.5;
@@ -30,8 +31,22 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-brand-cyan);
+    outline: 2px solid #1e40af;
     outline-offset: 2px;
+  }
+}
+
+/* Focused or scrolled-to elements stop below the 5.5rem sticky header (the report has its own scroll-mt). */
+html:not([data-report-view]) {
+  scroll-padding-top: 6rem;
+}
+
+/* Unlayered so it beats Tailwind's text-* utilities: iOS Safari zooms into fields under 16px on focus. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 
@@ -50,6 +65,16 @@
 /* Student Academic Intelligence Report (SAIR)                               */
 /* ------------------------------------------------------------------------- */
 
+/* The report's student view (report-view-mode.tsx) hides the staff navigation and the PoC footer. */
+html[data-report-view="student"] .sair-staff-only {
+  display: none;
+}
+
+/* Without the staff navigation row the app header is 3rem tall: the section nav sticks under it. */
+html[data-report-view="student"] .sair-section-nav {
+  top: 3rem;
+}
+
 /* Q-ref chips scroll to a question card (#q-<n>) and flash it briefly. */
 @keyframes sair-flash {
   0%,
@@ -59,7 +84,7 @@
   }
   15%,
   60% {
-    box-shadow: 0 0 0 4px rgb(5 167 197 / 0.45);
+    box-shadow: 0 0 0 4px rgb(30 64 175 / 0.4);
     background-color: #e6f7fa;
   }
 }
@@ -71,7 +96,7 @@
 @media (prefers-reduced-motion: reduce) {
   .sair-flash {
     animation: none;
-    box-shadow: 0 0 0 3px rgb(5 167 197 / 0.6);
+    box-shadow: 0 0 0 3px rgb(30 64 175 / 0.55);
   }
 }
 

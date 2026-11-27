@@ -105,12 +105,22 @@ def test_student_pdf_from_a_live_upload_has_every_section(client, upload, fake_a
     assert "14/20" in text  # score / total
     for topic in GENETICS_TOPICS:
         assert norm(topic) in text, topic
-    for line in result["strengths_gaps"]["strengths"][:2] + result["strengths_gaps"]["gaps"][:2]:
-        assert norm(line) in text, line
-    for heading in ("01 | Executive summary", "02 | Topic screening (not proven mastery)", "03 | Strengths and gaps",
-                    "04 | Teaching nudges", "05 | Next five topics", "06 | Teacher action plan",
-                    "07 | 7 / 30 / 60 / 90-day roadmap", "08 | Coverage, limitations and sign-off", "Appendix A"):
+    # 'In short' (the student summary) leads; the insights it already covers (weakest subject, next
+    # step) are not repeated, as on the web.
+    covered = {"subjects", "gain"} if len(result["student_summary"]) >= 3 else set()
+    for insight in result["key_insights"]:
+        assert (norm(insight["headline"]) in text) is (insight["id"] not in covered), insight["headline"]
+    assert "In short" in text
+    # Page 1 mirrors the web summary; the student's week, then faculty and processing material last.
+    for heading in ("| Your score", "| Subjects", "| Where to focus", "| Questions", "| All chapters and topics",
+                    "| Your study plan this week", "| Teaching actions (for faculty)",
+                    "| Study plan lab (illustrative, for faculty)",
+                    "| 7 / 30 / 60 / 90-day teaching roadmap (for faculty)", "Appendix A",
+                    "| Processing, coverage and sign-off"):
         assert heading in text, heading
+    assert (text.index("| Your study plan this week") < text.index("| Teaching actions (for faculty)")
+            < text.index("| Study plan lab") < text.index("Appendix A") < text.index("Processing, coverage"))
+    assert "POC" not in text and "rules engine" not in text
     for nudge in NUDGES:
         assert nudge["label"] in text
     # Next five topics: five ranked rows with projected marks and the illustrative label.
@@ -147,7 +157,7 @@ def test_release_switches_the_footer_and_regenerates_the_cached_pdf(client, uplo
     assert "PROVISIONAL - teacher review pending" in pdf_text(client.get(f"/api/reports/{sid}/pdf").content)
 
 
-def test_demo_row_pdf_is_watermarked_demo_data(client, rich_analytics):
+def test_demo_row_pdf_is_watermarked_demo_data(demo_data, client, rich_analytics):
     client.post("/api/demo/seed")
     subs = client.get("/api/submissions").json()
     demo = next(s for s in subs if s["status"] == "COMPLETED" and s["student_name"] == "Kabir Singh")
@@ -164,7 +174,7 @@ def test_demo_row_pdf_is_watermarked_demo_data(client, rich_analytics):
     assert "Concept confusions observed" in text
 
 
-def test_released_demo_rows_carry_the_sign_off(client):
+def test_released_demo_rows_carry_the_sign_off(demo_data, client):
     client.post("/api/demo/seed")
     subs = client.get("/api/submissions").json()
     ananya = next(s for s in subs if s["student_name"] == "Ananya Iyer")
@@ -189,7 +199,7 @@ def test_pdf_requires_a_completed_result(client, upload, fake_ai):
     assert missing.status_code == 404 and missing.json()["code"] == "unknown_submission"
 
 
-def test_archived_version_renders_with_the_superseded_watermark(client, db_session):
+def test_archived_version_renders_with_the_superseded_watermark(demo_data, client, db_session):
     import results_store
     import rubric_store
     from database import StudentSubmission
@@ -221,7 +231,7 @@ def test_archived_version_renders_with_the_superseded_watermark(client, db_sessi
     assert unknown.status_code == 404 and unknown.json()["code"] == "unknown_version"
 
 
-def test_cohort_pdf_has_ranking_topics_denominator_errors_and_interventions(
+def test_cohort_pdf_has_ranking_topics_denominator_errors_and_interventions(demo_data, 
     client, upload, fake_ai, cohort_signals
 ):
     client.post("/api/demo/seed")
@@ -249,7 +259,7 @@ def test_cohort_pdf_has_ranking_topics_denominator_errors_and_interventions(
     assert "DEMO DATA" in text
 
 
-def test_cohort_pdf_respects_filters(client):
+def test_cohort_pdf_respects_filters(demo_data, client):
     client.post("/api/demo/seed")
     batch_id = client.get("/api/health").json()["batch"]["id"]
     rubric_id = client.get("/api/rubrics").json()[0]["id"]
@@ -265,7 +275,7 @@ def test_cohort_pdf_respects_filters(client):
     assert missing.status_code == 404
 
 
-def test_renderers_cope_with_empty_narrative_lists(client):
+def test_renderers_cope_with_empty_narrative_lists(demo_data, client):
     """Old rows / stubbed analytics: no nudges, no plan focus, no roadmap - still a valid PDF."""
     import reports
     import result_view
@@ -287,7 +297,7 @@ def test_renderers_cope_with_empty_narrative_lists(client):
     assert "No priority topics" in text and "Roadmap not available" in text
 
 
-def test_report_logo_path_is_drawn_and_a_bad_logo_falls_back(client, monkeypatch, isolated_env, png_bytes):
+def test_report_logo_path_is_drawn_and_a_bad_logo_falls_back(demo_data, client, monkeypatch, isolated_env, png_bytes):
     client.post("/api/demo/seed")
     sid = next(s["id"] for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED")
     logo = isolated_env / "logo.png"
@@ -303,7 +313,7 @@ def test_report_logo_path_is_drawn_and_a_bad_logo_falls_back(client, monkeypatch
 
 
 CHART_TITLES = ("Score trend", "Topic mastery vs target", "Marks by question",
-                "Where to focus - mastery vs exam weightage", "Projected gain (illustrative)")
+                "Where to focus - mastery vs", "Projected gain (illustrative)")
 
 
 def _demo_result(client, name: str = "Rohan Joshi"):
@@ -317,7 +327,7 @@ def _demo_result(client, name: str = "Rohan Joshi"):
         return result_view.build_result(db, sub)
 
 
-def test_student_pdf_draws_the_charts_inside_the_page(client):
+def test_student_pdf_draws_the_charts_inside_the_page(demo_data, client):
     from datetime import timedelta
 
     import reports
@@ -344,7 +354,7 @@ def test_student_pdf_draws_the_charts_inside_the_page(client):
         assert reports.CONTENT.y0 <= rect.y0 and rect.y1 <= reports.CONTENT.y1, rect
 
 
-def test_student_pdf_without_history_or_plan_still_builds(client):
+def test_student_pdf_without_history_or_plan_still_builds(demo_data, client):
     import reports
 
     out = _demo_result(client)
@@ -353,8 +363,80 @@ def test_student_pdf_without_history_or_plan_still_builds(client):
     })
     data = reports.render_student_pdf(bare)
     text = pdf_text(data)
-    assert "Only this test is on record for the student, so there is no trend yet." in text
+    assert "Score trend" not in text  # one test only: no empty trend card
     assert "No topic plan is available" in text and "No projected gain" in text
     assert "Topic mastery vs target" in text and "Marks by question" in text
     with pymupdf.open("pdf", data) as doc:
         assert 4 <= doc.page_count <= 12
+
+
+# --------------------------------------------------------------------------- #
+# Report redesign: page 1 is the student summary, ops data only on the last page
+# --------------------------------------------------------------------------- #
+PAGE_ONE_BANNED = ("OCR", "Rs ", "latency", "claude", "request", "AUTHOR_DRAFT", "BRD", "sha256", "ROI", "vcustom")
+
+
+def _report1_pages(client, upload, db_session) -> tuple[dict, list[str]]:
+    """The report-1 fixture (402/720, 180 MCQs) installed on a live upload: (result JSON, page texts)."""
+    from database import StudentSubmission
+    from tests import neet_report_fixture as fx
+
+    sid = upload().json()["id"]
+    fx.install(db_session, db_session.get(StudentSubmission, sid))
+    result = client.get(f"/api/results/{sid}").json()
+    response = client.get(f"/api/reports/{sid}/pdf")
+    assert response.status_code == 200, response.text
+    with pymupdf.open("pdf", response.content) as doc:
+        pages = [" ".join(page.get_text(flags=TEXT_FLAGS).split()) for page in doc]
+    return result, pages
+
+
+def test_report1_pdf_page_one_is_the_summary_without_ops_data(client, upload, fake_ai, db_session):
+    import re
+
+    result, pages = _report1_pages(client, upload, db_session)
+    first, last, text = pages[0], pages[-1], " ".join(pages)
+    shown = [i for i in result["key_insights"] if i["id"] == "attempts"]
+    assert [norm(i["headline"]) in first for i in shown] == [True]
+    for line in result["student_summary"]:  # 'In short' on page 1
+        assert norm(line) in first, line
+    assert "Path to On track" not in first  # covered by 'In short', not repeated
+    assert "402 / 720" in first and "55.8%" in first and "Needs attention" in first
+    assert "102 marks to On track \u2014 about 26 more right answers (+4 each)." in first
+    # Subject table: right / wrong / blank / bonus, answered %, right-when-answered %, marks (1-decimal %).
+    for cell in ("26 of 45 (57.8%)", "69.2% (18/26)", "64/180 (35.6%)", "27 of 44 (61.4%)", "70.4% (19/27)",
+                 "72/180 (40.0%)", "78 of 89 (87.6%)", "87.2% (68/78)", "266/360 (73.9%)", "402/720 (55.8%)",
+                 "131 of 178 (73.6%)", "80.2% (105/131)"):
+        assert cell in first, cell
+    # Focus rows: marks to the score card's target (70%); Biology is already there, so it is 'keep warm'.
+    for subject, gain in (("Physics", "+62"), ("Chemistry", "+54")):
+        assert subject in first and gain in first
+    assert "keep warm with a short weekly mixed set: Biology (73.9%)" in first
+    assert "Chapter breakdown is not available for this paper yet." in first
+    for banned in (*PAGE_ONE_BANNED, result["report_meta"]["run_id"]):
+        assert banned not in first, banned
+    # One format: 1-decimal percentages from the unrounded ratio, never the rounded '56%' / '74%'.
+    for right in ("55.8%", "35.6%", "40.0%", "73.9%", "85.0%"):
+        assert right in text, right
+    for wrong in ("56%", "74%"):
+        assert not re.search(rf"(?<![\d.]){re.escape(wrong)}", text), wrong
+    assert "105 right \u00d7 4 \u2212 26 = 394, + 8 bonus = 402" in text
+    assert "Q1-Q23: 60.0% (6/10)" in text and "Q24-Q45: 75.0% (12/16)" in text
+    assert "Marks by thinking level" not in text  # every tag the heuristic K2: the Bloom card is hidden
+    assert "Accuracy through the paper" not in text
+    # The run metadata (run id, OCR adapter, rubric hash) sits in the closing section only.
+    start = next(i for i, page in enumerate(pages) if "Processing, coverage and sign-off" in page)
+    closing = " ".join(pages[start:])
+    assert result["report_meta"]["run_id"] in closing and "OCR" in closing and "Faculty certification" in last
+    assert all(result["report_meta"]["run_id"] not in page for page in pages[:start])
+
+
+def test_report1_pdf_draws_the_bullet_and_the_question_grid(client, upload, fake_ai, db_session):
+    import reports
+
+    _result, pages = _report1_pages(client, upload, db_session)
+    text = " ".join(pages)
+    assert "Target 504 (70%)" in pages[0]
+    assert "All 180 \u00b7 Right 105 \u00b7 Wrong 26 \u00b7 Blank 47 \u00b7 Bonus 2" in text
+    assert "Chart data: score 402 of 720" in pages[0]
+    assert reports.MEASURE == "#1e40af" and reports.AMBER_MARK == "#d97706"

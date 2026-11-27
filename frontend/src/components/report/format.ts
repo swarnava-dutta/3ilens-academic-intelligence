@@ -1,4 +1,5 @@
 // Report-only helpers (generic helpers live in src/lib).
+import type { ResultKind } from "@/lib/types";
 import { masteryTone } from "@/lib/utils";
 
 // Exam weightage comes from the API (Priority.weightage, StudyPlan topics' exam_marks and RoiBasis);
@@ -72,6 +73,69 @@ export function fmtNumber(n: unknown, maxDigits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: maxDigits }).replace(/^-/, "−");
 }
 
+/**
+ * The report's one percentage format: 1 decimal, computed from score and max (never from a stored
+ * rounded value): 402/720 -> "55.8%", 72/180 -> "40.0%". "—" when max is 0.
+ */
+export function fmtPct1(score: unknown, max: unknown): string {
+  const m = safeNumber(max);
+  if (m <= 0) return "—";
+  return fmtPctValue((safeNumber(score) / m) * 100);
+}
+
+/** A percentage the server already computed (0-100), in the same 1-decimal format: 55.833 -> "55.8%". */
+export function fmtPctValue(pct: unknown): string {
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "—";
+  // Round half away from zero on the decimal string, not the binary value (85.05 -> 85.1).
+  const abs = Math.abs(pct);
+  const shifted = Number(`${abs}e1`);
+  const rounded = Math.round(Number.isFinite(shifted) ? shifted : abs * 10) / 10;
+  return `${pct < 0 && rounded !== 0 ? "−" : ""}${rounded.toFixed(1)}%`;
+}
+
+/** A 0-1 fraction as a 1-decimal percentage: 0.802 -> "80.2%". */
+export function fmtFraction1(fraction: unknown): string {
+  return typeof fraction === "number" && Number.isFinite(fraction) ? fmtPctValue(fraction * 100) : "—";
+}
+
+/** Marks: whole numbers when whole, else 1 decimal; real minus sign ("−8"). */
+export function fmtMarks(n: unknown): string {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  const v = Math.round(n * 10) / 10;
+  const text = Number.isInteger(v) ? String(Math.abs(v)) : Math.abs(v).toFixed(1);
+  return `${v < 0 ? "−" : ""}${text}`;
+}
+
+/** "Physics", "Rotational motion" -> "physics", "rotational-motion" (matches the server's evidence anchors). */
+export function slug(text: string): string {
+  return (
+    String(text ?? "")
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "item"
+  );
+}
+
+const normName = (s: string) => s.replace(/[_\s]+/g, " ").trim().toLowerCase();
+
+/**
+ * The student's name, or null while it is only the uploaded file's name ("2016 Editable (1)" for
+ * "2016_Editable (1).pdf"): a file name is never shown as a student's name.
+ */
+export function studentName(sub: { student_name: string; original_filename?: string | null }): string | null {
+  const name = (sub.student_name ?? "").trim();
+  const stem = (sub.original_filename ?? "").trim().replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  if (!name || (stem && normName(name) === normName(stem))) return null;
+  return name;
+}
+
+/** "A or B", "A, B or C". */
+export function orJoin(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
 /** Signed marks: +4, −1, 0 (real minus sign). */
 export function fmtSigned(n: unknown, maxDigits = 1): string {
   const v = safeNumber(n);
@@ -80,6 +144,26 @@ export function fmtSigned(n: unknown, maxDigits = 1): string {
 
 /** Tooltip for a net total that went below zero. */
 export const NET_TOTAL_TITLE = "Net of negative marking";
+
+/** A rule's cut point as a percentage: "20%" when whole (break-even, the 70% line), else 1 decimal. */
+export function fmtRulePct(pct: number): string {
+  const r = Math.round(pct * 10) / 10;
+  return Number.isInteger(r) ? `${r}%` : `${r.toFixed(1)}%`;
+}
+
+/** "4 h 15 min" (45 -> "45 min", 120 -> "2 h"). */
+export function fmtMinutes(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`;
+}
+
+/** "255 min (4 h 15 min)": the study plan's planned time (planned_minutes_total), one format everywhere. */
+export function plannedMinutesText(minutes: number): string {
+  const total = Math.round(minutes);
+  return total >= 60 ? `${total} min (${fmtMinutes(total)})` : `${total} min`;
+}
 
 export function fmtHours(h: unknown): string {
   return typeof h === "number" && Number.isFinite(h) ? `${fmtNumber(h, 1)} h` : "—";
@@ -220,6 +304,14 @@ export function uniqueSorted(values: unknown): number[] {
   );
 }
 
+/** The grader's note on an MCQ bonus question (backend marking.BONUS_NOTE: "Bonus question - full marks to everyone"). */
+export function isBonusNote(note: string | null | undefined): boolean {
+  return /\bbonus question\b/i.test(note ?? "");
+}
+
+/** The "Bonus" tag next to a bonus question's outcome (it scores full marks, attempted or not). */
+export const BONUS_TAG = { label: "Bonus", title: "Bonus question: full marks to everyone, attempted or not" } as const;
+
 export const OUTCOME_LOOK: Record<
   "FULL" | "PARTIAL" | "ZERO" | "BLANK",
   { label: string; short: string; pill: string; fill: string; dot: string }
@@ -247,6 +339,41 @@ export const OUTCOME_LOOK: Record<
     dot: "bg-slate-400",
   },
 };
+
+/**
+ * How one question went, keyed by result_kind (the paper's vocabulary): MCQ papers say right / wrong /
+ * blank / bonus ("Wrong −1", never "Zero marks"); written answers keep full / partial / zero / blank.
+ * `pill` pairs a tint with text, so colour is never the only cue.
+ */
+export const RESULT_LOOK: Record<ResultKind, { label: string; pill: string }> = {
+  right: { label: "Right", pill: "bg-blue-50 text-[#1E40AF] ring-blue-200" },
+  wrong: { label: "Wrong", pill: "bg-red-50 text-red-700 ring-red-200" },
+  blank: { label: "Blank", pill: "bg-slate-100 text-slate-700 ring-slate-300" },
+  bonus: { label: "Bonus", pill: "bg-sky-50 text-sky-800 ring-sky-200" },
+  partial: { label: "Partial credit", pill: "bg-amber-50 text-amber-800 ring-amber-200" },
+  zero: { label: "Zero marks", pill: "bg-red-50 text-red-700 ring-red-200" },
+};
+
+/** "Wrong −1", "Right +4", "Bonus +4", "Blank 0"; written answers: "Full credit", "Partial credit"... */
+export function resultLabel(q: { result_kind?: ResultKind; question_type: string; estimated_marks: number; outcome: string }): string {
+  const kind = q.result_kind ?? "partial";
+  if (q.question_type !== "mcq") {
+    if (q.outcome === "FULL") return "Full credit";
+    if (q.outcome === "BLANK") return "Not attempted";
+    return RESULT_LOOK[kind].label;
+  }
+  const marks = q.estimated_marks;
+  return `${RESULT_LOOK[kind].label} ${marks > 0 ? `+${fmtMarks(marks)}` : fmtMarks(marks)}`;
+}
+
+/**
+ * Options an MCQ key accepts, read from the grader's note when the API has no accepted_options:
+ * "Marked A, accepted B or C (-1)", "Accepted options A or D (+4)".
+ */
+export function acceptedFromNote(note: string | null | undefined): string[] {
+  const match = /[Aa]ccepted(?: options?:?)?\s+([A-F](?:\s*(?:,|or|\/)\s*[A-F])+)/.exec(note ?? "");
+  return match ? [...new Set(match[1].match(/[A-F]/g) ?? [])] : [];
+}
 
 export const NUDGE_LOOK: Record<"high" | "medium" | "low", { label: string; pill: string }> = {
   high: { label: "High priority", pill: "bg-rose-50 text-rose-700 ring-rose-200" },

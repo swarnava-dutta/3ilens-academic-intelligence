@@ -134,7 +134,9 @@ def test_the_cohort_adjustment_cancels_a_drop_every_peer_shares():
 def test_a_blank_rate_jump_of_a_quarter_is_flagged_medium():
     profile = patterns.fatigue_profile(_desc([8] * 8 + [10, 10, 10, None]), None, 1)
     assert profile["early_blank_rate"] == 0 and profile["late_blank_rate"] == 0.25
-    assert profile["drop_pts"] == 5.0
+    # Accuracy is measured on answered questions only: 0.8 early, 1.0 late (the blank is not a wrong answer).
+    assert profile["early_accuracy"] == 0.8 and profile["late_accuracy"] == 1.0 and profile["drop_pts"] == -20.0
+    assert profile["reasons"][0] == "Accuracy rose 20 pts in Q9-Q12"
     assert profile["flagged"] is True and profile["severity"] == "medium"
     assert "Blank rate rose from 0% to 25% in the final third" in profile["reasons"]
 
@@ -179,7 +181,7 @@ def _ids_by_name(client) -> dict[str, int]:
     return {s["student_name"]: s["id"] for s in client.get("/api/submissions").json() if s["status"] == "COMPLETED"}
 
 
-def test_genetics_demo_patterns(client):
+def test_genetics_demo_patterns(demo_data, client):
     assert client.post("/api/demo/seed").status_code == 200
     ids = _ids_by_name(client)
     for name, expected in (("Ananya Iyer", "transferable"), ("Priya Banerjee", "foundational_gap")):
@@ -203,7 +205,7 @@ def test_genetics_demo_patterns(client):
     assert cohort["patterns"]["negative_marking"] is None and cohort["patterns"]["fatigue"] is None
 
 
-def test_cohort_patterns_over_mixed_rubrics(client):
+def test_cohort_patterns_over_mixed_rubrics(demo_data, client):
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
     cohort = client.get("/api/cohort").json()
     check_interface(cohort, "Cohort")
@@ -235,3 +237,98 @@ def test_cohort_aggregates_negative_marking_per_topic():
     assert topic["students_over_attempting"] == 1 and topic["mean_accuracy"] == pytest.approx((0.25 + 1) / 2, abs=1e-3)
     assert [s["student_name"] for s in neg["students"]] == ["S1"] and neg["students"][0]["value"] == 3
     assert cohort["fatigue"] is None and patterns.THRESHOLD_NOTE in cohort["notes"]
+
+
+# --------------------------------------------------------------------------- #
+# Report redesign: report 1 (402/720) - pacing within subjects, the score reconciliation, Bloom
+# --------------------------------------------------------------------------- #
+def _report1_patterns() -> dict:
+    from tests import neet_report_fixture as fx
+
+    result, rubric, _batch = fx.transient()
+    questions = patterns.question_items(result, rubric)
+    return patterns.student_patterns(questions, rubric.content, peers_acc=None, cohort_size=1)
+
+
+def test_report1_fatigue_is_judged_within_each_subject_on_answered_questions():
+    fatigue = _report1_patterns()["fatigue"]
+    assert fatigue["confounded_by_section"] is True  # Physics, then Chemistry, then Biology
+    pacing = {p["subject"]: p for p in fatigue["within_subject"]}
+    expected = {
+        "Physics": ((1, 23, 6, 10, 0.6), (24, 45, 12, 16, 0.75), 15.0),
+        "Chemistry": ((46, 68, 9, 13, 0.692), (69, 90, 10, 14, 0.714), 2.2),
+        "Biology": ((91, 135, 33, 38, 0.868), (136, 180, 35, 40, 0.875), 0.7),
+    }
+    for subject, (first, second, change) in expected.items():
+        p = pacing[subject]
+        assert (p["first_from"], p["first_to"], p["first_right"], p["first_attempted"], p["first_accuracy"]) == first
+        assert (p["second_from"], p["second_to"], p["second_right"], p["second_attempted"],
+                p["second_accuracy"]) == second
+        assert p["change_pts"] == change
+    assert fatigue["within_subject_change_pts"] > 0  # accuracy rose: no fatigue claim
+    assert fatigue["flagged"] is False and fatigue["severity"] == "low"
+    reason = fatigue["reasons"][0]
+    assert reason.startswith("Within each subject, accuracy on answered questions rose 4.6 pts")
+    assert "drop" not in reason.casefold() and "-" not in reason.split(" - ")[0]
+    # Early / late accuracy is on answered questions only (blanks are a blank rate, not wrong answers).
+    assert fatigue["early_accuracy"] > 0.7 and fatigue["early_blank_rate"] > fatigue["late_blank_rate"]
+
+
+def test_report1_negative_marking_reconciles_to_the_score():
+    neg = _report1_patterns()["negative_marking"]
+    assert (neg["correct"], neg["wrong"], neg["blank"], neg["attempted"]) == (105, 26, 47, 131)
+    assert neg["bonus_questions"] == [71, 98] and neg["bonus_marks"] == 8
+    assert neg["net_marks"] == 394 == 4 * 105 - 26
+    assert neg["reconciliation"] == {"net_answered": 394, "bonus_marks": 8, "total": 402}
+    assert "47 of 178 scorable MCQs (2 bonus excluded) were left blank" in neg["recommendation"]
+
+
+def test_report1_bloom_uses_net_marks_and_is_not_informative():
+    p = _report1_patterns()
+    [bucket] = p["bloom_profile"]
+    assert bucket["level"] == "K2" and bucket["questions"] == 180
+    assert (bucket["marks"], bucket["marks_before_penalty"], bucket["max_marks"]) == (402, 428, 720)
+    assert bucket["accuracy"] == 0.558
+    assert p["bloom_informative"] is False  # one level, every tag the heuristic default
+
+
+def test_bloom_informative_needs_two_levels_and_a_real_tag():
+    items = [{"question": 1, "bloom_level": "K1", "bloom_source": "faculty", "estimated_marks": 1, "max_marks": 2},
+             {"question": 2, "bloom_level": "K3", "bloom_source": "heuristic", "estimated_marks": 2, "max_marks": 2}]
+    assert patterns.bloom_informative(items) is True
+    assert patterns.bloom_informative([{**q, "bloom_source": "heuristic"} for q in items]) is False
+    assert patterns.bloom_informative(items[:1]) is False
+
+
+def test_too_few_answered_questions_never_raise_an_accuracy_flag():
+    # 2 answered of 6 early (both right), 3 answered of 3 late (one right): a noisy 67-point "drop".
+    profile = patterns.fatigue_profile(_desc([10, 10, None, None, None, None, 10, 0.5, 1]), None, 1)
+    assert profile["drop_pts"] > 15 and profile["flagged"] is False
+    assert profile["reasons"][0].endswith("too few answered questions on one side to judge")
+
+
+def test_peer_stats_are_memoised_until_the_peer_set_changes(demo_data, client, monkeypatch):
+    import database
+    from database import StudentSubmission, SubmissionStatus
+
+    assert client.post("/api/demo/seed", params={"set": "all"}).status_code == 200
+    with database.SessionLocal() as db:
+        sub = max(db.query(StudentSubmission).filter_by(status=SubmissionStatus.COMPLETED),
+                  key=lambda s: len(patterns._rubric_peers(db, s.rubric_id)))
+        rid = sub.rubric_id
+        peers = patterns._rubric_peers(db, rid)
+        assert len(peers) >= patterns.COHORT_ADJUST_MIN
+        assert patterns._peer_stats(db, rid) == (patterns._peer_accuracy(peers), len(peers))
+
+        calls = []
+        real = patterns._rubric_peers
+        monkeypatch.setattr(patterns, "_rubric_peers", lambda *a: calls.append(a) or real(*a))
+        assert patterns._peer_stats(db, rid) == (patterns._peer_accuracy(peers), len(peers))
+        assert calls == []  # unchanged peer set: served from the memo
+
+        sub.status = SubmissionStatus.HUMAN_REVIEW_REQUIRED  # one peer leaves the rubric's completed set
+        db.commit()
+        fewer = real(db, rid)
+        assert len(fewer) == len(peers) - 1
+        expected = patterns._peer_accuracy(fewer) if len(fewer) >= patterns.COHORT_ADJUST_MIN else None
+        assert patterns._peer_stats(db, rid) == (expected, len(fewer)) and len(calls) == 1

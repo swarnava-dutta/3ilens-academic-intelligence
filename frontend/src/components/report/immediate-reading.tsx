@@ -14,7 +14,7 @@ export function QRefChip({ q, className }: { q: number; className?: string }) {
       type="button"
       onClick={() => focusQuestion(q)}
       className={cn(
-        "inline-flex items-center rounded-sm border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-cyan-600 transition-colors duration-150 hover:border-brand-cyan hover:bg-brand-cyan-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
+        "inline-flex cursor-pointer items-center rounded-sm border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-cyan-600 transition-colors duration-150 hover:border-brand-cyan hover:bg-brand-cyan-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan",
         className,
       )}
       title={`Go to question ${q}`}

@@ -2,9 +2,11 @@
 
 import type { ReactNode } from "react";
 import type { Priority, Result } from "@/lib/types";
-import { cn, formatConfidence, formatMastery } from "@/lib/utils";
-import { NET_TOTAL_TITLE, OUTCOME_LOOK, TONE, clampPct, fmtInr, fmtNumber, fmtSeconds, safeNumber, toneFor } from "./format";
-import { MeterBar, Pill } from "./primitives";
+import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
+import { cn, formatConfidence } from "@/lib/utils";
+import { NET_TOTAL_TITLE, OUTCOME_LOOK, clampPct, fmtInr, fmtNumber, fmtPct1, fmtSeconds, safeNumber } from "./format";
+import { realMinus } from "./patterns/shared";
+import { MeterBar } from "./primitives";
 
 /** One figure in the KPI strip: label, value, one detail line. */
 function Figure({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
@@ -34,6 +36,7 @@ export function topPriority(priorities: Priority[]): Priority | null {
 
 function OutcomeSplit({ result }: { result: Result }) {
   const o = result.outcome_counts;
+  const mcq = result.question_evaluations.some((q) => q.question_type === "mcq");
   const total = Math.max(1, o.full + o.partial + o.zero + o.blank);
   const parts = [
     { key: "FULL" as const, n: o.full },
@@ -41,19 +44,41 @@ function OutcomeSplit({ result }: { result: Result }) {
     { key: "ZERO" as const, n: o.zero },
     { key: "BLANK" as const, n: o.blank },
   ];
+  // MCQ papers: right / wrong / blank / bonus (the bonus questions sit inside "full").
+  const right = o.right ?? o.full;
+  const bonus = o.bonus ?? 0;
+  const wrong = o.wrong ?? o.zero;
   return (
     <>
-      <p className={value}>
-        {o.full} <span className="text-sm font-normal text-slate-500">full</span> · {o.partial}{" "}
-        <span className="text-sm font-normal text-slate-500">partial</span>
-      </p>
-      <p className={cn(detail, "tabular-nums")}>
-        {o.zero} zero · {o.blank} not attempted
-      </p>
+      {mcq ? (
+        <>
+          <p className={value}>
+            {right} <span className="text-sm font-normal text-slate-500">right</span> · {wrong}{" "}
+            <span className="text-sm font-normal text-slate-500">wrong</span>
+          </p>
+          <p className={cn(detail, "tabular-nums")}>
+            {o.blank} blank{bonus ? ` · ${bonus} bonus` : ""}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className={value}>
+            {o.full} <span className="text-sm font-normal text-slate-500">full</span> · {o.partial}{" "}
+            <span className="text-sm font-normal text-slate-500">partial</span>
+          </p>
+          <p className={cn(detail, "tabular-nums")}>
+            {o.zero} zero · {o.blank} not attempted
+          </p>
+        </>
+      )}
       <div
         className="flex h-1.5 w-full gap-px overflow-hidden rounded-sm bg-slate-100 [print-color-adjust:exact]"
         role="img"
-        aria-label={`Outcomes: ${o.full} full, ${o.partial} partial, ${o.zero} zero, ${o.blank} not attempted`}
+        aria-label={
+          mcq
+            ? `Outcomes: ${right} right, ${wrong} wrong, ${o.blank} blank${bonus ? `, ${bonus} bonus` : ""}`
+            : `Outcomes: ${o.full} full, ${o.partial} partial, ${o.zero} zero, ${o.blank} not attempted`
+        }
       >
         {parts.map((p) =>
           p.n > 0 ? (
@@ -73,7 +98,6 @@ export function StatCards({ result }: { result: Result }) {
   const total = safeNumber(result.total_marks);
   const score = safeNumber(result.total_score);
   const pct = clampPct(result.percentage);
-  const tone = TONE[toneFor(pct)];
   const isDemo = result.submission.is_demo;
   const ex = result.extraction;
   const cost = result.cost;
@@ -101,11 +125,12 @@ export function StatCards({ result }: { result: Result }) {
         </Figure>
 
         <Figure label="Observed score" title="Screening result, not certified competency">
-          <p className={value}>{formatMastery(pct)}</p>
+          <p className={value}>{fmtPct1(score, total)}</p>
           <p className={detail}>
-            <Pill className={tone.pill}>{tone.label}</Pill> across {topicCount} {topicCount === 1 ? "topic" : "topics"}
+            {result.score_band?.label ?? URGENCY_LABELS[result.urgency]} · across {topicCount}{" "}
+            {topicCount === 1 ? "topic" : "topics"}
           </p>
-          <MeterBar size="sm" percent={pct} label={`Observed score ${formatMastery(pct)}, ${tone.label}`} fillClass={tone.fill} />
+          <MeterBar size="sm" percent={pct} label={`Observed score ${fmtPct1(score, total)}`} fillClass="bg-[#1E40AF]" />
         </Figure>
 
         <Figure label="Question outcomes">
@@ -189,9 +214,9 @@ export function StatCards({ result }: { result: Result }) {
         </Figure>
       </dl>
       <p className="text-xs leading-snug text-slate-500">
-        {markingRule.replace(/\.?\s*$/, ".")} Observed score is a screening result, not certified competency. Blank answers count in the
-        denominator; mapping is not approval. BRD targets: under {fmtInr(cost.target_inr)} and{" "}
-        {fmtSeconds(lat.target_seconds)} per learner.
+        {realMinus(markingRule).replace(/\.?\s*$/, ".")} Observed score is a screening result, not certified competency. Blank answers count in the
+        denominator; mapping is not approval. Targets per learner: under {fmtInr(cost.target_inr)} and{" "}
+        {fmtSeconds(lat.target_seconds)}.
       </p>
     </div>
   );

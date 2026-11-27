@@ -16,6 +16,8 @@ RESULT_KEYS = {
     "extraction", "cost", "latency", "history", "versions", "deliveries", "study_plan",
     # contract v3 (guarded extension hooks)
     "llm_routes", "patterns", "interventions", "voice", "superseded", "superseded_by",
+    # student report redesign (server-built summary blocks)
+    "key_insights", "score_band", "focus_topics", "student_summary",
 }
 TOPIC_KEYS = {
     "topic", "subject", "score", "max_marks", "mastery", "weightage", "effort_hours",
@@ -32,6 +34,8 @@ QUESTION_KEYS = {
     # contract v3 (marking + Bloom)
     "question_type", "bloom_level", "bloom_source", "demonstrated_level", "concept", "penalty", "selected_option",
     "correct_option", "marking_breakdown", "marking_note",
+    "bonus",  # an MCQ the key made a bonus (read from its marking note)
+    "accepted_options", "result_kind",  # report redesign: every accepted key letter, the student vocabulary
 }
 
 

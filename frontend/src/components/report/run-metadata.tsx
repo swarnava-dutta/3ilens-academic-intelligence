@@ -46,6 +46,9 @@ export function RunMetadataTable({ result }: { result: Result }) {
           <Row label="Student ref">
             <span className="font-mono text-xs">{meta.student_ref || "—"}</span>
           </Row>
+          <Row label="Source file">
+            <span className="break-all font-mono text-xs">{submission.original_filename || "—"}</span>
+          </Row>
           <Row label="Institution / batch">
             {meta.institution.name} / {batch.name}
             {batch.exam_type ? ` · ${batch.exam_type}` : ""}

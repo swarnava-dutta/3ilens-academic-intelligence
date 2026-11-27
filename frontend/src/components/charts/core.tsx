@@ -7,8 +7,8 @@ export type Domain = [number, number];
 export type Series = 1 | 2 | 3 | "context";
 export type Tone = "default" | "good" | "warning" | "critical" | "context";
 
-// Series hues are assigned in this order and never cycled.
-export const SERIES = ["#0490aa", "#eb6834", "#6250d6"];
+// Series hues are assigned in this order and never cycled (MASTER.md: navy, blue, amber).
+export const SERIES = ["#1E40AF", "#3B82F6", "#D97706"];
 export const CONTEXT = "#cbd5e1";
 export const CRITICAL = "#d03b3b";
 const STATUS = { good: "#0ca30c", warning: "#d97706", critical: CRITICAL };
@@ -21,7 +21,9 @@ export const seriesColor = (s: Series) => (s === "context" ? CONTEXT : SERIES[s 
 export const toneColor = (t: Tone = "default") =>
   t === "default" ? SERIES[0] : t === "context" ? CONTEXT : STATUS[t];
 
-export const fmt = (v: number, unit = "") => `${Number(v.toFixed(1))}${unit}`;
+/** 1 decimal, half up (12.35 -> 12.4; toFixed would give 12.3 from binary rounding). */
+export const round1 = (v: number) => Math.round(v * 10) / 10;
+export const fmt = (v: number, unit = "") => `${round1(v)}${unit}`;
 export const signed = (v: number, unit = "") =>
   `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v), unit)}`;
 /** A change between two percentages is in points. */
@@ -122,7 +124,8 @@ export function useChart() {
       if (a) setTip({ x: b.left + b.width / 2 - a.left, y: b.top - a.top, body, key });
     };
     const hide = () => setTip(null);
-    return { tabIndex: 0, onMouseEnter: show, onFocus: show, onMouseLeave: hide, onBlur: hide };
+    // Hover only: marks are not tab stops inside the role="img" SVG; "Show data" is the keyboard equivalent.
+    return { onMouseEnter: show, onMouseLeave: hide };
   };
 
   return { w, setW, tip, mark };

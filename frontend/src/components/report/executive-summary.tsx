@@ -1,7 +1,7 @@
 import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
 import type { Result, TopicMastery } from "@/lib/types";
 import { formatConfidence } from "@/lib/utils";
-import { fmtNumber, fraction, safeNumber } from "./format";
+import { fmtNumber, fmtPct1, fraction, safeNumber } from "./format";
 import { SectionCard } from "./primitives";
 
 /** Strongest and weakest topic by observed percentage (ties: more marks at stake first). */
@@ -24,7 +24,7 @@ function fallbackParagraphs(result: Result): string[] {
         ex.mean_confidence !== null ? `; mean OCR confidence ${formatConfidence(ex.mean_confidence)}` : ""
       }; ${o.blank} not attempted.`;
   const resultLine =
-    `Draft result ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtNumber(result.percentage)}%).` +
+    `Draft result ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtPct1(result.total_score, result.total_marks)}).` +
     (strongest && weakest && strongest !== weakest
       ? ` Strongest observed topic: ${strongest.topic} (${fraction(strongest.score, strongest.max_marks)}); weakest: ${weakest.topic} (${fraction(weakest.score, weakest.max_marks)}).`
       : "");
@@ -45,7 +45,7 @@ function fallbackParagraphs(result: Result): string[] {
 export function summaryLine(result: Result): string {
   const { strongest, weakest } = topicExtremes(result.topic_mastery);
   const urgency = URGENCY_LABELS[result.urgency]?.toLowerCase();
-  let line = `Scored ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtNumber(result.percentage)}%${
+  let line = `Scored ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtPct1(result.total_score, result.total_marks)}${
     urgency ? `, ${urgency}` : ""
   })`;
   if (strongest && weakest && strongest !== weakest) {

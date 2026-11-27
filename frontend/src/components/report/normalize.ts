@@ -28,6 +28,7 @@ import type {
   RoiBasis,
   RoiExplanation,
   RoiInputs,
+  ResultKind,
   RubricRef,
   ScoringControls,
   StudyPlan,
@@ -37,6 +38,15 @@ import type {
   TopicMastery,
   Urgency,
 } from "@/lib/types";
+import { acceptedFromNote, isBonusNote } from "./format";
+import {
+  normalizeFocusTopics,
+  normalizeKeyInsights,
+  normalizePatterns,
+  normalizeScoreBand,
+  subjectMap,
+  withSubjectExtras,
+} from "./normalize-summary";
 
 type Loose<T> = { [K in keyof T]?: unknown } | null | undefined;
 
@@ -94,20 +104,61 @@ export function urgencyFromPct(pct: number): Urgency {
   return "at_risk";
 }
 
-function outcomeOf(q: Loose<QuestionEvaluation>): QuestionOutcome {
+/**
+ * An MCQ bonus question (full marks to everyone): outcome "BONUS", a bonus flag, or the grader's
+ * bonus marking note ("Bonus question - full marks to everyone").
+ */
+function isBonusQuestion(q: Loose<QuestionEvaluation>): boolean {
+  if (q?.outcome === "BONUS" || q?.bonus === true) return true;
+  return q?.question_type === "mcq" && isBonusNote(strOrNull(q?.marking_note));
+}
+
+function outcomeOf(q: Loose<QuestionEvaluation>, bonus: boolean): QuestionOutcome {
   const given = q?.outcome;
-  if (given === "FULL" || given === "PARTIAL" || given === "ZERO" || given === "BLANK") return given;
   const answer = str(q?.student_answer).trim();
   const marks = num(q?.estimated_marks);
   const max = num(q?.max_marks);
+  // A bonus question scores full marks attempted or not: full credit, never "Not attempted".
+  if (bonus && (given === "BONUS" || max <= 0 || marks >= max)) return "FULL";
+  if (given === "FULL" || given === "PARTIAL" || given === "ZERO" || given === "BLANK") return given;
   if (!answer) return "BLANK";
   if (max > 0 && marks >= max) return "FULL";
   if (marks <= 0) return "ZERO";
   return "PARTIAL";
 }
 
+const RESULT_KINDS: ResultKind[] = ["right", "wrong", "blank", "bonus", "partial", "zero"];
+
+/** Every option the key accepts: the API's accepted_options, else the grader's note, else correct_option. */
+function acceptedOptions(q: Loose<QuestionEvaluation>): string[] {
+  const given = strings(q?.accepted_options)
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => /^[A-F]$/.test(s));
+  if (given.length) return [...new Set(given)];
+  const fromNote = acceptedFromNote(strOrNull(q?.marking_note));
+  if (fromNote.length) return fromNote;
+  const correct = strOrNull(q?.correct_option)?.trim().toUpperCase();
+  return correct && /^[A-F]$/.test(correct) ? [correct] : [];
+}
+
+/** result_kind from the API, else read from the outcome (a marked MCQ that did not score is "wrong"). */
+function resultKindOf(given: unknown, q: Omit<QuestionEvaluation, "result_kind">): ResultKind {
+  if (RESULT_KINDS.includes(given as ResultKind)) return given as ResultKind;
+  if (q.bonus) return "bonus";
+  if (q.outcome === "BLANK") return "blank";
+  if (q.outcome === "FULL") return "right";
+  if (q.question_type === "mcq") return "wrong";
+  return q.outcome === "PARTIAL" ? "partial" : "zero";
+}
+
 function normalizeQuestion(raw: unknown): QuestionEvaluation {
   const q = obj<QuestionEvaluation>(raw);
+  const bonus = isBonusQuestion(q);
+  const base = normalizeQuestionBase(q, bonus);
+  return { ...base, result_kind: resultKindOf(q?.result_kind, base) };
+}
+
+function normalizeQuestionBase(q: Loose<QuestionEvaluation>, bonus: boolean): Omit<QuestionEvaluation, "result_kind"> {
   return {
     question: num(q?.question),
     topic: str(q?.topic, "Untitled topic"),
@@ -118,7 +169,7 @@ function normalizeQuestion(raw: unknown): QuestionEvaluation {
     gaps: strings(q?.gaps),
     student_answer: str(q?.student_answer),
     confidence: num(q?.confidence),
-    outcome: outcomeOf(q),
+    outcome: outcomeOf(q, bonus),
     source_pages: nums(q?.source_pages),
     uncertain_words: arr<{ text?: unknown; confidence?: unknown }>(q?.uncertain_words)
       .map((w) => ({ text: str(w?.text), confidence: num(w?.confidence) }))
@@ -140,6 +191,8 @@ function normalizeQuestion(raw: unknown): QuestionEvaluation {
       required: bool(m?.required),
     })),
     marking_note: strOrNull(q?.marking_note),
+    bonus,
+    accepted_options: acceptedOptions(q),
   };
 }
 
@@ -225,6 +278,7 @@ function normalizeBatch(raw: unknown, fallbackId: number): Batch {
 function outcomeCounts(raw: unknown, questions: QuestionEvaluation[]): OutcomeCounts {
   const o = obj<OutcomeCounts>(raw);
   const count = (k: QuestionOutcome) => questions.filter((q) => q.outcome === k).length;
+  const kind = (k: ResultKind) => questions.filter((q) => q.result_kind === k).length;
   const derived = {
     full: count("FULL"),
     partial: count("PARTIAL"),
@@ -232,6 +286,10 @@ function outcomeCounts(raw: unknown, questions: QuestionEvaluation[]): OutcomeCo
     blank: count("BLANK"),
     mapped: questions.length,
     total_questions: questions.length,
+    right: kind("right"),
+    wrong: kind("wrong"),
+    bonus: kind("bonus"),
+    attempted: kind("right") + kind("wrong") + kind("partial") + kind("zero"),
   };
   if (!o) return derived;
   return {
@@ -241,6 +299,10 @@ function outcomeCounts(raw: unknown, questions: QuestionEvaluation[]): OutcomeCo
     blank: num(o.blank, derived.blank),
     mapped: num(o.mapped, derived.mapped),
     total_questions: num(o.total_questions, derived.total_questions),
+    right: num(o.right, derived.right),
+    wrong: num(o.wrong, derived.wrong),
+    bonus: num(o.bonus, derived.bonus),
+    attempted: num(o.attempted, derived.attempted),
   };
 }
 
@@ -311,7 +373,8 @@ function normalizeExtraction(raw: unknown, questions: QuestionEvaluation[], thre
   const confs = questions.map((q) => q.confidence).filter((c) => c > 0);
   const mean = confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : null;
   return {
-    mapped: num(e?.mapped, questions.filter((q) => q.outcome !== "BLANK").length),
+    // A blank bonus question reads FULL but nothing was mapped to it.
+    mapped: num(e?.mapped, questions.filter((q) => q.outcome !== "BLANK" && !(q.bonus && !q.student_answer.trim())).length),
     total_questions: num(e?.total_questions, questions.length),
     unattempted: nums(e?.unattempted),
     dropped: nums(e?.dropped),
@@ -380,6 +443,7 @@ function normalizePlanTopic(raw: unknown): PlanTopic {
     allocated_hours: num(t?.allocated_hours),
     rank: numOrNull(t?.rank),
     question_refs: nums(t?.question_refs),
+    minutes: numOrNull(t?.minutes),
   };
 }
 
@@ -434,6 +498,9 @@ function normalizeStudyPlan(raw: unknown, batch: Batch, pct: number): StudyPlan 
   const mode = p?.strategy_mode;
   const ps = obj<StudyPlan["projected_score"]>(p?.projected_score);
   const topics = arr(p?.topics).map(normalizePlanTopic);
+  const weekly_calendar = arr(p?.weekly_calendar).map(normalizeCalendarDay);
+  // One planned-time figure everywhere: the API's total, else the calendar blocks it is the sum of.
+  const calendarMinutes = weekly_calendar.reduce((s, d) => s + d.blocks.reduce((m, b) => m + b.minutes, 0), 0);
   return {
     calculation_version: str(p?.calculation_version, "—"),
     matrix_version: str(p?.matrix_version, "none"),
@@ -464,10 +531,11 @@ function normalizeStudyPlan(raw: unknown, batch: Batch, pct: number): StudyPlan 
       scale_max: num(ps?.scale_max, 100),
       label: str(ps?.label, "Illustrative - not a calibrated forecast"),
     },
-    weekly_calendar: arr(p?.weekly_calendar).map(normalizeCalendarDay),
+    weekly_calendar,
     roadmap: arr(p?.roadmap).map(normalizeRoadmapStage),
     explanation: normalizeExplanation(p?.explanation),
     allocation_note: str(p?.allocation_note),
+    planned_minutes_total: num(p?.planned_minutes_total, calendarMinutes),
   };
 }
 
@@ -578,11 +646,19 @@ export function normalizeResult(r: Result): Result {
     forecast_status: str(rb?.forecast_status, "UNAVAILABLE"),
     reason: str(rb?.reason, "no calibrated effort-response data; NEET chapter matrix is illustrative"),
     calibrated: bool(rb?.calibrated),
+    effort_source_kind: strOrNull(rb?.effort_source_kind),
   };
 
   const lat = obj<Result["latency"]>(r.latency);
   const threshold = num(obj<Extraction>(r.extraction)?.threshold, 0.7);
   const urgency = URGENCIES.includes(r.urgency as Urgency) ? (r.urgency as Urgency) : urgencyFromPct(pct);
+  const subjectOf = subjectMap(topics);
+  const subject_rollup = withSubjectExtras(subjectRollup(r.subject_rollup, topics), r.subject_rollup, questions, subjectOf);
+  const study_plan = normalizeStudyPlan(r.study_plan, batch, pct);
+  // A plan whose effort hours are all the rubric default (1.0 h) has no real effort figure: ROI per hour is hidden.
+  if (!roi_basis.effort_source_kind && study_plan.topics.length && study_plan.topics.every((t) => t.effort_hours === 1)) {
+    roi_basis.effort_source_kind = "placeholder";
+  }
 
   return {
     ...r,
@@ -621,7 +697,7 @@ export function normalizeResult(r: Result): Result {
       }))
       .filter((c) => c.concept_a && c.concept_b),
     outcome_counts: outcomeCounts(r.outcome_counts, questions),
-    subject_rollup: subjectRollup(r.subject_rollup, topics),
+    subject_rollup,
     scoring_controls,
     roi_basis,
     report_meta,
@@ -655,11 +731,16 @@ export function normalizeResult(r: Result): Result {
         current: bool(v?.current),
       })),
     deliveries: arr<Delivery>(r.deliveries).filter((d) => typeof d?.id === "number").map(normalizeDelivery),
-    study_plan: normalizeStudyPlan(r.study_plan, batch, pct),
+    study_plan,
     // contract v3 extension fields: guarded on the server too; default when an older API omits them
     llm_routes: arr(r.llm_routes),
-    patterns: r.patterns ?? { negative_marking: null, fatigue: null, transfer: null, bloom_profile: [], notes: [] },
+    patterns: normalizePatterns(r.patterns, questions, subjectOf),
     interventions: arr(r.interventions),
     voice: r.voice ?? null,
+    // report redesign: server-built; an older payload gets [] / derived fallbacks (never guessed insights)
+    key_insights: normalizeKeyInsights(r.key_insights),
+    score_band: normalizeScoreBand(r.score_band, { score: totalScore, total: totalMarks, urgency, questions }),
+    focus_topics: normalizeFocusTopics(r.focus_topics, { topics, subjects: subject_rollup, questions }),
+    student_summary: strings(r.student_summary),
   };
 }

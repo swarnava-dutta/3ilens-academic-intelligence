@@ -1,6 +1,6 @@
 "use client";
 
-import { type Domain, Empty, extremes, fmt, Plot, Text, textWidth, tipBody, useChart } from "./core";
+import { type Domain, Empty, extremes, fmt, Frame, Plot, Text, textWidth, tipBody, useChart } from "./core";
 
 // Sequential cyan ramp, light to dark.
 const LIGHT = [0xcd, 0xee, 0xf4];
@@ -22,41 +22,75 @@ export function HeatStrip({
   if (!cells.length) return <Empty />;
   const values = cells.map((d) => d.value);
   const [lo, hi] = domain ?? [Math.min(...values), Math.max(...values)];
+  // Long lists get small cells with the label inside and the value in the tooltip.
+  const dense = cells.length > 40;
+  const cellH = dense ? 24 : CELL;
   // Phones get several rows rather than cells too narrow to label.
-  const perRow = c.w ? Math.max(1, Math.min(cells.length, Math.floor(c.w / 64))) : cells.length;
+  const perRow = c.w ? Math.max(1, Math.min(cells.length, Math.floor(c.w / (dense ? 40 : 64)))) : cells.length;
   const cw = c.w / perRow;
-  const rowH = CELL + 40;
+  const rowH = dense ? cellH + 2 : CELL + 40;
   return (
     <Plot
       chart={c}
-      h={Math.ceil(cells.length / perRow) * rowH - 6}
+      h={Math.ceil(cells.length / perRow) * rowH - (dense ? 2 : 6)}
       label={`Heat strip of ${cells.length} cells. ${extremes(cells, format)}`}
     >
       {cells.map((d, i) => {
         const t = Math.min(1, Math.max(0, (d.value - lo) / (hi - lo || 1)));
         const text = format(d.value);
+        const inside = dense ? d.label : text;
         const x = (i % perRow) * cw;
         const y = Math.floor(i / perRow) * rowH;
         return (
           <g key={i} {...c.mark(tipBody(d.label, [["Value", text]]))}>
-            <rect x={x} y={y} width={cw} height={rowH - 6} fill="transparent" />
-            <rect x={x + 1} y={y} width={Math.max(cw - 2, 1)} height={CELL} rx={2} fill={ramp(t)} />
-            {textWidth(text) + 8 <= cw - 2 && (
+            <rect x={x} y={y} width={cw} height={rowH} fill="transparent" />
+            <rect x={x + 1} y={y} width={Math.max(cw - 2, 1)} height={cellH} rx={2} fill={ramp(t)} />
+            {textWidth(inside) + 8 <= cw - 2 && (
               <text
                 x={x + cw / 2}
-                y={y + CELL / 2}
+                y={y + cellH / 2}
                 dy="0.32em"
                 textAnchor="middle"
                 fontWeight={500}
                 fill={t >= 0.7 ? "#fff" : "#0f172a"}
               >
-                {text}
+                {inside}
               </text>
             )}
-            <Text x={x + cw / 2} y={y + CELL + 14} width={cw - 4} text={d.label} />
+            {!dense && <Text x={x + cw / 2} y={y + CELL + 14} width={cw - 4} text={d.label} />}
           </g>
         );
       })}
     </Plot>
+  );
+}
+
+/**
+ * Categorical twin of the dense heat strip for long runs (a 180-question paper): one small cell per item,
+ * its short text inside, coloured by category, details in the tooltip.
+ */
+export function CellGrid({
+  cells,
+}: {
+  cells: { text: string; title: string; fill: string; ink: string; rows: [string, string][] }[];
+}) {
+  const c = useChart();
+  if (!cells.length) return <Empty />;
+  return (
+    <Frame chart={c}>
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(2rem,1fr))] gap-0.5 text-[11px] font-medium tabular-nums">
+        {cells.map((d, i) => (
+          <li
+            key={i}
+            {...c.mark(tipBody(d.title, d.rows))}
+            aria-label={`${d.title}: ${d.rows.map((r) => r.join(" ")).join(", ")}`}
+            className="grid h-6 place-items-center rounded-[2px]"
+            style={{ background: d.fill, color: d.ink }}
+          >
+            {d.text}
+          </li>
+        ))}
+      </ul>
+    </Frame>
   );
 }

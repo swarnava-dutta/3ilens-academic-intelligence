@@ -10,8 +10,12 @@ Rules (contract v3 section 11):
 * Negative marking: smoothed topic accuracy a_s = (correct + 1) / (attempted + 2); EV per attempt
   = a_s x mean_max - (1 - a_s) x mean_neg; high risk when EV < 1.0 and wrong >= 2, medium when
   EV < 2.0 and wrong >= 1. BREAK_EVEN = neg / (max + neg) (0.2 for +4/-1).
-* Fatigue: needs >= 6 questions; final third vs the rest, cohort-adjusted when >= 5 results share
-  the rubric; flagged at >= 15 pts (high >= 25) or a blank-rate jump >= 0.20 (high >= 0.35).
+* Fatigue: needs >= 6 questions; final third vs the rest on ANSWERED questions only (blanks are a
+  blank rate, never a wrong answer; accuracy counts only with min(5, half the side) answers),
+  cohort-adjusted when >= 5 results share the rubric; flagged at >= 15 pts (high >= 25) or a
+  blank-rate jump >= 0.20 (high >= 0.35). When subjects sit in fixed sections the paper-wide split
+  compares subjects, so the flag rests on the change within each subject (first vs second half).
+* Bloom profile: net marks (penalties included); informative only with 2+ levels and a real tag.
 * Transfer: concept groups with >= 1 recall (K1-K2) and >= 1 transfer (K3-K5) question;
   foundational_gap / memorisation / inconsistent / transferable / developing (first match wins).
 
@@ -26,7 +30,7 @@ from collections import Counter
 from statistics import fmean
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 import analytics
 import bloom
@@ -51,6 +55,9 @@ FATIGUE_FLAG_PTS = 15.0
 FATIGUE_HIGH_PTS = 25.0
 FATIGUE_BLANK_JUMP = 0.20
 FATIGUE_HIGH_BLANK_JUMP = 0.35
+# Accuracy on answered questions is only compared when each side has enough answers:
+# at least min(5, half of its scorable questions).
+MIN_FATIGUE_ANSWERED = 5
 FATIGUE_NOTE = "Needs at least 6 questions (this test has {n})"
 FATIGUE_RECOMMENDATION = (
     "Endurance practice: 2 full-length timed mocks per week; in one of them start from the last section; "
@@ -82,6 +89,8 @@ TRANSFER_ADVICE = {
 }
 
 PEER_CAP = 500
+# (db url, rubric_id) -> (peer-set token, peers_acc, cohort_size); see _peer_stats.
+_PEER_STATS: dict[tuple[str, int], tuple[tuple[Any, ...], dict[int, float] | None, int]] = {}
 RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
@@ -93,7 +102,8 @@ def break_even(max_marks: float, negative_marks: float) -> float:
 
 def empty_student_patterns() -> dict[str, Any]:
     """A StudentPatterns with every profile null (the hook default)."""
-    return {"negative_marking": None, "fatigue": None, "transfer": None, "bloom_profile": [], "notes": []}
+    return {"negative_marking": None, "fatigue": None, "transfer": None, "bloom_profile": [], "notes": [],
+            "bloom_informative": False}
 
 
 def empty_cohort_patterns() -> dict[str, Any]:
@@ -225,10 +235,13 @@ def negative_marking_profile(questions: list[dict[str, Any]], rubric_content: di
     groups: dict[str, list[dict[str, Any]]] = {}
     maxes: list[float] = []
     negs: list[float] = []
+    bonus: list[tuple[int, float]] = []
     for q in questions:
         rq = by_number.get(_qnum(q) or -1)
-        if rq is None or marking.question_type(rq) != "mcq":
-            continue
+        if rq is not None and marking.question_type(rq) == "mcq" and marking.is_bonus(rq):
+            bonus.append((_qnum(q) or 0, _num(q.get("estimated_marks"))))
+        if rq is None or marking.question_type(rq) != "mcq" or marking.is_bonus(rq):
+            continue  # a bonus question carries no penalty risk (full marks to everyone)
         qp = marking.question_policy(rq, policy)
         neg = _num(qp.get("negative_marks"))
         if neg <= 0:
@@ -311,10 +324,14 @@ def negative_marking_profile(questions: list[dict[str, Any]], rubric_content: di
     else:
         recommendation = "No marks lost to negative marking."
     if blank >= max(3, math.ceil(0.25 * total_items)):
+        # One denominator: the scorable MCQs (bonus questions excluded and said so).
+        excluded = f" ({len(bonus)} bonus excluded)" if bonus else ""
         recommendation += (
-            f" {blank} of {total_items} MCQs were left blank: with +{mean_max:g}/-{mean_neg:g} an answer after "
-            f"ruling out one option has positive expected value (break-even {be:.0%})."
+            f" {blank} of {total_items} scorable MCQs{excluded} were left blank: with +{mean_max:g}/-{mean_neg:g} "
+            f"an answer after ruling out one option has positive expected value (break-even {be:.0%})."
         )
+    bonus_marks = round(sum(m for _, m in bonus), 2)
+    total = round(sum(_num(q.get("estimated_marks")) for q in questions), 2)
     return {
         "scheme": f"+{mean_max:g} / -{mean_neg:g}",
         "break_even": be,
@@ -328,6 +345,10 @@ def negative_marking_profile(questions: list[dict[str, Any]], rubric_content: di
         "risk": risk,
         "topics": topics,
         "recommendation": recommendation,
+        "bonus_questions": sorted(n for n, _ in bonus),
+        "bonus_marks": bonus_marks,
+        # net_answered (right x marks - penalties) + bonus_marks (+ any non-MCQ marks) = total
+        "reconciliation": {"net_answered": net, "bonus_marks": bonus_marks, "total": total},
     }
 
 
@@ -339,47 +360,156 @@ def _side_accuracy(items: list[dict[str, Any]]) -> float:
     return sum(marks_plus(q) for q in items) / maximum if maximum > 0 else 0.0
 
 
+def _answered(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Answered, non-bonus questions: accuracy is measured on these only (a blank is not a wrong
+    answer - blanks are reported as a blank rate)."""
+    return [q for q in items if marking.result_kind(q) not in ("blank", "bonus")]
+
+
+def _enough(answered: list[dict[str, Any]], items: list[dict[str, Any]]) -> bool:
+    scorable = sum(1 for q in items if marking.result_kind(q) != "bonus")
+    return bool(answered) and len(answered) >= min(MIN_FATIGUE_ANSWERED, math.ceil(scorable / 2))
+
+
+def _blank_rate(items: list[dict[str, Any]]) -> float:
+    scorable = [q for q in items if marking.result_kind(q) != "bonus"]
+    return sum(1 for q in scorable if marking.result_kind(q) == "blank") / len(scorable) if scorable else 0.0
+
+
+def _subject_blocks(ordered: list[dict[str, Any]], subject_of: dict[int, str] | None) -> dict[str, list[dict[str, Any]]]:
+    blocks: dict[str, list[dict[str, Any]]] = {}
+    for q in ordered:
+        name = (subject_of or {}).get(_qnum(q) or -1) or str(q.get("subject") or "") or "General"
+        blocks.setdefault(name, []).append(q)
+    return blocks
+
+
+def _contiguous(ordered: list[dict[str, Any]], blocks: dict[str, list[dict[str, Any]]]) -> bool:
+    """Every subject sits in one unbroken run of the paper (fixed sections)."""
+    position = {id(q): i for i, q in enumerate(ordered)}
+    for items in blocks.values():
+        spots = sorted(position[id(q)] for q in items)
+        if spots[-1] - spots[0] + 1 != len(spots):
+            return False
+    return True
+
+
+def subject_pacing(
+    ordered: list[dict[str, Any]], subject_of: dict[int, str] | None
+) -> tuple[list[dict[str, Any]], float | None, float | None]:
+    """(SubjectPacing rows, question-weighted accuracy change in pts, question-weighted blank-rate
+    change) - first half vs second half of each subject section, answered questions only."""
+    rows: list[dict[str, Any]] = []
+    weight = change_sum = blank_sum = 0.0
+    for subject, items in _subject_blocks(ordered, subject_of).items():
+        if len(items) < 2:
+            continue
+        half = math.ceil(len(items) / 2)
+        first, second = items[:half], items[half:]
+        a1, a2 = _answered(first), _answered(second)
+        acc1 = _side_accuracy(a1) if a1 else None
+        acc2 = _side_accuracy(a2) if a2 else None
+        comparable = _enough(a1, first) and _enough(a2, second)
+        change = (acc2 - acc1) * 100 if comparable and acc1 is not None and acc2 is not None else None
+        b1, b2 = _blank_rate(first), _blank_rate(second)
+        rows.append({
+            "subject": subject,
+            "first_from": _qnum(first[0]), "first_to": _qnum(first[-1]),
+            "second_from": _qnum(second[0]), "second_to": _qnum(second[-1]),
+            "first_right": sum(1 for q in a1 if marking.result_kind(q) == "right"), "first_attempted": len(a1),
+            "second_right": sum(1 for q in a2 if marking.result_kind(q) == "right"), "second_attempted": len(a2),
+            "first_accuracy": round(acc1, 3) if acc1 is not None else None,
+            "second_accuracy": round(acc2, 3) if acc2 is not None else None,
+            "change_pts": round(change, 1) if change is not None else None,
+        })
+        if change is not None:
+            weight += len(items)
+            change_sum += len(items) * change
+            blank_sum += len(items) * (b2 - b1)
+    if not weight:
+        return rows, None, None
+    return rows, change_sum / weight, blank_sum / weight
+
+
+def _moved(change: float, digits: int = 0) -> str:
+    """'rose 21 pts' / 'fell 4.5 pts' / 'held steady' - never a negative drop."""
+    if round(change, digits) > 0:
+        return f"rose {_g(change, digits)} pts"
+    if round(change, digits) < 0:
+        return f"fell {_g(-change, digits)} pts"
+    return "held steady"
+
+
 def fatigue_profile(
-    questions: list[dict[str, Any]], peers_acc: dict[int, float] | None, cohort_size: int
+    questions: list[dict[str, Any]], peers_acc: dict[int, float] | None, cohort_size: int,
+    subject_of: dict[int, str] | None = None,
 ) -> dict[str, Any] | None:
-    """A FatigueProfile (final third vs the rest), or None with fewer than 6 questions. The
-    cohort adjustment applies only when peers_acc is given and cohort_size >= COHORT_ADJUST_MIN."""
+    """A FatigueProfile (final third vs the rest, on ANSWERED questions; blanks as a blank rate),
+    or None with fewer than 6 questions. The cohort adjustment applies only when peers_acc is given
+    and cohort_size >= COHORT_ADJUST_MIN. When the subjects sit in fixed sections (2+ subjects, each
+    in one block) the early-vs-late split compares subjects, not stamina: the flag then rests on
+    the question-weighted change WITHIN each subject (first half vs second half)."""
     ordered = sorted(questions, key=lambda q: _qnum(q) or 0)
     n = len(ordered)
     if n < MIN_FATIGUE_QUESTIONS:
         return None
     k = math.ceil(n / 3)
     early, late = ordered[: n - k], ordered[n - k:]
-    early_acc, late_acc = _side_accuracy(early), _side_accuracy(late)
-    drop = (early_acc - late_acc) * 100
+    early_ans, late_ans = _answered(early), _answered(late)
+    early_acc = _side_accuracy(early_ans) if early_ans else 0.0
+    late_acc = _side_accuracy(late_ans) if late_ans else 0.0
+    drop = (early_acc - late_acc) * 100 if early_ans and late_ans else 0.0
+    comparable = _enough(early_ans, early) and _enough(late_ans, late)
     adjust = bool(peers_acc) and cohort_size >= COHORT_ADJUST_MIN
     adjusted = None
     if adjust:
         assert peers_acc is not None
 
         def rel(items: list[dict[str, Any]]) -> float:
+            if not items:
+                return 0.0
             return fmean(accuracy(q) - peers_acc.get(_qnum(q) or -1, accuracy(q)) for q in items)
 
-        adjusted = (rel(early) - rel(late)) * 100
-    signal = adjusted if adjusted is not None else drop
-    early_blank = sum(1 for q in early if is_blank(q)) / len(early)
-    late_blank = sum(1 for q in late if is_blank(q)) / len(late)
+        adjusted = (rel(early_ans) - rel(late_ans)) * 100
+    early_blank, late_blank = _blank_rate(early), _blank_rate(late)
     jump = late_blank - early_blank
-    flagged = round(signal, 6) >= FATIGUE_FLAG_PTS or round(jump, 6) >= FATIGUE_BLANK_JUMP
-    if round(signal, 6) >= FATIGUE_HIGH_PTS or round(jump, 6) >= FATIGUE_HIGH_BLANK_JUMP:
+
+    blocks = _subject_blocks(ordered, subject_of)
+    pacing, within_change, within_blank = subject_pacing(ordered, subject_of)
+    confounded = len(blocks) >= 2 and _contiguous(ordered, blocks)
+    if confounded:
+        signal = -within_change if within_change is not None else 0.0
+        jump_signal = within_blank if within_blank is not None else 0.0
+    else:
+        signal = (adjusted if adjusted is not None else drop) if comparable else 0.0
+        jump_signal = jump
+    flagged = round(signal, 6) >= FATIGUE_FLAG_PTS or round(jump_signal, 6) >= FATIGUE_BLANK_JUMP
+    if round(signal, 6) >= FATIGUE_HIGH_PTS or round(jump_signal, 6) >= FATIGUE_HIGH_BLANK_JUMP:
         severity = "high"
     else:
         severity = "medium" if flagged else "low"
 
     first_late, last = _qnum(late[0]), _qnum(ordered[-1])
     span = f"Q{first_late}-Q{last}"
-    adj_text = f" (cohort-adjusted {_g(adjusted, 0)} pts)" if adjusted is not None else ""
-    if drop > 0:
-        reasons = [f"Accuracy fell {_g(drop, 0)} pts in {span}{adj_text}"]
+    adj_text = f" (cohort-adjusted {_g(round(adjusted) or 0.0, 0)} pts)" if adjusted is not None else ""
+    if confounded:
+        reasons = [
+            "Within each subject, accuracy on answered questions "
+            + (f"{_moved(within_change, 1)} from the first half to the second" if within_change is not None
+               else "could not be compared (too few answered questions)")
+            + " - subjects sit in fixed sections, so the paper-wide early-vs-late split is not used"
+        ]
+        if within_blank is not None and within_blank > 0:
+            reasons.append(f"Blank rate rose {within_blank * 100:.0f} pts from the first half to the second "
+                           "within subjects")
     else:
-        reasons = [f"Accuracy held in {span} (change {_g(-drop, 0)} pts){adj_text}"]
-    if jump > 0:
-        reasons.append(f"Blank rate rose from {early_blank:.0%} to {late_blank:.0%} in the final third")
+        verb = _moved(-drop)
+        reasons = [f"Accuracy {verb} in {span}{adj_text}" if verb != "held steady"
+                   else f"Accuracy held steady in {span}{adj_text}"]
+        if not comparable:
+            reasons[0] += " - too few answered questions on one side to judge"
+        if jump > 0:
+            reasons.append(f"Blank rate rose from {early_blank:.0%} to {late_blank:.0%} in the final third")
     series = [
         {
             "question": _qnum(q),
@@ -405,6 +535,9 @@ def fatigue_profile(
         "reasons": reasons,
         "recommendation": FATIGUE_RECOMMENDATION if flagged else NO_FATIGUE_RECOMMENDATION,
         "series": series,
+        "within_subject": pacing,
+        "within_subject_change_pts": round(within_change, 1) if within_change is not None else None,
+        "confounded_by_section": confounded,
     }
 
 
@@ -491,27 +624,44 @@ def transfer_profile(questions: list[dict[str, Any]], rubric_content: dict[str, 
 # Bloom profile
 # --------------------------------------------------------------------------- #
 def bloom_profile(questions: list[dict[str, Any]], levels: dict[int, tuple[str, str]] | None = None) -> list[dict[str, Any]]:
-    """One BloomBucket per level present (in K1..K5 order): questions, marks+, max, accuracy (0-1)."""
+    """One BloomBucket per level present (in K1..K5 order): questions, NET marks (penalties
+    included, so the levels add up to the paper score), max, accuracy (0-1, net marks clamped at 0)."""
     buckets: dict[str, list[float]] = {}
     for q in questions:
         level = _level(q, levels or {})
         if level is None:
             continue
-        bucket = buckets.setdefault(level, [0, 0.0, 0.0])
+        bucket = buckets.setdefault(level, [0, 0.0, 0.0, 0.0])
         bucket[0] += 1
-        bucket[1] += marks_plus(q)
+        bucket[1] += _num(q.get("estimated_marks"))
         bucket[2] += _num(q.get("max_marks"))
+        bucket[3] += marks_plus(q)
     return [
         {
             "level": level,
             "questions": int(buckets[level][0]),
             "marks": round(buckets[level][1], 2),
             "max_marks": round(buckets[level][2], 2),
-            "accuracy": round(buckets[level][1] / buckets[level][2], 3) if buckets[level][2] > 0 else None,
+            "accuracy": round(max(0.0, buckets[level][1]) / buckets[level][2], 3) if buckets[level][2] > 0 else None,
+            "marks_before_penalty": round(buckets[level][3], 2),
         }
         for level in bloom.LEVELS
         if level in buckets
     ]
+
+
+def bloom_informative(questions: list[dict[str, Any]], levels: dict[int, tuple[str, str]] | None = None) -> bool:
+    """The Bloom card says something: 2+ distinct levels, and not every tag is the heuristic default."""
+    seen: set[str] = set()
+    sources: set[str] = set()
+    for q in questions:
+        level = _level(q, levels or {})
+        if level is None:
+            continue
+        seen.add(level)
+        source = q.get("bloom_source") or (levels or {}).get(_qnum(q) or -1, (None, None))[1]
+        sources.add(str(source or "heuristic"))
+    return len(seen) >= 2 and sources != {"heuristic"}
 
 
 # --------------------------------------------------------------------------- #
@@ -539,7 +689,7 @@ def student_patterns(
     negative = negative_marking_profile(questions, rubric_content)
     if negative is None:
         notes.append(NO_NEGATIVE_MCQ_NOTE)
-    fatigue = fatigue_profile(questions, peers_acc, cohort_size)
+    fatigue = fatigue_profile(questions, peers_acc, cohort_size, subject_map(rubric_content))
     if fatigue is None:
         notes.append(FATIGUE_NOTE.format(n=len(questions)))
     transfer = transfer_profile(questions, rubric_content)
@@ -547,12 +697,23 @@ def student_patterns(
         notes.append(TRANSFER_NOTE)
     if negative or fatigue or transfer:
         notes.append(THRESHOLD_NOTE)
+    levels = bloom.resolve_levels(rubric_content)
     return {
         "negative_marking": negative,
         "fatigue": fatigue,
         "transfer": transfer,
-        "bloom_profile": bloom_profile(questions, bloom.resolve_levels(rubric_content)),
+        "bloom_profile": bloom_profile(questions, levels),
         "notes": notes,
+        "bloom_informative": bloom_informative(questions, levels),
+    }
+
+
+def subject_map(rubric_content: dict[str, Any] | None) -> dict[int, str]:
+    """Question number -> subject (the rubric question's subject, else the rubric's)."""
+    default = " ".join(str((rubric_content or {}).get("subject") or "").split()) or "General"
+    return {
+        n: " ".join(str(q.get("subject") or "").split()) or default
+        for n, q in rubric_questions(rubric_content).items()
     }
 
 
@@ -572,14 +733,37 @@ def _rubric_peers(db: Any, rubric_id: int | None) -> list[list[dict[str, Any]]]:
     return [list(r or []) for r in rows]
 
 
+def _peer_stats(db: Any, rubric_id: int | None) -> tuple[dict[int, float] | None, int]:
+    """(peers_acc, cohort_size) over _rubric_peers, memoised per rubric. One aggregate query keys the
+    entry (count, max result id, max submission updated_at of the peer rows): a new, removed, re-run
+    or re-graded sheet changes it (results are replaced, never edited in place), so a stale entry is
+    never read and the peers' question JSON is decoded only when the peer set changed."""
+    if db is None or rubric_id is None:
+        return None, 0
+    from database import EvaluationResult, StudentSubmission, SubmissionStatus
+
+    token = tuple(db.execute(
+        select(func.count(), func.max(EvaluationResult.id), func.max(StudentSubmission.updated_at))
+        .join(StudentSubmission, EvaluationResult.submission_id == StudentSubmission.id)
+        .where(StudentSubmission.rubric_id == rubric_id, StudentSubmission.status == SubmissionStatus.COMPLETED)
+    ).one())
+    key = (str(db.get_bind().url), rubric_id)
+    cached = _PEER_STATS.get(key)
+    if cached is not None and cached[0] == token:
+        return cached[1], cached[2]
+    peers = _rubric_peers(db, rubric_id)
+    peers_acc = _peer_accuracy(peers) if len(peers) >= COHORT_ADJUST_MIN else None
+    _PEER_STATS[key] = (token, peers_acc, len(peers))
+    return peers_acc, len(peers)
+
+
 def result_extras(db: Any, *, sub: Any, result: Any, rubric: Any) -> dict[str, Any]:
     """{"patterns": StudentPatterns} for one completed result."""
     questions = question_items(result, rubric)
     rubric_id = getattr(sub, "rubric_id", None) or getattr(result, "rubric_id", None)
-    peers = _rubric_peers(db, rubric_id)
-    peers_acc = _peer_accuracy(peers) if len(peers) >= COHORT_ADJUST_MIN else None
+    peers_acc, cohort_size = _peer_stats(db, rubric_id)
     return {"patterns": student_patterns(
-        questions, _content(rubric), peers_acc=peers_acc, cohort_size=len(peers)
+        questions, _content(rubric), peers_acc=peers_acc, cohort_size=cohort_size
     )}
 
 
@@ -749,16 +933,18 @@ def cohort_extras(db: Any, *, pairs: list[tuple[Any, Any]], rubrics: dict[int, A
     totals: dict[str, list[float]] = {}
     for questions, levels in levels_by_q:
         for bucket in bloom_profile(questions, levels):
-            agg = totals.setdefault(bucket["level"], [0, 0.0, 0.0])
+            agg = totals.setdefault(bucket["level"], [0, 0.0, 0.0, 0.0])
             agg[0] += bucket["questions"]
             agg[1] += bucket["marks"]
             agg[2] += bucket["max_marks"]
+            agg[3] += bucket.get("marks_before_penalty") or 0.0
     for level in bloom.LEVELS:
         if level in totals:
-            q, marks, maximum = totals[level]
+            q, marks, maximum, before = totals[level]
             bloom_rows.append({
                 "level": level, "questions": int(q), "marks": round(marks, 2), "max_marks": round(maximum, 2),
-                "accuracy": round(marks / maximum, 3) if maximum > 0 else None,
+                "accuracy": round(max(0.0, marks) / maximum, 3) if maximum > 0 else None,
+                "marks_before_penalty": round(before, 2),
             })
     repeated = _latest_test_only(profiles, [negative, fatigue, transfer])
     if repeated:

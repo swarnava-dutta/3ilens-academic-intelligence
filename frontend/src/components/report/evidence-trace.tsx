@@ -2,16 +2,16 @@
 
 import { FileImage } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { QuestionEvaluation, QuestionOutcome, Result } from "@/lib/types";
+import type { QuestionEvaluation, Result, ResultKind } from "@/lib/types";
 import { cn, formatConfidence } from "@/lib/utils";
 import { Modal, btnSecondary } from "./dialog";
-import { OUTCOME_LOOK, fraction } from "./format";
+import { RESULT_LOOK, fraction, resultLabel } from "./format";
 import { Pill, SectionCard } from "./primitives";
 import { focusQuestion, openSourcePage } from "./report-events";
 import { OutcomeBadge } from "./question-evaluations";
 import { UncertainText } from "./uncertain-text";
 
-const OUTCOMES: QuestionOutcome[] = ["FULL", "PARTIAL", "ZERO", "BLANK"];
+const KINDS: ResultKind[] = ["right", "wrong", "blank", "bonus", "partial", "zero"];
 
 function subjectOf(result: Result, q: QuestionEvaluation): string {
   return (
@@ -57,7 +57,7 @@ function InspectDrawer({
       variant="drawer"
       eyebrow={q ? `Q${q.question} · ${subjectOf(result, q)}` : undefined}
       title={q ? q.topic : ""}
-      description={q ? `${fraction(q.estimated_marks, q.max_marks)} marks · ${OUTCOME_LOOK[q.outcome].label}` : undefined}
+      description={q ? `${fraction(q.estimated_marks, q.max_marks)} marks · ${resultLabel(q)}` : undefined}
       footer={
         q ? (
           <div className="flex flex-wrap justify-end gap-2">
@@ -79,9 +79,9 @@ function InspectDrawer({
       {q ? (
         <div className="space-y-5 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <OutcomeBadge outcome={q.outcome} />
+            <OutcomeBadge q={q} />
             {isDemo ? (
-              <span className="text-xs text-slate-500">Synthetic - no OCR</span>
+              <span className="text-xs text-slate-500">Sample record: nothing was scanned</span>
             ) : (
               <Pill
                 className={
@@ -90,7 +90,7 @@ function InspectDrawer({
                     : "bg-slate-100 text-slate-600"
                 }
               >
-                OCR {formatConfidence(q.confidence)} (threshold {Math.round(threshold * 100)}%)
+                Read with {formatConfidence(q.confidence)} confidence (review line {Math.round(threshold * 100)}%)
               </Pill>
             )}
             {q.corrected_by_faculty ? <Pill className="bg-slate-100 text-slate-700">Corrected by faculty</Pill> : null}
@@ -102,7 +102,7 @@ function InspectDrawer({
           </div>
 
           <div>
-            <h3 className="mb-1 text-xs font-medium text-slate-500">{isDemo ? "Synthetic answer" : "Transcription"}</h3>
+            <h3 className="mb-1 text-xs font-medium text-slate-500">{isDemo ? "Sample answer" : "Answer as read"}</h3>
             {q.student_answer.trim() ? (
               <blockquote className="whitespace-pre-wrap break-words border-l-2 border-slate-300 bg-slate-50 px-3 py-2 leading-normal text-slate-700">
                 <UncertainText text={q.student_answer} words={q.uncertain_words} />
@@ -164,21 +164,21 @@ function InspectDrawer({
 /** Evidence trace (SAIR "Trace a finding back to the source"): every question, filterable, inspectable. */
 export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts: Record<number, string> }) {
   const [subject, setSubject] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<QuestionOutcome | null>(null);
+  const [outcome, setOutcome] = useState<ResultKind | null>(null);
   const [inspect, setInspect] = useState<number | null>(null);
   const questions = [...result.question_evaluations].sort((a, b) => a.question - b.question);
   const subjects = [...new Set(questions.map((q) => subjectOf(result, q)))].filter((s) => s !== "—");
   const rows = questions.filter(
-    (q) => (subject === null || subjectOf(result, q) === subject) && (outcome === null || q.outcome === outcome),
+    (q) => (subject === null || subjectOf(result, q) === subject) && (outcome === null || q.result_kind === outcome),
   );
-  const notFull = questions.filter((q) => q.outcome !== "FULL");
+  const notFull = questions.filter((q) => q.result_kind !== "right" && q.result_kind !== "bonus");
   const selected = questions.find((q) => q.question === inspect) ?? null;
 
   return (
     <SectionCard
       id="evidence-trace"
-      title="Trace a finding back to the source"
-      description={`Question-level provenance · ${notFull.length} partial, zero or blank ${notFull.length === 1 ? "item" : "items"}.`}
+      title="Every question"
+      description={`Every question with its answer, marks and page · ${notFull.length} did not score full marks.`}
     >
       <div className="mb-3 flex flex-col gap-2 print:hidden">
         {subjects.length > 1 ? (
@@ -199,11 +199,12 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
           <Chip active={outcome === null} onClick={() => setOutcome(null)}>
             All ({questions.length})
           </Chip>
-          {OUTCOMES.map((o) => {
-            const n = questions.filter((q) => q.outcome === o).length;
+          {KINDS.map((o) => {
+            const n = questions.filter((q) => q.result_kind === o).length;
+            if (!n && o !== "right" && o !== "wrong" && o !== "blank") return null;
             return (
               <Chip key={o} active={outcome === o} onClick={() => setOutcome(o)}>
-                {OUTCOME_LOOK[o].short} ({n})
+                {RESULT_LOOK[o].label} ({n})
               </Chip>
             );
           })}
@@ -240,7 +241,7 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
                   <th scope="row" className="px-2.5 py-2 text-left font-medium text-slate-800">{q.topic}</th>
                   <td className="px-2.5 py-2 text-slate-600">{subjectOf(result, q)}</td>
                   <td className="px-2.5 py-2">
-                    <OutcomeBadge outcome={q.outcome} />
+                    <OutcomeBadge q={q} />
                   </td>
                   <td className="whitespace-nowrap px-2.5 py-2 text-right tabular-nums text-slate-800">
                     {fraction(q.estimated_marks, q.max_marks)}
@@ -266,9 +267,9 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
       </div>
 
       <div className="sair-print-only">
-        <h3 className="mb-2 text-sm font-semibold text-brand-navy">Appendix A: non-full-credit items</h3>
+        <h3 className="mb-2 text-sm font-semibold text-brand-navy">Appendix A: questions that did not score full marks</h3>
         {notFull.length === 0 ? (
-          <p className="text-sm text-slate-600">Every question received full credit.</p>
+          <p className="text-sm text-slate-600">Every question scored full marks.</p>
         ) : (
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -286,7 +287,7 @@ export function EvidenceTraceCard({ result, prompts }: { result: Result; prompts
                 <tr key={q.question} className="border-b border-slate-200 align-top">
                   <td className="px-2 py-1.5 font-mono">Q{q.question}</td>
                   <td className="px-2 py-1.5">{q.topic}</td>
-                  <td className="px-2 py-1.5">{OUTCOME_LOOK[q.outcome].short}</td>
+                  <td className="px-2 py-1.5">{resultLabel(q)}</td>
                   <td className="px-2 py-1.5 text-right">{fraction(q.estimated_marks, q.max_marks)}</td>
                   <td className="px-2 py-1.5">{q.gaps.length ? q.gaps.join("; ") : q.evidence || "—"}</td>
                   <td className="px-2 py-1.5">

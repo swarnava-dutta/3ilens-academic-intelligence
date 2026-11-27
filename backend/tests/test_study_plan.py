@@ -58,7 +58,7 @@ def _ten_topic_profile(student: str = "A02") -> tuple[EvaluationResult, Rubric, 
 
 
 @pytest.fixture
-def seeded(client, db_session):
+def seeded(demo_data, client, db_session):
     """The seeded Genetics demo cohort: (db, [completed submissions])."""
     assert client.post("/api/demo/seed").status_code == 200
     subs = [
@@ -112,7 +112,9 @@ def test_modes_and_recommendations_change_with_days_on_a_ten_topic_profile(stude
     assert len({_signature(p) for p in plans.values()}) == len(DAYS)
     actions = {d: {t["action"] for t in p["focus"]} for d, p in plans.items()}
     assert actions[45] == {"drill"} and actions[14] == {"fix_errors"} and actions[5] == {"maintain"}
-    assert actions[120] <= {"learn", "drill"}
+    # Broad mode follows each topic's diagnosis: learn / drill, or maintain for a topic already at 70%+.
+    assert actions[120] <= {"learn", "drill", "maintain"}
+    assert all(t["action"] != "maintain" or t["mastery"] >= analytics.WEAK_MASTERY for t in plans[120]["focus"])
     # Mode rules (not just the multiplier) change the membership.
     assert all(t["mastery"] >= 50 or analytics.RESCUE_SIZE >= len(plans[5]["focus"]) for t in plans[5]["focus"])
     assert {t["topic"] for t in plans[120]["focus"]} != {t["topic"] for t in plans[45]["focus"]} or (
@@ -242,8 +244,8 @@ def test_explanation_shows_the_arithmetic_with_mastery_marks_and_days():
     first = plan["focus"][0]
     assert explanation["topic"] == first["topic"]
     arithmetic = explanation["arithmetic"]
-    assert arithmetic.startswith(f"{first['exam_marks']:g} marks x (85 - {first['mastery']:g})/100 x ")
-    assert f"= {first['roi']:.2f}" in arithmetic
+    assert arithmetic.startswith(f"{first['exam_marks']:g} marks × (85 − {first['mastery']:g})/100 × ")
+    assert f"= {analytics._g(first['roi'], 1)} " in arithmetic
     for phrase in ("mastery", "exam marks", "45 days to exam"):
         assert phrase in arithmetic
     assert explanation["inputs"]["roi"] == first["roi"]
