@@ -1,8 +1,13 @@
 """Pipeline operations (API_CONTRACT.md "Pipeline operations").
 
-DLQ re-drive, re-evaluation without OCR, faculty OCR review / rescan, page images, model
-invocations, cost roll-ups, intake-batch progress and rubric versions. Errors are coded
-(errors.ApiError); internal file paths never leave the server.
+Student rename, DLQ re-drive, re-evaluation without OCR, faculty OCR review / rescan / re-run, page images, model
+invocations, cost roll-ups, intake-batch progress, rubric versions and the previews of a rubric's
+source files. Errors are coded (errors.ApiError); internal file paths never leave the server.
+
+Every endpoint that queues a sheet again (retry, reevaluate, review, rescan, rerun) moves it to
+PENDING with one conditional UPDATE (_claim: WHERE id AND status IN the allowed states) after its
+checks pass and before it touches a file, so of two concurrent requests one wins and the other gets
+409 invalid_state without side effects.
 """
 from __future__ import annotations
 
@@ -15,9 +20,9 @@ from statistics import fmean
 from typing import Annotated, Any, Literal, get_args
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 import ai
@@ -27,6 +32,7 @@ import preprocessing
 import provenance
 import result_view
 import results_store
+import rubric_sources
 import rubric_store
 import uploads
 import voice
@@ -47,6 +53,7 @@ from database import (
     utcnow,
 )
 from errors import ApiError
+from routers import preview_routes
 from schemas import (
     IntakeBatchStatus,
     InvocationPurposeLit,
@@ -56,9 +63,13 @@ from schemas import (
     OpsCosts,
     PageRef,
     ReevaluateInput,
+    RenameInput,
+    RerunInput,
     ReviewAnswer,
     ReviewInput,
     RubricCompatibility,
+    RubricContentIn,
+    RubricSourceFile,
     RubricVersionInput,
     RubricVersionResult,
     SubmissionOut,
@@ -81,7 +92,12 @@ SCAN_ARTIFACTS = (
 )
 KIND_MISMATCH_DETAIL = "Upload the same kind of answer (voice or document) to replace this one."
 DEFAULT_RESCAN_REVIEWER = "Faculty reviewer"
+# Removed when a faculty re-run is accepted (ocr.json too when the rubric changes): approving the next
+# hold must show the fresh OCR, and Retry after a restart (pipeline.last_run_mode prefers
+# dead_letter.json, then run.json) must not re-grade the earlier run's transcript.
+RERUN_ARTIFACTS = (pipeline.REVIEWED_OCR_FILE, pipeline.DEAD_LETTER_FILE, pipeline.RUN_FILE)
 ACTIVE_STATUSES = (SubmissionStatus.PENDING, SubmissionStatus.PROCESSING)
+HELD_OR_FAILED = (SubmissionStatus.HUMAN_REVIEW_REQUIRED, SubmissionStatus.FAILED)
 
 
 # --------------------------------------------------------------------------- #
@@ -100,6 +116,23 @@ def _submission(db: Session, submission_id: int) -> StudentSubmission:
 
 def _invalid_state(sub: StudentSubmission, needed: str) -> ApiError:
     return ApiError(409, f"Submission {sub.id} is {sub.status}; this action needs {needed}.", "invalid_state")
+
+
+def _claim(db: Session, sub: StudentSubmission, allowed: tuple[SubmissionStatus, ...], needed: str) -> None:
+    """Move the sheet to PENDING atomically - UPDATE ... WHERE id = :id AND status IN (allowed) - in
+    the caller's transaction (the caller commits). 0 rows: another request queued or changed the
+    sheet since it was read -> rollback and 409 invalid_state. Called once every check has passed and
+    before any file is written or removed, so the request that loses the race changes nothing."""
+    claimed = db.execute(
+        update(StudentSubmission)
+        .where(StudentSubmission.id == sub.id, StudentSubmission.status.in_([str(s) for s in allowed]))
+        .values(status=SubmissionStatus.PENDING)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if not claimed:
+        db.rollback()  # expires `sub`: the 409 names the status the other request left
+        raise _invalid_state(sub, needed)
+    sub.status = SubmissionStatus.PENDING
 
 
 def _ai_readiness() -> tuple[bool, list[str]]:
@@ -147,6 +180,27 @@ def _job_dir(sub: StudentSubmission) -> Path:
 
 
 # --------------------------------------------------------------------------- #
+# Rename (faculty sets the student's name)
+# --------------------------------------------------------------------------- #
+@router.patch("/api/submissions/{submission_id}", response_model=SubmissionOut)
+def rename_submission(submission_id: int, body: RenameInput, db: DbSession) -> SubmissionOut:
+    """Set the student's name (a sheet saved under its file name, a typo), checked like upload's.
+    student_ref is kept: it may be a roll number and it links this sheet to the student's history,
+    so a rename never moves the sheet to another student. 409 while queued or processing (the
+    pipeline rewrites the log)."""
+    sub = _submission(db, submission_id)
+    name = uploads.validate_student_name(body.student_name)
+    if sub.status in ACTIVE_STATUSES:
+        raise _invalid_state(sub, "a sheet that is not queued or processing")
+    if name != sub.student_name:
+        pipeline.append_log(sub, "Faculty edit", f"Student renamed from {sub.student_name} to {name} by faculty.")
+        sub.student_name = name
+        sub.updated_at = utcnow()
+        db.commit()
+    return result_view.submission_out(sub)
+
+
+# --------------------------------------------------------------------------- #
 # Retry (DLQ re-drive)
 # --------------------------------------------------------------------------- #
 @router.post("/api/submissions/{submission_id}/retry", status_code=202, response_model=SubmissionOut)
@@ -164,6 +218,7 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
         raise ApiError(
             409, "The stored upload for this sheet is missing - upload the answer sheet again.", "upload_missing"
         )
+    _claim(db, sub, (SubmissionStatus.FAILED,), "FAILED")
     attempt = int(sub.attempts or 0) + 1
     what = (
         "evaluation-only re-run of the stored transcript (OCR reused - no vision call)"
@@ -172,10 +227,10 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
         + (" (OCR cache reused when the bytes match)" if get_settings().ocr_cache_enabled else "")
     )
     pipeline.append_log(sub, "Queue", f"Operator re-drive from DLQ (attempt {attempt}): {what}.")
-    sub.status = SubmissionStatus.PENDING
     sub.current_step = f"Queued - operator retry (attempt {attempt})"
     sub.error_message = None
     sub.last_error_code = None
+    sub.review_reason = None
     sub.updated_at = utcnow()
     db.commit()
     background_tasks.add_task(pipeline.process_submission, sub.id, mode=mode, reason="retry")
@@ -186,17 +241,20 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
 # Re-evaluation without OCR (FR-5.7, acceptance 14.1)
 # --------------------------------------------------------------------------- #
 def prepare_reevaluation(db: Session, sub: StudentSubmission, target: Rubric) -> bool:
-    """Demo rows are re-graded synthetically now (no AI) -> False. Live rows: archive the current
-    result, move the sheet to `target`, mark it PENDING -> True (the caller enqueues an
-    evaluation-only run; OCR reused)."""
+    """Demo rows are re-graded synthetically now (no AI) -> False. Live rows: claim the COMPLETED
+    sheet (_claim), archive the current result, move the sheet to `target`, mark it PENDING -> True
+    (the caller enqueues an evaluation-only run; OCR reused). A refusal (409 no_transcript /
+    invalid_state) rolls back, so a snapshot the caller flushed for `target` is not stored."""
     if sub.is_demo:
         pipeline.synthetic_regrade(db, sub, target)
         return False
     transcript, _name, _raw = pipeline.stored_transcript(sub.id)
     if transcript is None:
+        db.rollback()
         raise ApiError(
             409, f"Submission {sub.id} has no stored OCR transcript to re-use - re-scan it instead.", "no_transcript"
         )
+    _claim(db, sub, (SubmissionStatus.COMPLETED,), "COMPLETED")
     previous = sub.rubric
     archived = results_store.archive_current_result(db, sub, superseded_by_rubric_id=target.id)
     sub.rubric_id = target.id
@@ -213,10 +271,10 @@ def prepare_reevaluation(db: Session, sub: StudentSubmission, target: Rubric) ->
     )
     # The current result is archived above, so GET /api/results/{id} answers 202 with this step
     # until the new grade is stored (the report shows "Re-grading", not the old marks).
-    sub.status = SubmissionStatus.PENDING
     sub.current_step = pipeline.REGRADE_QUEUED_STEP
     sub.error_message = None
     sub.last_error_code = None
+    sub.review_reason = None
     sub.completed_at = None
     sub.updated_at = utcnow()
     db.commit()
@@ -230,22 +288,43 @@ def reevaluate_submission(
     db: DbSession,
     body: Annotated[ReevaluateInput | None, Body()] = None,
 ) -> SubmissionOut:
+    """Re-grade a COMPLETED sheet from its stored transcript (no OCR) against rubric_id, an inline
+    `rubric` (an edited answer key: validated like upload's rubric_json and stored as a new rubric
+    snapshot row - one call instead of POST /api/rubrics + reevaluate), or its current rubric."""
     sub = _submission(db, submission_id)
     if sub.status != SubmissionStatus.COMPLETED or sub.result is None:
         raise _invalid_state(sub, "COMPLETED")
-    target = sub.rubric
-    if body is not None and body.rubric_id is not None:
-        target = db.get(Rubric, body.rubric_id)
-        if target is None:
-            raise ApiError(422, f"Rubric {body.rubric_id} does not exist.", "unknown_rubric")
+    target, inline = _target_rubric(db, sub, body)
     if not sub.is_demo:
         _require_ai()
+    if inline is not None:  # flushed only: a refused re-evaluation rolls it back
+        # No source files for it: the report drafts an inline key from a newly uploaded question
+        # paper, so the previous snapshot's files would preview the wrong paper.
+        target = rubric_store.create_rubric(db, inline)
     if prepare_reevaluation(db, sub, target):
         background_tasks.add_task(
             pipeline.process_submission, sub.id, mode=pipeline.MODE_EVALUATION_ONLY, reason="reevaluate"
         )
     db.refresh(sub)
     return result_view.submission_out(sub)
+
+
+def _target_rubric(
+    db: Session, sub: StudentSubmission, body: ReevaluateInput | RerunInput | None
+) -> tuple[Rubric, RubricContentIn | None]:
+    """(rubric, None) for body.rubric_id or the sheet's current rubric; (current rubric, validated
+    content) for an inline body.rubric (the caller stores it once every other check has passed).
+    Both -> 422 invalid_rubric; an unknown rubric_id -> 422 unknown_rubric."""
+    if body is not None and body.rubric is not None:
+        if body.rubric_id is not None:
+            raise ApiError(422, "Send either rubric_id or rubric, not both.", "invalid_rubric")
+        return sub.rubric, rubric_store.validate_content(body.rubric, "rubric")
+    if body is not None and body.rubric_id is not None:
+        target = db.get(Rubric, body.rubric_id)
+        if target is None:
+            raise ApiError(422, f"Rubric {body.rubric_id} does not exist.", "unknown_rubric")
+        return target, None
+    return sub.rubric, None
 
 
 # --------------------------------------------------------------------------- #
@@ -394,12 +473,14 @@ def review_submission(
         reviewed, rubric, reviewed_by=reviewer, reviewed_at=utc_iso(), review_action=body.action,
         changed_questions=sorted(changed),
     )
+    _claim(db, sub, (SubmissionStatus.HUMAN_REVIEW_REQUIRED,), "HUMAN_REVIEW_REQUIRED")
     try:
         job_dir = _job_dir(sub)
         job_dir.mkdir(parents=True, exist_ok=True)
         # Written strictly (not best effort): grading must never silently fall back to the raw OCR.
         (job_dir / pipeline.REVIEWED_OCR_FILE).write_text(json.dumps(artifact, indent=2), encoding="utf-8")
     except OSError as exc:
+        db.rollback()
         logger.exception("Could not save the reviewed transcript for submission %s", sub.id)
         raise HTTPException(500, "Could not save the reviewed transcript - see the backend logs.") from exc
 
@@ -418,10 +499,10 @@ def review_submission(
     pipeline.append_log(
         sub, "Queue", "Queued for grading (evaluation only): reviewed transcript re-used - no new OCR call."
     )
-    sub.status = SubmissionStatus.PENDING
     sub.current_step = "Queued"
     sub.error_message = None
     sub.last_error_code = None
+    sub.review_reason = None
     sub.updated_at = utcnow()
     db.commit()
     background_tasks.add_task(pipeline.process_submission, sub.id, mode=pipeline.MODE_EVALUATION_ONLY, reason="review")
@@ -452,6 +533,7 @@ def rescan_submission(
         if kind != (sub.input_kind or INPUT_DOCUMENT):
             raise uploads.unprocessable(KIND_MISMATCH_DETAIL, "input_kind_mismatch")
         description, page_count = uploads.inspect_document(path, mime_type, settings)
+        _claim(db, sub, HELD_OR_FAILED, "HUMAN_REVIEW_REQUIRED or FAILED")
         name = " ".join((reviewer or "").split())[:120] or DEFAULT_RESCAN_REVIEWER
         db.add(OcrReview(
             submission_id=sub.id, reviewer=name, action="rescan",
@@ -474,6 +556,7 @@ def rescan_submission(
         sub.page_confidences = []
         sub.error_message = None
         sub.last_error_code = None
+        sub.review_reason = None
         sub.completed_at = None
         if kind == INPUT_VOICE:
             sub.audio_seconds = uploads.audio_seconds(path, mime_type)
@@ -491,7 +574,6 @@ def rescan_submission(
             f"Job queued via FastAPI BackgroundTasks (local SQS mock) with rubric '{sub.rubric.name}' "
             f"({sub.rubric.version}).",
         )
-        sub.status = SubmissionStatus.PENDING
         sub.current_step = "Queued"
         sub.updated_at = utcnow()
         db.commit()
@@ -517,6 +599,100 @@ def _clear_scan_artifacts(sub: StudentSubmission) -> None:
                 item.unlink(missing_ok=True)
             except OSError:
                 logger.warning("Could not remove stale artifact %s for submission %s", item.name, sub.id)
+
+
+# --------------------------------------------------------------------------- #
+# Faculty re-run (the sheet was uploaded with the wrong rubric, or held / failed for another reason)
+# --------------------------------------------------------------------------- #
+def _rubric_label(rubric: Rubric | None) -> str:
+    return f"'{rubric.name}' ({rubric.version})" if rubric is not None else "an unknown rubric"
+
+
+@router.post("/api/submissions/{submission_id}/rerun", status_code=202, response_model=SubmissionOut)
+def rerun_submission(
+    submission_id: int,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    body: Annotated[RerunInput | None, Body()] = None,
+) -> SubmissionOut:
+    """Full re-run of a HUMAN_REVIEW_REQUIRED or FAILED sheet from its stored upload, against
+    rubric_id, or an inline `rubric` (validated like upload's rubric_json and stored as a new
+    rubric snapshot row), or neither = its current rubric: pre-processing, OCR and the same-paper
+    check run again. Once accepted, the earlier run's files that could steer a later run are removed
+    (RERUN_ARTIFACTS: the faculty-reviewed transcript, run.json and dead_letter.json - a Retry after
+    a restart would otherwise re-grade the old transcript - plus ocr.json when the rubric changes);
+    a current result, if any, is archived."""
+    sub = _submission(db, submission_id)
+    if sub.status not in HELD_OR_FAILED:
+        raise _invalid_state(sub, "HUMAN_REVIEW_REQUIRED or FAILED")
+    previous = sub.rubric
+    target, inline = _target_rubric(db, sub, body)
+    if not _upload_exists(sub):
+        raise ApiError(
+            409, "The stored upload for this sheet is missing - upload the answer sheet again.", "upload_missing"
+        )
+    _require_ai()
+    given = body.reviewer if body is not None else None
+    reviewer = " ".join((given or "").split())[:120] or DEFAULT_RESCAN_REVIEWER
+
+    _claim(db, sub, HELD_OR_FAILED, "HUMAN_REVIEW_REQUIRED or FAILED")
+    if inline is not None:  # every check passed: store the drafted answer key as this sheet's snapshot
+        # (no source files: it was drafted from a newly uploaded paper, not the previous snapshot's)
+        target = rubric_store.create_rubric(db, inline)
+    same = previous is not None and target.id == previous.id
+    try:
+        _remove_artifacts(sub, RERUN_ARTIFACTS if same else (*RERUN_ARTIFACTS, pipeline.OCR_FILE))
+    except HTTPException:
+        db.rollback()
+        raise
+    archived = results_store.archive_current_result(db, sub, superseded_by_rubric_id=target.id)
+    sub.rubric_id = target.id
+    sub.rubric = target
+    notes = ""
+    if archived is not None:
+        old_version = archived.rubric_version or (previous.version if previous is not None else "?")
+        notes += (
+            f" Result v{archived.version} ({old_version}: "
+            f"{pipeline._fmt(archived.total_score)}/{pipeline._fmt(archived.total_marks)}) archived."
+        )
+    target_numbers = {q["question"] for q in _rubric_questions(target)}
+    if sub.voice_question is not None and sub.voice_question not in target_numbers:
+        notes += (
+            f" Q{sub.voice_question} is not in rubric {target.version} - the whole recording is mapped to its "
+            "questions."
+        )
+        sub.voice_question = None
+    was = "same rubric" if same else f"was {_rubric_label(previous)}"
+    pipeline.append_log(
+        sub, "Queue",
+        f"Faculty re-run with rubric {_rubric_label(target)} by {reviewer} - full re-run from the stored upload "
+        f"({was}).{notes}",
+    )
+    sub.current_step = "Queued - re-run"
+    sub.error_message = None
+    sub.last_error_code = None
+    sub.review_reason = None
+    sub.ocr_confidence = None
+    sub.ocr_cache_hit = False
+    sub.flagged_pages = []
+    sub.page_confidences = []
+    sub.completed_at = None
+    sub.updated_at = utcnow()
+    db.commit()
+    background_tasks.add_task(pipeline.process_submission, sub.id, mode=pipeline.MODE_FULL, reason="rerun")
+    return result_view.submission_out(sub)
+
+
+def _remove_artifacts(sub: StudentSubmission, names: tuple[str, ...]) -> None:
+    """Strict (not best effort): a file left behind would steer the next run (500 when one cannot
+    be removed; the caller rolls back)."""
+    job_dir = _job_dir(sub)
+    for name in names:
+        try:
+            (job_dir / name).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.exception("Could not remove %s of submission %s", name, sub.id)
+            raise HTTPException(500, "Could not clear the earlier run's files - see the backend logs.") from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -753,7 +929,9 @@ def create_rubric_version(
     rubric_id: int, body: RubricVersionInput, background_tasks: BackgroundTasks, db: DbSession
 ) -> RubricVersionResult:
     """Save edited content as the next version (v{n+1}). reprocess=true re-grades every COMPLETED
-    submission on the parent rubric WITHOUT OCR (the UI confirms first with the estimate)."""
+    submission on the parent rubric WITHOUT OCR (the UI confirms first with the estimate). Held and
+    FAILED sheets on the parent always move to the new version (their ocr_reviewed.json is removed
+    when the question numbers changed)."""
     parent = db.get(Rubric, rubric_id)
     if parent is None:
         raise ApiError(404, f"Rubric {rubric_id} not found.", "unknown_rubric")
@@ -769,7 +947,21 @@ def create_rubric_version(
             _require_ai()
     rubric = rubric_store.create_rubric(db, body.content, parent=parent, change_note=body.change_note)
     compatibility = rubric_store.compatibility(parent.content, rubric.content)
+    # Held / failed sheets have no grade yet: approving or retrying them must use the edited key.
+    for sub in db.scalars(select(StudentSubmission).where(
+        StudentSubmission.rubric_id == parent.id, StudentSubmission.status.in_(HELD_OR_FAILED)
+    )).all():
+        note = ""
+        if not compatibility["reusable"]:  # a reviewed transcript was mapped to the old question numbers
+            _remove_artifacts(sub, (pipeline.REVIEWED_OCR_FILE,))
+            note = " The question numbers changed, so any faculty-reviewed transcript was cleared."
+        sub.rubric_id = rubric.id
+        pipeline.append_log(
+            sub, "Queue", f"Answer key edited - moved to rubric {_rubric_label(rubric)} "
+            f"(was {_rubric_label(parent)}).{note}",
+        )
     db.commit()
+    rubric_sources.inherit(parent.id, rubric.id)  # a new version keeps its question-paper preview
 
     queued: list[int] = []
     live: list[int] = []
@@ -797,3 +989,54 @@ def create_rubric_version(
         compatibility=RubricCompatibility(**compatibility),
         queued_submission_ids=queued,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Rubric sources (the files an intake's answer key was drafted from - rubric_sources.py)
+# --------------------------------------------------------------------------- #
+def _rubric_or_404(db: Session, rubric_id: int) -> Rubric:
+    rubric = db.get(Rubric, rubric_id)
+    if rubric is None:
+        raise ApiError(404, f"Rubric {rubric_id} not found.", "unknown_rubric")
+    return rubric
+
+
+@router.get("/api/rubrics/{rubric_id}/sources", response_model=list[RubricSourceFile])
+def list_rubric_sources(rubric_id: int, db: DbSession) -> list[RubricSourceFile]:
+    """The question paper ("paper") and separate answer-key file ("key") the rubric was drafted from,
+    as sent with the intake's first upload, each with its role (question_paper / rubric_file /
+    marked_copy / answer_key); [] when none were kept. 404 unknown_rubric."""
+    _rubric_or_404(db, rubric_id)
+    return [
+        RubricSourceFile(kind=e["kind"], role=e["role"], filename=e["filename"], file_type=e["file_type"],
+                         pages=e["pages"])
+        for e in rubric_sources.list_sources(rubric_id)
+    ]
+
+
+@router.get(
+    "/api/rubrics/{rubric_id}/sources/{kind}/preview",
+    response_class=Response,
+    responses=preview_routes.IMAGE_RESPONSES,
+)
+def preview_rubric_source(
+    rubric_id: int, kind: str, db: DbSession, page: str | None = None, width: str | None = None
+) -> Response:
+    """A page of a kept rubric source as an image - the renderer, headers (X-Page-Count,
+    X-File-Type) and page / width rules of POST /api/intake/preview; a page already rendered at that
+    width comes from the rubric's preview cache (rubric_sources.render_preview). 404 unknown_rubric;
+    404 no_source when the rubric has no such file (kind other than paper / key included); 422
+    invalid_page / invalid_request."""
+    _rubric_or_404(db, rubric_id)
+    no_source = ApiError(
+        404, f"Rubric {rubric_id} has no {rubric_sources.LABELS.get(kind, 'source file').lower()} to preview.",
+        "no_source",
+    )
+    if kind not in rubric_sources.KINDS or rubric_sources.source_file(rubric_id, kind) is None:
+        raise no_source
+    page_number = preview_routes.page_number_of(page)
+    size = preview_routes.width_of(width)
+    rendered = rubric_sources.render_preview(rubric_id, kind, page_number, size)
+    if rendered is None:
+        raise no_source
+    return preview_routes.image_response(rendered)

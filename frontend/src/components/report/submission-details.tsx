@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import type { Submission } from "@/lib/types";
-import { formatConfidence, formatDateTime } from "@/lib/utils";
+import { formatConfidence, formatDateTime, reviewHold } from "@/lib/utils";
 import { humanizeStep } from "./format";
 import { SectionCard } from "./primitives";
 
@@ -27,6 +27,12 @@ export function SubmissionDetailsCard({
   className?: string;
 }) {
   const threshold = useOcrThreshold();
+  // Held with no answers: the sheet confidence is the page legibility, and a stored 0 (a voice
+  // answer, or a row held by an older build) means nothing was measured - not a 0% reading.
+  const noAnswers =
+    submission.status === "HUMAN_REVIEW_REQUIRED" && reviewHold(submission, threshold) === "no_answers";
+  const unmeasured = noAnswers && (submission.ocr_confidence === null || submission.ocr_confidence === 0);
+  const confidenceLabel = noAnswers && !unmeasured && submission.input_kind !== "voice" ? "Page legibility" : "OCR confidence";
   return (
     <SectionCard
       id="submission-details"
@@ -44,8 +50,8 @@ export function SubmissionDetailsCard({
         </Row>
         <Row label="Rubric">{rubricLabel ?? `Rubric ${submission.rubric_id}`}</Row>
         <Row label="Current step">{submission.current_step ? humanizeStep(submission.current_step) : "—"}</Row>
-        <Row label="OCR confidence">
-          {formatConfidence(submission.ocr_confidence)}
+        <Row label={confidenceLabel}>
+          {unmeasured ? "Not measured (no answers)" : formatConfidence(submission.ocr_confidence)}
           <span className="text-slate-500"> (threshold {Math.round(threshold * 100)}%)</span>
         </Row>
         <Row label="Submitted">{formatDateTime(submission.created_at)}</Row>

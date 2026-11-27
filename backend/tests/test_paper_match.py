@@ -116,6 +116,59 @@ def test_too_little_text_is_unknown():
     result = paper_match.compare(dict(list(stems(OTHER_PAPER).items())[:5]), rubric(QUESTIONS))
     assert (result.verdict, result.compared) == ("unknown", 5)
     assert result.message == "Too little printed question text to check the sheet against the rubric (5 questions compared)."
+    assert not paper_match.found_on_paper(result)
+
+
+@pytest.mark.parametrize("size", [1, 5, 7])
+def test_a_short_section_found_on_the_paper_is_positive_evidence(size):
+    """A rubric for one short section of a longer paper: fewer than MIN_COMPARED questions compared,
+    so "unknown" - but all of them matched, which is evidence for the paper, not against it."""
+    result = paper_match.compare(stems(QUESTIONS + OTHER_PAPER), rubric(QUESTIONS[:size]))
+    assert (result.verdict, result.compared, result.matched) == ("unknown", size, size)
+    assert result.message == (
+        f"The sheet's printed questions match the rubric ({size} of {size} compared) - too few to confirm the paper "
+        "and its version."
+    )
+    assert paper_match.found_on_paper(result)
+
+
+def test_found_on_paper():
+    assert paper_match.found_on_paper(RubricMatch(verdict="match", compared=16, matched=16))
+    assert paper_match.found_on_paper(RubricMatch(verdict="unknown", compared=5, matched=3))  # 60%
+    assert not paper_match.found_on_paper(RubricMatch(verdict="unknown", compared=5, matched=2))
+    assert not paper_match.found_on_paper(RubricMatch(verdict="unknown", compared=0, matched=0))
+    assert not paper_match.found_on_paper(RubricMatch(verdict="mismatch", compared=16, matched=0))
+    assert not paper_match.found_on_paper(None)
+
+
+def descriptive(count: int) -> dict:
+    questions = [{"question": n, "topic": "T", "max_marks": 4} for n in range(1, count + 1)]
+    return {"name": "Descriptive", "questions": questions}
+
+
+def test_paper_check_order():
+    """The comparison's hold verdict or positive evidence wins; else the shape check; else the
+    comparison as it is - one rule for intake inspect, the upload hint and the pipeline."""
+    hold = RubricMatch(verdict="mismatch", compared=16, matched=0, message="Another paper.")
+    section = RubricMatch(verdict="unknown", compared=5, matched=5)
+    blind = RubricMatch(verdict="unknown", compared=0, matched=0)
+    assert paper_match.paper_check(hold, 174, descriptive(5)) is hold
+    assert paper_match.paper_check(section, 174, descriptive(5)) is section  # no shape check
+    shape = paper_match.paper_check(blind, 174, descriptive(5), rubric_label="'G' (v1)")
+    assert shape is not None and paper_match.structural(shape) and "rubric 'G' (v1) has 5 questions" in shape.message
+    assert paper_match.structural(paper_match.paper_check(None, 174, descriptive(5)))
+    assert paper_match.paper_check(blind, 174, descriptive(100)) is blind  # the shape fits: unknown stays
+    assert paper_match.paper_check(None, 174, descriptive(100)) is None
+
+
+def test_only_the_shape_check_is_structural():
+    shape = paper_match.shape_check(40, descriptive(5))
+    assert paper_match.structural(shape)
+    # compare()'s hold verdicts with nothing compared come from differing printed codes: never structural
+    codes = paper_match.compare({}, rubric(QUESTIONS, paper_code="Code A"), sheet_code="Code B")
+    assert codes.verdict == "mismatch" and codes.compared == 0 and not paper_match.structural(codes)
+    assert not paper_match.structural(paper_match.compare(stems(OTHER_PAPER), rubric(QUESTIONS)))
+    assert not paper_match.structural(None)
 
 
 def test_a_partial_match_is_unknown():

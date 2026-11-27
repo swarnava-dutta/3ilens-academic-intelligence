@@ -6,16 +6,21 @@ import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { errorCode, errorMessage, retrySubmission } from "@/lib/api";
 import type { ProcessingLogEntry, ResultPending } from "@/lib/types";
-import { formatConfidence, formatDateTime, reviewHold } from "@/lib/utils";
+import { cn, formatConfidence, formatDateTime, reviewHold, type ReviewHold } from "@/lib/utils";
 import { AuditTrailCard } from "./audit-trail";
 import { humanizeStep } from "./format";
 import { PIPELINE_STAGES, PipelineStepper, VOICE_PIPELINE_STAGES, stageStates, type StageState } from "./pipeline-stepper";
 import { Notice, btnPrimary } from "./dialog";
 import { MeterBar, Pill } from "./primitives";
 import { ReportHeader } from "./report-header";
+import { RerunControl } from "./rerun-control";
 import { ReviewEditor } from "./review-editor";
+import { SourcesPanel } from "./sources-panel";
 import { SubmissionDetailsCard } from "./submission-details";
 import { rubricLabel as formatRubricLabel, useRubric } from "./use-rubric";
+
+/** How older builds held a sheet with no answers (the mean of zero answer confidences). */
+const STALE_ZERO_HOLD = "OCR confidence 0.00 is below";
 
 /** The backend may add a processing log to the 202 body; render it when present. */
 export function pendingLog(pending: ResultPending): ProcessingLogEntry[] {
@@ -35,10 +40,15 @@ function FactTile({ label, children }: { label: string; children: ReactNode }) {
 function HumanReviewPanel({
   pending,
   states,
+  rubricText,
+  questionCount,
   onChanged,
 }: {
   pending: ResultPending;
   states: StageState[] | null;
+  /** The answer key's label, e.g. "NEET Mock 12 · custom-3" (or "Rubric 3" until the rubric list loads). */
+  rubricText: string;
+  questionCount: number | null;
   onChanged: () => void;
 }) {
   const s = pending.submission;
@@ -47,11 +57,31 @@ function HumanReviewPanel({
   const threshold = Math.round(thresholdRatio * 100);
   const flagged = s.flagged_pages ?? [];
   const voice = s.input_kind === "voice";
-  const confidenceLabel = voice ? "Transcript confidence" : "OCR confidence";
-  // Held for another reason than low confidence (the same-paper check, a mostly blank sheet): the
-  // reason leads and the confidence is only a fact tile.
+  // One reviewer name for the transcript review and the re-run.
+  const [reviewer, setReviewer] = useState("");
+  // Held for another reason than low confidence (another paper, no answers found, a mostly blank
+  // sheet): the reason leads and the confidence is only a fact tile.
   const hold = reviewHold(s, thresholdRatio);
   const reason = (s.error_message || pending.detail || "").trim();
+  // Nothing to measure: a voice answer with no mapped part, or an older row that stored 0 for "no answers".
+  const unmeasured = hold === "no_answers" && (confidence === null || confidence === 0);
+  // With no answers the sheet confidence is the pages' legibility (newer API builds).
+  const confidenceLabel = voice
+    ? "Transcript confidence"
+    : hold === "no_answers" && !unmeasured
+      ? "Page legibility"
+      : "OCR confidence";
+  const low = !unmeasured && confidence !== null && confidence < thresholdRatio;
+  // Demo rows have no stored upload to re-run.
+  const canRerun = !s.is_demo;
+  const rerunLeads = canRerun && (hold === "paper" || hold === "no_answers");
+  // An older build held this legible sheet as "OCR confidence 0.00" (the mean of no answers); the
+  // audit trail keeps that line above the start-up re-check that recorded the real reason. Only
+  // explained for the holds that re-check can set (no answers, another paper), and only when the
+  // log really has that line.
+  const staleZero =
+    (hold === "no_answers" || hold === "paper") &&
+    pendingLog(pending).some((e) => (e.message ?? "").startsWith(STALE_ZERO_HOLD));
   return (
     <section
       aria-labelledby="review-title"
@@ -59,12 +89,24 @@ function HumanReviewPanel({
     >
       <div>
         <div className="min-w-0">
-          <p className="text-[13px] text-amber-800">{hold === "paper" ? "Paper check" : "BRD safety constraint"}</p>
+          <p className="text-[13px] text-amber-800">
+            {hold === "paper" ? "Paper check" : hold === "no_answers" ? "Answer key check" : "BRD safety constraint"}
+          </p>
           <h2 id="review-title" className="mt-0.5 text-lg font-semibold text-brand-navy">
             Human review required
           </h2>
           {hold !== "confidence" ? (
-            <HoldReason hold={hold} reason={reason} voice={voice} />
+            <HoldReason
+              hold={hold}
+              reason={reason}
+              voice={voice}
+              reordered={s.review_reason === "paper_reordered"}
+              staleZero={staleZero}
+              noFlaggedPages={flagged.length === 0}
+              canRerun={canRerun}
+              rubricText={rubricText}
+              questionCount={questionCount}
+            />
           ) : (
             <>
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
@@ -86,27 +128,52 @@ function HumanReviewPanel({
               {pending.detail ? <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p> : null}
             </>
           )}
+          {rerunLeads ? (
+            <RerunControl
+              lead
+              className="mt-4 max-w-3xl"
+              submission={s}
+              onChanged={onChanged}
+              reviewer={reviewer}
+              onReviewerChange={setReviewer}
+            />
+          ) : null}
         </div>
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <FactTile label={confidenceLabel}>
-          <span className="text-xl tabular-nums text-amber-800">{formatConfidence(confidence)}</span>
-          <MeterBar
-            className="mt-2"
-            size="sm"
-            percent={confidence === null ? 0 : confidence * 100}
-            label={`${confidenceLabel} against the auto-grade threshold`}
-            valueText={`${formatConfidence(confidence)}; threshold ${threshold}%`}
-            fillClass="bg-amber-500"
-            trackClass="bg-amber-100"
-            markerPercent={threshold}
-            markerLabel={`Threshold ${threshold}%`}
-          />
+          {unmeasured ? (
+            <>
+              <span className="text-xl">Not measured</span>
+              <p className="mt-1 text-xs font-normal text-slate-500">
+                {voice ? "No part of the recording matched a question" : "No answer was transcribed"}
+              </p>
+            </>
+          ) : (
+            <>
+              <span className={cn("text-xl tabular-nums", low ? "text-amber-800" : "text-slate-800")}>
+                {formatConfidence(confidence)}
+              </span>
+              <MeterBar
+                className="mt-2"
+                size="sm"
+                percent={confidence === null ? 0 : confidence * 100}
+                label={`${confidenceLabel} against the auto-grade threshold`}
+                valueText={`${formatConfidence(confidence)}; threshold ${threshold}%`}
+                fillClass={low ? "bg-amber-500" : "bg-slate-500"}
+                trackClass={low ? "bg-amber-100" : "bg-slate-100"}
+                markerPercent={threshold}
+                markerLabel={`Threshold ${threshold}%`}
+              />
+            </>
+          )}
         </FactTile>
         <FactTile label="Auto-grade threshold">
           <span className="text-xl tabular-nums">{threshold}%</span>
-          <p className="mt-1 text-xs font-normal text-slate-500">Minimum {confidenceLabel.toLowerCase()}</p>
+          <p className="mt-1 text-xs font-normal text-slate-500">
+            Minimum {voice ? "transcript confidence" : "OCR confidence"}
+          </p>
         </FactTile>
         <FactTile label="AI evaluation">
           Skipped
@@ -119,8 +186,18 @@ function HumanReviewPanel({
       </div>
 
       <div className="mt-6 border-t border-slate-200 pt-5">
-        <ReviewEditor submission={s} onChanged={onChanged} />
+        <ReviewEditor submission={s} onChanged={onChanged} reviewer={reviewer} onReviewerChange={setReviewer} />
       </div>
+
+      {canRerun && !rerunLeads ? (
+        <RerunControl
+          className="mt-4"
+          submission={s}
+          onChanged={onChanged}
+          reviewer={reviewer}
+          onReviewerChange={setReviewer}
+        />
+      ) : null}
 
       {states ? (
         <div className="mt-6">
@@ -132,25 +209,92 @@ function HumanReviewPanel({
 }
 
 /**
- * Lead of the review panel when the sheet was held for another reason than low confidence: the
- * same-paper check (another paper, or another code / set of it) or a mostly blank sheet.
+ * Lead of the review panel when the sheet was held for another reason than low confidence:
+ * another paper or another code / set of it, no question of the key answered (usually a key for
+ * another paper), or a mostly blank sheet. The re-run control (a key drafted from the right
+ * question paper) follows for the first two.
  */
-function HoldReason({ hold, reason, voice }: { hold: "paper" | "other"; reason: string; voice: boolean }) {
+function HoldReason({
+  hold,
+  reason,
+  voice,
+  reordered,
+  staleZero,
+  noFlaggedPages,
+  canRerun,
+  rubricText,
+  questionCount,
+}: {
+  hold: Exclude<ReviewHold, "confidence">;
+  reason: string;
+  voice: boolean;
+  reordered: boolean;
+  /** The audit trail has an older build's "OCR confidence 0.00" line for this sheet (no answers). */
+  staleZero: boolean;
+  /** No page is below the threshold now (flagged_pages empty). */
+  noFlaggedPages: boolean;
+  /** The re-run control follows (false for demo rows: no stored upload). */
+  canRerun: boolean;
+  rubricText: string;
+  questionCount: number | null;
+}) {
+  const rubric = <strong className="font-semibold text-slate-900">{rubricText}</strong>;
+  // "Re-run it with that paper's question paper below." / "Upload it again with that paper's question paper."
+  const redo = (target: string) => (canRerun ? `Re-run it with ${target} below.` : `Upload it again with ${target}.`);
+  let lead: ReactNode;
+  let next: string;
+  let quote = reason;
+  if (hold === "no_answers") {
+    lead = voice ? (
+      <>
+        No part of the recording could be matched to a question of {rubric}, so it was not scored and no marks were
+        published.
+      </>
+    ) : (
+      <>
+        {questionCount === 1 ? (
+          <>The only question of {rubric} has no answer</>
+        ) : (
+          <>
+            None of the {questionCount ? `${questionCount} ` : ""}questions of {rubric} has an answer
+          </>
+        )}{" "}
+        on this sheet, although the pages read clearly. It was not scored and no marks were published.
+      </>
+    );
+    next = voice
+      ? `The usual cause is a key for another paper. ${redo("the right question paper")} If this key is right, check the transcript further down and approve or correct it.`
+      : `The usual cause is a key for another paper: the sheet belongs to a different paper. ${redo("its own question paper")} If this key is right and the student left it blank, approve the transcript further down to score it as not attempted, or type the answers as corrections.`;
+    // The lead already says it in full (the server's sentence repeats it; an older row even stored
+    // "OCR confidence 0.00 is below the threshold" here, which is not the reason).
+    quote = "";
+  } else if (hold === "paper") {
+    lead = reordered ? (
+      <>
+        This sheet is the paper of {rubric} printed in another code / set (the same questions under other numbers), so
+        it was not scored and no marks were published.
+      </>
+    ) : (
+      <>This sheet does not look like the paper of {rubric}, so it was not scored and no marks were published.</>
+    );
+    next = reordered
+      ? `${redo("the question paper of its code / set")} If the numbering matches this key after all, approve the transcript further down to score it with this key.`
+      : `${redo("its own question paper")} If this is the right key, approve the transcript further down to score it with this key anyway.`;
+  } else {
+    lead = "This sheet was held before grading, so no AI marks were published.";
+    next = `Review the transcript below, then approve or correct it to grade, or request a ${voice ? "new recording" : "rescan"}.`;
+  }
   return (
     <div className="mt-2 max-w-3xl space-y-2 text-sm leading-relaxed text-slate-700">
-      <p>
-        {hold === "paper"
-          ? "This sheet does not look like the rubric's paper, so it was not scored and no marks were published."
-          : "This sheet was held before grading, so no AI marks were published."}
-      </p>
-      {reason ? (
-        <p className="break-words border-l-2 border-amber-500 pl-3 text-slate-800">{reason}</p>
+      <p>{lead}</p>
+      {quote ? <p className="break-words border-l-2 border-amber-500 pl-3 text-slate-800">{quote}</p> : null}
+      {staleZero && !voice ? (
+        <p className="text-xs text-slate-500">
+          The audit trail also calls this &ldquo;OCR confidence 0.00&rdquo;: older runs counted a sheet with no answers
+          as 0% confident.{noFlaggedPages ? " No page was below the threshold." : ""}
+        </p>
       ) : null}
-      <p>
-        {hold === "paper"
-          ? "If the student wrote another paper or another code / set, upload the sheet again with that paper's rubric. If it is the right paper, review the transcript below and approve it to score it with this rubric."
-          : `Review the transcript below, then approve or correct it to grade, or request a ${voice ? "new recording" : "rescan"}.`}
-      </p>
+      <p>{next}</p>
     </div>
   );
 }
@@ -239,6 +383,7 @@ function FailedPanel({
             <p className="mt-2 text-sm text-slate-600">System note: {pending.detail}</p>
           ) : null}
           <RetryControl pending={pending} onChanged={onChanged} />
+          {s.is_demo ? null : <RerunControl className="mt-4" submission={s} onChanged={onChanged} />}
         </div>
       </div>
       {states ? (
@@ -336,12 +481,22 @@ export function StatusView({ pending, onChanged }: { pending: ResultPending; onC
       />
 
       {submission.status === "HUMAN_REVIEW_REQUIRED" ? (
-        <HumanReviewPanel pending={{ ...pending, submission }} states={states} onChanged={changed} />
+        <HumanReviewPanel
+          pending={{ ...pending, submission }}
+          states={states}
+          rubricText={rubricLabel}
+          questionCount={rubric?.content?.questions?.length ?? null}
+          onChanged={changed}
+        />
       ) : submission.status === "FAILED" ? (
         <FailedPanel pending={{ ...pending, submission }} states={states} onChanged={changed} />
       ) : (
         <ActivePanel pending={{ ...pending, submission, status: submission.status }} states={states} />
       )}
+
+      {(submission.status === "HUMAN_REVIEW_REQUIRED" || submission.status === "FAILED") && !submission.is_demo ? (
+        <SourcesPanel submission={submission} />
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <SubmissionDetailsCard submission={submission} rubricLabel={rubricLabel} className="lg:col-span-2" />

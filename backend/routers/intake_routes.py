@@ -8,9 +8,14 @@ page can offer "draft the rubric from it" before anything is uploaded. Same size
 decoding checks as POST /api/upload; a PDF over the page limit is still described (200 with
 within_page_limit=false).
 
-With rubric_id, a document whose text layer has printed question text is also checked against
-that rubric (rubric_match: same paper and version? paper_match) - null otherwise. rubric_id errors
-use the upload's codes: 422 invalid_rubric (not an integer), 422 unknown_rubric.
+With rubric_id, a printed paper (paper_detect.printed_paper: its text layer has printed questions
+with option lists) is also checked against that rubric (rubric_match: same paper and version?
+paper_match) - null otherwise, also for a typed answer sheet. The verdict is the pipeline's
+(paper_detect.rubric_check): the printed-question comparison when it holds or finds the rubric's
+questions on the paper; else, when it cannot tell, a printed paper with far more numbered questions
+than a non-MCQ rubric has questions is reported as a mismatch (paper_match.shape_check, a factual
+message - nothing has been uploaded yet). rubric_id errors use the upload's codes: 422
+invalid_rubric (not an integer), 422 unknown_rubric.
 """
 from __future__ import annotations
 
@@ -59,9 +64,11 @@ def inspect_intake_file(
     if len(data) > limit:
         raise ApiError(413, f"File is larger than the {settings.max_upload_mb} MB limit.", "too_large")
     inspection, texts = paper_detect.inspect_document(data, settings)
-    # Only printed papers carry the question text; a typed answer sheet would read as a different paper.
-    if rubric is not None and inspection.text_layer and inspection.role in ("question_paper", "answer_key_paper"):
-        match = paper_detect.match_rubric(texts, rubric.content or {})
+    if rubric is not None:
+        # None unless a printed paper: a typed answer sheet's text would read as a different paper.
+        match = paper_detect.rubric_check(
+            inspection, texts, rubric.content, rubric_label=f"'{rubric.name}' ({rubric.version})"
+        )
         if match is not None:
             inspection = inspection.model_copy(update={"rubric_match": match})
     return inspection

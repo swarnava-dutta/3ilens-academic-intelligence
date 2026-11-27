@@ -2,7 +2,8 @@
 
 Used by POST /api/intake/inspect (routers/intake_routes.py) before upload, and by POST /api/upload
 for one Ingestion log line. The result is a hint for faculty only: it never rejects a file or
-changes how it is processed.
+changes how it is processed. The upload hint names the selected rubric when the printed paper does
+not fit it (the pipeline holds such a sheet: paper_match.compare / shape_check).
 
 Heuristics (all counts come from the PDF / DOCX text layer; images and audio have none):
 
@@ -30,6 +31,11 @@ Heuristics (all counts come from the PDF / DOCX text layer; images and audio hav
   - unknown: anything else (e.g. a descriptive question paper with many numbered questions).
 
 For the same-paper check (paper_match; POST /api/intake/inspect with rubric_id):
+- printed_paper: whether the text layer is checked against a rubric at all - an answer_key_paper, or
+  a question_paper with option lists for at least half its numbered questions. A typed answer sheet
+  that lists (a)-(d) sub-parts under a few of its answers can reach the question_paper role, but its
+  text is the student's answers, not the paper's questions. The upload hint, intake inspect and the
+  pipeline's text-layer check (pipeline.document_paper_check) use this one gate;
 - question_stems: the first 12 words after each question number at a line start, by number;
 - paper_code: the printed paper code / set ("Test Booklet Code P", "CODE - 45", "Set 2").
 """
@@ -42,6 +48,8 @@ import pymupdf
 
 import docx_reader
 import insights
+import marking
+import mcq_marks
 import paper_match
 import preprocessing
 import uploads
@@ -58,6 +66,7 @@ MIN_KEY_MARKERS = 5
 KEY_SHARE = 0.5                # answer markers per numbered question for an answer-key paper
 MIN_PAPER_QUESTIONS = 10
 MIN_PAPER_OPTION_GROUPS = 5
+PRINTED_OPTION_SHARE = 0.5     # option lists per numbered question before a question paper's text is checked
 MAX_TITLE_CHARS = 120
 MAX_HEADING_CHARS = 40
 STEM_WORDS = 12               # words of printed question text kept per question (question_stems)
@@ -302,8 +311,8 @@ def classify(
     elif not text_layer:
         role = "answer_sheet"
         message = (
-            "Scanned pages without a text layer - the vision model reads them after upload (a handwritten "
-            "sheet, or a printed paper with ticked options)."
+            "Scanned pages without a text layer - the vision model reads them after upload (a printed paper "
+            "with ticked options, or a typed sheet)."
         )
     elif markers >= max(MIN_KEY_MARKERS, KEY_SHARE * numbered) and (
         key_table or groups >= KEY_SHARE * markers
@@ -323,7 +332,7 @@ def classify(
         )
     elif numbered < MIN_PAPER_QUESTIONS and groups < MIN_PAPER_OPTION_GROUPS:
         role = "answer_sheet"
-        message = "Handwritten or typed answer sheet."
+        message = "Typed or printed answer sheet."
     else:
         role = "unknown"
         message = (
@@ -445,10 +454,26 @@ def inspect_document(data: bytes, settings: Settings) -> tuple[PaperInspection, 
         role="unknown",
         max_pdf_pages=settings.max_pdf_pages,
         message=(
-            "Photo or scan - the vision model reads it after upload (handwriting, or ticked options on a "
-            "printed paper)."
+            "Photo or scan - the vision model reads it after upload (ticked options on a printed paper, or a "
+            "typed sheet)."
         ),
     ), []
+
+
+def printed_paper(inspection: PaperInspection) -> bool:
+    """Whether a document's text layer is checked against a rubric: an answer_key_paper, or a
+    question_paper with option lists for at least PRINTED_OPTION_SHARE of its numbered questions. A
+    typed answer sheet with (a)-(d) sub-parts under a few answers can reach the question_paper role
+    (10 numbered questions, 5 option groups), but its text is the student's answers - compared with
+    the rubric's questions it would read as another paper."""
+    if not inspection.text_layer:
+        return False
+    if inspection.role == "answer_key_paper":
+        return True
+    return (
+        inspection.role == "question_paper"
+        and inspection.option_groups >= PRINTED_OPTION_SHARE * inspection.numbered_questions
+    )
 
 
 def match_rubric(page_texts: list[str], rubric_content: dict) -> RubricMatch | None:
@@ -460,25 +485,116 @@ def match_rubric(page_texts: list[str], rubric_content: dict) -> RubricMatch | N
     return paper_match.compare(stems, rubric_content, sheet_code=paper_code("\n".join(page_texts)))
 
 
-def ingestion_hint(data: bytes, mime_type: str, settings: Settings) -> str | None:
+def rubric_check(
+    inspection: PaperInspection, page_texts: list[str], rubric_content: dict | None, *,
+    rubric_label: str | None = None,
+) -> RubricMatch | None:
+    """The same-paper verdict of an inspected document against a rubric - one rule for intake
+    inspect, the upload hint and the pipeline's text-layer check (pipeline.document_paper_check):
+    None unless printed_paper(); else paper_match.paper_check of its printed question stems
+    (match_rubric) and its numbered questions (the shape check)."""
+    if not printed_paper(inspection):
+        return None
+    return paper_match.paper_check(
+        match_rubric(page_texts, rubric_content or {}), inspection.numbered_questions, rubric_content,
+        rubric_label=rubric_label,
+    )
+
+
+def _rubric_counts(rubric_content: dict | None) -> tuple[int, int]:
+    """(questions, MCQs) of a rubric."""
+    questions = (rubric_content or {}).get("questions") if isinstance(rubric_content, dict) else None
+    questions = [q for q in questions or [] if isinstance(q, dict)]
+    return len(questions), sum(1 for q in questions if marking.question_type(q) == "mcq")
+
+
+def rubric_shape(rubric_content: dict | None) -> str:
+    """'has 5 questions, none of them MCQs' / 'has 12 questions, 2 of them MCQs'."""
+    return f"has {paper_match._mcq_note(*_rubric_counts(rubric_content))}"
+
+
+def _rubric_hold(
+    result: PaperInspection, texts: list[str], rubric_content: dict, named: str, rubric_label: str | None
+) -> tuple[str, str] | None:
+    """("check" | "shape", why) when the pipeline will hold this printed paper read as handwriting -
+    the same verdict as the pipeline's text-layer check (rubric_check: the comparison when it holds
+    or finds the rubric's questions on the paper, else the shape check). A comparison holds only a
+    sheet whose answers mostly did not map (pipeline.review_decision), so its copy says so."""
+    verdict = rubric_check(result, texts, rubric_content, rubric_label=rubric_label)
+    if verdict is None or verdict.verdict not in paper_match.HOLD_VERDICTS:
+        return None
+    if paper_match.structural(verdict):
+        return "shape", (
+            f"{named} {rubric_shape(rubric_content)} - not this paper's rubric; the sheet will be held for "
+            "faculty review."
+        )
+    return "check", (
+        f"checked against {named}: {verdict.message} The sheet will be held for faculty review unless its "
+        "answers map to at least half of the rubric's questions."
+    )
+
+
+def ingestion_hint(
+    data: bytes,
+    mime_type: str,
+    settings: Settings,
+    *,
+    rubric_content: dict | None = None,
+    rubric_label: str | None = None,
+) -> str | None:
     """One Ingestion log line for a printed MCQ paper or a question paper with its answer key;
-    None otherwise. Never raises: the hint must not affect the upload."""
+    None otherwise. The wording follows the reader the pipeline will use (pipeline.ocr_reader, same
+    rule: mcq_marks.reads_ticks): a PDF with an all-MCQ rubric of 10+ questions (rubric_label like
+    "'Biology - Genetics' (v1)"), or with no rubric given, keeps the plain hint (the ticks are read);
+    a Word document, or a rubric with any written question or fewer than 10 questions, is read as
+    handwriting, and the hint says so - or that it will be held when the paper is not the rubric's.
+    Read as handwriting, a document that fails printed_paper() (a typed answer sheet with a few
+    (a)-(d) sub-parts) gets no hint, as intake inspect gives it no rubric_match. Never raises: the
+    hint must not affect the upload."""
     if mime_type not in ("application/pdf", DOCX_MIME):
         return None
     try:
-        result = inspect_bytes(data, settings)
+        result, texts = inspect_document(data, settings)
     except Exception as exc:  # noqa: BLE001 - a hint only
         logger.debug("Paper detection skipped: %s", exc)
         return None
+    if result.role not in ("question_paper", "answer_key_paper"):
+        return None
+    mcq_rubric = rubric_content is None or mcq_marks.reads_ticks(rubric_content)
+    read_as_handwriting = mime_type != "application/pdf" or not mcq_rubric
+    if read_as_handwriting and not printed_paper(result):
+        return None
+    named = f"rubric {rubric_label}" if rubric_label else "the selected rubric"
+    hold: tuple[str, str] | None = None
+    if read_as_handwriting and rubric_content is not None:
+        try:
+            hold = _rubric_hold(result, texts, rubric_content, named, rubric_label)
+        except Exception as exc:  # noqa: BLE001 - a hint only
+            logger.debug("Rubric check of the paper hint skipped: %s", exc)
+    detected = f"Printed MCQ paper detected (about {_plural(result.numbered_questions, 'numbered question')})"
     if result.role == "question_paper":
-        return (
-            f"Printed MCQ paper detected (about {_plural(result.numbered_questions, 'numbered question')}) - "
-            "the student's ticked / circled / shaded options are read as answers."
-        )
-    if result.role == "answer_key_paper":
-        return (
-            f"This file looks like a question paper with its answer key "
-            f"({_plural(result.answer_markers, 'answer marker')}) - if it is not a student's sheet, draft the "
-            "rubric from it instead."
-        )
-    return None
+        if hold is not None:
+            kind, why = hold
+            return f"{detected}; {why}" if kind == "check" else f"{detected}, but {why}"
+        if read_as_handwriting and mcq_rubric:  # a Word document: the printed-MCQ reader takes PDFs only
+            return (
+                f"{detected}; a Word document is read by the handwriting reader against the questions of "
+                f"{named} (the printed-MCQ reader takes PDFs only)."
+            )
+        if read_as_handwriting:
+            why = (
+                "is not an MCQ rubric" if not _rubric_counts(rubric_content)[1] else
+                f"{rubric_shape(rubric_content)} (ticks are read only against an all-MCQ rubric of "
+                f"{mcq_marks.MCQ_HEAVY_MIN_QUESTIONS}+ questions)"
+            )
+            return f"{detected}; {named} {why}, so the sheet is read as handwriting against its questions."
+        return f"{detected} - the student's ticked / circled / shaded options are read as answers."
+    keyed = (
+        f"This file looks like a question paper with its answer key "
+        f"({_plural(result.answer_markers, 'answer marker')}) - if it is not a student's sheet, draft the "
+        "rubric from it instead."
+    )
+    if hold is not None:
+        why = hold[1]
+        return f"{keyed} {why[0].upper()}{why[1:]}"
+    return keyed

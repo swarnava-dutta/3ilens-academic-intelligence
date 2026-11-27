@@ -178,6 +178,8 @@ class StudentSubmission(Base):
     # --- worker ------------------------------------------------------------------------------
     attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # why a HUMAN_REVIEW_REQUIRED sheet is held (schemas.ReviewReasonLit); None otherwise
+    review_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     flagged_pages: Mapped[list[int] | None] = mapped_column(JSON, nullable=True, default=lambda: [])
     page_confidences: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True, default=lambda: [])
     ocr_cache_hit: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
@@ -416,6 +418,8 @@ MIGRATION_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("student_submissions", "audio_seconds", "FLOAT"),
     ("student_submissions", "voice_question", "INTEGER"),
     ("student_submissions", "detected_languages", "JSON"),
+    # --- review reasons ---
+    ("student_submissions", "review_reason", "VARCHAR(32)"),
 )
 # (index name, table, column) - names match SQLAlchemy's ix_<table>_<column> for index=True.
 MIGRATION_INDEXES: tuple[tuple[str, str, str], ...] = (

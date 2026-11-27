@@ -21,6 +21,16 @@ no AI call.
   rubric name, e.g. "NEET 2016 Code A"). Two known codes with nothing in common turn an unknown
   text verdict into a mismatch, and are mentioned in the message otherwise.
 
+shape_check() is the fallback when the question text cannot tell (a descriptive rubric has no
+printed stems to compare): a printed paper with many numbered questions against a small rubric that
+is not an MCQ rubric is not that paper's rubric. Its message states the fact only; a caller that
+holds the sheet adds what to do about it.
+
+paper_check() puts the two in one order for every caller (intake inspect, the upload hint, the
+pipeline's text-layer check): the comparison's hold verdict, or its positive evidence (found_on_paper:
+a "match", or an "unknown" over too few compared questions that nearly all matched - a rubric for one
+short section of the paper), wins; the shape check runs only when the comparison found neither.
+
 Calibrated on a scanned NEET 2016 paper (noisy two-column OCR text layer) and a typed NEET 2025
 paper against AI-drafted rubrics of both: the scan against its own rubric reads as a match, the
 typed paper against the 2016 rubric as a mismatch, and the scan against a copy of its rubric with
@@ -31,6 +41,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import marking
 from schemas import RubricMatch
 
 MIN_STEM_WORDS = 3          # a stem with fewer distinctive words is not compared
@@ -47,6 +58,12 @@ MAX_EXAMPLES = 3
 EXAMPLE_CHARS = 48
 
 HOLD_VERDICTS = ("reordered", "mismatch")
+
+# shape_check(): a printed paper this long against a non-MCQ rubric covering under half of it.
+SHAPE_MIN_QUESTIONS = 10
+# The MCQ-heavy rule of mcq_marks.mcq_heavy (not imported: mcq_marks pulls in the AI layer).
+MCQ_HEAVY_MIN_QUESTIONS = 10
+MCQ_HEAVY_SHARE = 0.8
 
 # Short function words are already dropped by the 3-character minimum.
 _STOPWORDS = frozenset(
@@ -355,6 +372,13 @@ def compare(stems: dict[int, str], rubric_content: dict, *, sheet_code: str | No
             f"The sheet's printed paper code ({sheet_norm}) differs from the rubric's ({rubric_norm}) - "
             f"it looks like another version of the paper; grade it with the rubric for code {sheet_norm}."
         )
+    elif total and matched >= MATCH_SHARE * total:
+        # Too few compared (a rubric for one short section) or too little rubric text to be sure, but
+        # what was compared is printed on this paper (found_on_paper).
+        message = (
+            f"The sheet's printed questions match the rubric ({matched} of {total} compared) - too few to "
+            "confirm the paper and its version."
+        )
     elif not rubric_words or not text_rich:
         message = "The rubric has no question text to check the sheet's printed questions against."
     elif total < MIN_COMPARED:
@@ -387,3 +411,85 @@ def compare(stems: dict[int, str], rubric_content: dict, *, sheet_code: str | No
         examples=examples,
         message=message,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Shape check (no question text needed)
+# --------------------------------------------------------------------------- #
+def _mcq_note(total: int, mcqs: int) -> str:
+    if total == 1:
+        return "1 question, an MCQ" if mcqs else "1 question, not an MCQ"
+    if mcqs == 0:
+        return f"{total} questions, none of them MCQs"
+    if mcqs == total:
+        return f"{total} questions, all of them MCQs"
+    return f"{total} questions, {mcqs} of them {'an MCQ' if mcqs == 1 else 'MCQs'}"
+
+
+def shape_check(
+    numbered_questions: int, rubric_content: dict | None, *, rubric_label: str | None = None
+) -> RubricMatch | None:
+    """A printed paper (paper_detect: question_paper / answer_key_paper) against a rubric that cannot
+    be its rubric: at least SHAPE_MIN_QUESTIONS numbered questions, a rubric that is not MCQ-heavy
+    (mcq_marks.mcq_heavy: >= 10 questions, >= 80% MCQs) and covers fewer than half of them. A
+    "mismatch" RubricMatch (nothing compared, no printed code: see structural) in that case; None
+    otherwise, also for an empty rubric. rubric_label names the rubric in the message ("'Biology -
+    Genetics' (v1)"). The message states the fact only - it is also shown before the file is uploaded;
+    a caller that holds the sheet adds what to do (pipeline.document_paper_check)."""
+    raw = rubric_content.get("questions") if isinstance(rubric_content, dict) else None
+    questions = [q for q in raw or [] if isinstance(q, dict)]
+    try:
+        printed = int(numbered_questions)
+    except (TypeError, ValueError):
+        return None
+    if not questions or printed < SHAPE_MIN_QUESTIONS:
+        return None
+    mcqs = sum(1 for q in questions if marking.question_type(q) == "mcq")
+    if len(questions) >= MCQ_HEAVY_MIN_QUESTIONS and mcqs >= MCQ_HEAVY_SHARE * len(questions):
+        return None  # an MCQ rubric: the printed-question comparison decides
+    if len(questions) * 2 >= printed:
+        return None
+    name = f"rubric {rubric_label}" if rubric_label else "the selected rubric"
+    message = (
+        f"This is a printed question paper with about {printed} numbered questions, but {name} has "
+        f"{_mcq_note(len(questions), mcqs)} - it is not this paper's rubric."
+    )
+    return RubricMatch(
+        verdict="mismatch", compared=0, matched=0, moved=0, sheet_code=None,
+        rubric_code=rubric_code(rubric_content), examples=[], message=message,
+    )
+
+
+def structural(match: RubricMatch | None) -> bool:
+    """A shape_check() verdict: a mismatch with nothing compared and no printed sheet code. compare()
+    never returns one - its hold verdicts with nothing compared come from two differing printed codes,
+    so they carry the sheet's code."""
+    return match is not None and match.verdict == "mismatch" and match.compared == 0 and not match.sheet_code
+
+
+# --------------------------------------------------------------------------- #
+# The verdict of a printed paper against a rubric (comparison first, then shape)
+# --------------------------------------------------------------------------- #
+def found_on_paper(match: RubricMatch | None) -> bool:
+    """The comparison found the rubric's questions printed on the sheet: a "match", or an "unknown"
+    that compared at least one question and matched at least MATCH_SHARE of them (fewer than
+    MIN_COMPARED compared - a rubric for one short section of the paper - or too little rubric text to
+    be sure). Such a rubric is never called another paper's by its shape."""
+    if match is None:
+        return False
+    if match.verdict == "match":
+        return True
+    return match.verdict == "unknown" and match.compared > 0 and match.matched >= MATCH_SHARE * match.compared
+
+
+def paper_check(
+    match: RubricMatch | None, numbered_questions: int, rubric_content: dict | None, *,
+    rubric_label: str | None = None,
+) -> RubricMatch | None:
+    """One order for intake inspect, the upload hint and the pipeline's text-layer check: the
+    comparison (compare() of the printed stems, or None without stems) when it holds (reordered /
+    mismatch) or found the rubric's questions on the paper (found_on_paper); else shape_check when it
+    calls the rubric another paper's; else the comparison as it is (unknown, or None)."""
+    if match is not None and (match.verdict in HOLD_VERDICTS or found_on_paper(match)):
+        return match
+    return shape_check(numbered_questions, rubric_content, rubric_label=rubric_label) or match

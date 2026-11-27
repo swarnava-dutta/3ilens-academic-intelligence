@@ -11,6 +11,7 @@ import pymupdf
 import pytest
 
 import config
+import mcq_marks
 import paper_detect
 from tests.test_contract import check_interface
 from tests.test_docx import DOCM_MAIN, make_docx
@@ -206,7 +207,7 @@ def test_short_typed_answer_sheet():
         "The F2 generation shows the 3 : 1 phenotypic ratio because tall is dominant over dwarf." for _ in range(6)
     ]
     result = _inspect(_pdf_from_pages([lines]))
-    assert result.role == "answer_sheet" and result.message == "Handwritten or typed answer sheet."
+    assert result.role == "answer_sheet" and result.message == "Typed or printed answer sheet."
 
 
 def test_over_the_page_limit_is_described_not_rejected(monkeypatch):
@@ -486,3 +487,244 @@ def test_inspect_skips_the_rubric_check_for_typed_answer_sheets(client, tmp_path
     assert response.status_code == 200
     body = response.json()
     assert body["role"] not in ("question_paper", "answer_key_paper") and body["rubric_match"] is None
+
+
+# --------------------------------------------------------------------------- #
+# The selected rubric: upload hint and intake inspect (a printed paper that is not the rubric's)
+# --------------------------------------------------------------------------- #
+GENETICS_LABEL = "'Biology - Genetics' (v1)"
+
+
+def _descriptive(prompts: list[str], name: str = "Descriptive") -> dict:
+    return {
+        "name": name, "subject": "Physics",
+        "questions": [
+            {"question": n, "topic": f"Topic {n}", "subject": "Physics", "max_marks": 4, "effort_hours": 2,
+             "prompt": prompt}
+            for n, prompt in enumerate(prompts, start=1)
+        ],
+    }
+
+
+def _mcq_rubric(count: int) -> dict:
+    content = _descriptive([f"Question {n} about uniform acceleration" for n in range(1, count + 1)], "MCQ mock")
+    for question in content["questions"]:
+        question.update(question_type="mcq", options=["one", "two", "three", "four"], correct_option="A")
+    return content
+
+
+def test_ingestion_hint_with_a_small_descriptive_rubric_says_the_sheet_is_held():
+    from tests.test_api import genetics_rubric
+
+    settings = config.get_settings()
+    paper = _paper(range(1, 16), key=False)
+    hint = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=genetics_rubric(),
+                                       rubric_label=GENETICS_LABEL)
+    assert hint == (
+        "Printed MCQ paper detected (about 15 numbered questions), but rubric 'Biology - Genetics' (v1) has "
+        "5 questions, none of them MCQs - not this paper's rubric; the sheet will be held for faculty review."
+    )
+    unnamed = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=genetics_rubric())
+    assert unnamed is not None and ", but the selected rubric has 5 questions, none of them MCQs" in unnamed
+    keyed = paper_detect.ingestion_hint(_paper(range(1, 13), key=True), "application/pdf", settings,
+                                        rubric_content=genetics_rubric(), rubric_label=GENETICS_LABEL)
+    assert keyed is not None and keyed.startswith("This file looks like a question paper with its answer key (12 ")
+    assert keyed.endswith(
+        "Rubric 'Biology - Genetics' (v1) has 5 questions, none of them MCQs - not this paper's rubric; the sheet "
+        "will be held for faculty review."
+    )
+
+
+def test_ingestion_hint_with_an_mcq_rubric_is_unchanged():
+    settings = config.get_settings()
+    hint = paper_detect.ingestion_hint(_paper(range(1, 16), key=False), "application/pdf", settings,
+                                       rubric_content=_mcq_rubric(15), rubric_label="'MCQ mock' (v1)")
+    assert hint == (
+        "Printed MCQ paper detected (about 15 numbered questions) - the student's ticked / circled / shaded "
+        "options are read as answers."
+    )
+
+
+def test_ingestion_hint_with_a_fitting_descriptive_rubric_reads_handwriting():
+    settings = config.get_settings()
+    # 8 questions for 15 printed ones (not "far fewer"), too little question text to compare
+    content = _descriptive([f"Explain device {n}" for n in range(1, 9)])
+    hint = paper_detect.ingestion_hint(_paper(range(1, 16), key=False), "application/pdf", settings,
+                                       rubric_content=content, rubric_label="'Descriptive' (v2)")
+    assert hint == (
+        "Printed MCQ paper detected (about 15 numbered questions); rubric 'Descriptive' (v2) is not an MCQ rubric, "
+        "so the sheet is read as handwriting against its questions."
+    )
+
+
+def test_ingestion_hint_reports_another_paper_for_a_descriptive_rubric():
+    from tests.test_paper_match import OTHER_PAPER, QUESTIONS
+
+    hint = paper_detect.ingestion_hint(_printed_paper(QUESTIONS), "application/pdf", config.get_settings(),
+                                       rubric_content=_descriptive(OTHER_PAPER), rubric_label="'Other' (v1)")
+    assert hint is not None
+    assert hint.startswith(
+        "Printed MCQ paper detected (about 16 numbered questions); checked against rubric 'Other' (v1): The sheet's "
+        "printed questions do not match the rubric"
+    )
+    # A text comparison holds only a sheet whose answers mostly did not map (pipeline.review_decision).
+    assert hint.endswith(
+        "The sheet will be held for faculty review unless its answers map to at least half of the rubric's "
+        "questions."
+    )
+
+
+def test_ingestion_hint_for_a_word_document_follows_the_reader_the_pipeline_uses():
+    """A Word document is always read as handwriting (pipeline.ocr_reader reads ticks only from a
+    PDF), so its hint never says the ticks are read - even with an MCQ-heavy rubric."""
+    from types import SimpleNamespace
+
+    import pipeline
+
+    settings = config.get_settings()
+    paragraphs = [line for n in range(1, 16) for line in _mcq_block(n)]
+    docx, pdf = make_docx(paragraphs), _paper(range(1, 16), key=False)
+    prompts = [_mcq_block(n)[0].split(". ", 1)[1] for n in range(1, 16)]
+    content = _mcq_rubric(15)  # MCQ-heavy, its prompts printed on this paper (no hold)
+    for question, prompt in zip(content["questions"], prompts):
+        question["prompt"] = prompt
+    assert pipeline.ocr_reader(SimpleNamespace(mime_type=config.DOCX_MIME), content, 3) == pipeline.READER_OCR
+    label = "'MCQ mock' (v1)"
+    assert paper_detect.ingestion_hint(docx, config.DOCX_MIME, settings, rubric_content=content,
+                                       rubric_label=label) == (
+        "Printed MCQ paper detected (about 15 numbered questions); a Word document is read by the handwriting "
+        "reader against the questions of rubric 'MCQ mock' (v1) (the printed-MCQ reader takes PDFs only)."
+    )
+    assert paper_detect.ingestion_hint(pdf, "application/pdf", settings, rubric_content=content,
+                                       rubric_label=label) == (
+        "Printed MCQ paper detected (about 15 numbered questions) - the student's ticked / circled / shaded "
+        "options are read as answers."
+    )
+    # Another paper's MCQ rubric: the Word document's text layer is checked, as the pipeline does.
+    other = paper_detect.ingestion_hint(docx, config.DOCX_MIME, settings, rubric_content=_mcq_rubric(15),
+                                        rubric_label=label)
+    assert other is not None and other.startswith(
+        "Printed MCQ paper detected (about 15 numbered questions); checked against rubric 'MCQ mock' (v1): The "
+        "sheet's printed questions do not match the rubric"
+    )
+
+
+def test_ingestion_hint_follows_the_all_mcq_rule_of_the_reader():
+    """MCQ-heavy is not enough: the tick reader skips written questions, so pipeline.ocr_reader sends
+    a key with any written question to the handwriting reader (mcq_marks.reads_ticks) - and the hint
+    says so instead of promising that the ticks are read."""
+    from types import SimpleNamespace
+
+    import pipeline
+
+    settings = config.get_settings()
+    pdf = _paper(range(1, 16), key=False)
+    content = _mcq_rubric(15)  # its prompts printed on this paper (no hold)
+    for number, question in enumerate(content["questions"], start=1):
+        question["prompt"] = _mcq_block(number)[0].split(". ", 1)[1]
+    content["questions"][-1].update(question_type="written", options=None, correct_option=None)
+    assert mcq_marks.mcq_heavy(content) and not mcq_marks.reads_ticks(content)  # 14 of 15 MCQs
+    sheet = SimpleNamespace(mime_type="application/pdf")
+    assert pipeline.ocr_reader(sheet, content, 30) == pipeline.READER_OCR
+    hint = paper_detect.ingestion_hint(pdf, "application/pdf", settings, rubric_content=content,
+                                       rubric_label="'Mixed mock' (v1)")
+    assert hint == (
+        "Printed MCQ paper detected (about 15 numbered questions); rubric 'Mixed mock' (v1) has 15 questions, "
+        "14 of them MCQs (ticks are read only against an all-MCQ rubric of 10+ questions), so the sheet is read "
+        "as handwriting against its questions."
+    )
+    # The same key with its written question made an MCQ: both the reader and the hint read the ticks.
+    content["questions"][-1].update(question_type="mcq", options=["one", "two", "three", "four"], correct_option="A")
+    assert pipeline.ocr_reader(sheet, content, 30) == pipeline.READER_MARKS
+    assert paper_detect.ingestion_hint(pdf, "application/pdf", settings, rubric_content=content) == (
+        "Printed MCQ paper detected (about 15 numbered questions) - the student's ticked / circled / shaded "
+        "options are read as answers."
+    )
+
+
+def test_upload_hint_names_the_selected_rubric(upload, fake_ai, client):
+    response = upload(filename="ticked_paper.pdf", content=_paper(range(1, 16), key=False))
+    assert response.status_code == 202, response.text
+    log = _log(client, response.json()["id"])
+    assert (
+        "Printed MCQ paper detected (about 15 numbered questions), but rubric 'Biology - Genetics' (v1) has "
+        "5 questions, none of them MCQs - not this paper's rubric; the sheet will be held for faculty review."
+    ) in log
+
+
+def _genetics_id(client) -> int:
+    return next(r["id"] for r in client.get("/api/rubrics").json() if r["name"] == "Biology - Genetics")
+
+
+def test_inspect_route_flags_a_long_printed_paper_against_a_small_descriptive_rubric(client, forbid_ai):
+    response = _post_with_rubric(client, _paper(range(1, 16), key=False), _genetics_id(client))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    check_interface(body["rubric_match"], "RubricMatch")
+    match = body["rubric_match"]
+    assert (match["verdict"], match["compared"], match["matched"], match["moved"]) == ("mismatch", 0, 0, 0)
+    assert "but rubric 'Biology - Genetics' (v1) has 5 questions, none of them MCQs" in match["message"]
+    assert "paper" in match["message"] and match["examples"] == []
+    # Nothing is uploaded yet: the fact only, no "re-run / approve" advice for a held sheet.
+    assert match["message"].endswith("- it is not this paper's rubric.")
+    assert "Re-run" not in match["message"] and "approve" not in match["message"]
+    assert forbid_ai == []
+
+
+def test_inspect_route_skips_a_typed_answer_sheet_with_sub_parts(client, forbid_ai):
+    """12 typed answers, 5 with (a)-(d) sub-parts: classify() says question_paper, but it fails the
+    printed-paper gate, so it is not compared with the rubric (its answers would read as another paper)."""
+    from tests.test_review_reasons import mock08_id, typed_sheet
+
+    rubric_id = mock08_id(client)
+    for kind in ("docx", "pdf"):
+        response = _post_with_rubric(client, typed_sheet(kind), rubric_id, f"sheet.{kind}")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["role"] == "question_paper" and body["rubric_match"] is None
+    assert forbid_ai == []
+
+
+def test_inspect_route_keeps_an_unknown_verdict_when_the_shape_fits(client, forbid_ai):
+    from tests.test_paper_match import QUESTIONS
+
+    paper = _printed_paper(QUESTIONS[:12])
+    rubric_id = _saved_rubric(client, ["Short"] * 12)  # MCQ rubric without comparable question text
+    match = _post_with_rubric(client, paper, rubric_id).json()["rubric_match"]
+    assert match is not None and match["verdict"] == "unknown"
+
+
+def test_a_text_match_wins_over_the_shape_check_everywhere(client, forbid_ai):
+    """A descriptive rubric for one section of a printed paper: its questions are printed on the
+    paper (text verdict "match"), so the shape check must not call it another paper's rubric -
+    the same answer from intake inspect, the upload hint and the pipeline's text-layer check."""
+    import paper_match
+    import pipeline
+    from tests.test_paper_match import OTHER_PAPER, QUESTIONS
+
+    paper = _printed_paper(QUESTIONS + OTHER_PAPER)  # 32 printed questions
+    # 8 of them (a "match"), and 5 or 7 - fewer than paper_match.MIN_COMPARED, so the comparison is
+    # "unknown", but every compared question matched; none MCQs, and n * 2 < 32 for all three.
+    for size, verdict in ((8, "match"), (7, "unknown"), (5, "unknown")):
+        section = _descriptive(QUESTIONS[:size], "Section A")
+        label = "'Section A' (v1)"
+        assert paper_match.shape_check(32, section, rubric_label=label) is not None  # the shape alone would hold
+
+        check = pipeline.document_paper_check(paper, section, rubric_label=label)
+        assert check is not None and (check.verdict, check.compared, check.matched) == (verdict, size, size)
+        assert paper_match.found_on_paper(check) and check.verdict not in paper_match.HOLD_VERDICTS
+        hint = paper_detect.ingestion_hint(paper, "application/pdf", config.get_settings(),
+                                           rubric_content=section, rubric_label=label)
+        assert hint == (
+            "Printed MCQ paper detected (about 32 numbered questions); rubric 'Section A' (v1) is not an MCQ rubric, "
+            "so the sheet is read as handwriting against its questions."
+        )
+        saved = {**section, "questions": [
+            {**q, "expected_answer": "A worked answer.", "grading_criteria": ["Full marks for a worked answer."]}
+            for q in section["questions"]
+        ]}
+        response = client.post("/api/rubrics", json={"content": saved, "approved": False})
+        assert response.status_code == 201, response.text
+        match = _post_with_rubric(client, paper, response.json()["id"]).json()["rubric_match"]
+        assert match is not None and (match["verdict"], match["matched"]) == (verdict, size)
+    assert forbid_ai == []

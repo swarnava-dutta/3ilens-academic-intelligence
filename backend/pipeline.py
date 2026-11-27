@@ -10,8 +10,12 @@ What a run does (mode "full"):
   -> pre-processing (real: 300 DPI master, deskew / contrast / unsharp; preprocessing.py)
   -> OCR (AI call 1) or an OCR-cache hit (FR-2.5: same bytes + rubric questions + model)
   -> same-paper check for a printed MCQ paper (paper_match: its printed questions and code against
-     the rubric; another paper or version -> faculty review)
-  -> per-page confidence gate (FR-2.4: any page or the sheet below the threshold -> faculty review)
+     the rubric; another paper or version -> faculty review); a PDF / Word upload read as handwriting
+     gets the same check from its text layer when it is a printed paper, plus the shape check (a long
+     printed paper against a small non-MCQ rubric is not that paper's rubric) - its comparison holds
+     only a sheet whose answers mostly did not map (a typed answer sheet's text is its answers)
+  -> review gate (review_decision; FR-2.4: another paper, no answers on legible pages, the sheet or
+     any page below the threshold, or a mostly blank sheet -> faculty review, with a review_reason)
   -> grading (AI call 2) -> deterministic insights -> persistence (results_store).
 A voice answer (FR-2.8, input_kind "voice") replaces pre-processing + OCR with speech-to-text
 (OpenAI, a PoC stand-in) and maps the transcript onto the rubric questions - with no AI call when
@@ -53,7 +57,7 @@ import provenance
 import results_store
 import voice
 from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, OcrResult, QuestionGrade, Transcript
-from config import Settings, get_settings
+from config import DOCX_MIME, Settings, get_settings
 from database import (
     INPUT_VOICE,
     EvaluationResult,
@@ -86,7 +90,28 @@ PAPER_HOLD_MESSAGE = (
     "Held for faculty review - not scored. Approve the sheet in the review editor to score it with this "
     "rubric anyway, or upload it again with the right rubric."
 )
+# Added to a shape-check verdict (paper_match.shape_check states the fact only) when it holds a sheet.
+PAPER_SHAPE_ACTION = "Re-run the sheet with the paper's rubric, or approve it to score it with this rubric anyway."
+# ocr.json "paper_check_source": which reader's check is stored - the marks reader's own printed stems,
+# or the upload's text layer (a sheet read as handwriting; see review_decision).
+CHECK_SOURCE_MARKS = "marks"
+CHECK_SOURCE_TEXT_LAYER = "text_layer"
 MAX_ERROR_CHARS = 500
+
+# review_reason (schemas.ReviewReasonLit): why a sheet is HUMAN_REVIEW_REQUIRED. Reset to None
+# whenever a run is picked up, completes or fails.
+REVIEW_LOW_CONFIDENCE = "low_confidence"            # sheet confidence below the threshold
+REVIEW_LOW_PAGE_CONFIDENCE = "low_page_confidence"  # one or more pages below the threshold
+REVIEW_NO_ANSWERS = "no_answers"                    # no rubric question answered on legible pages
+REVIEW_MOSTLY_BLANK = "mostly_blank"                # fewer than half the rubric questions answered
+REVIEW_PAPER_MISMATCH = "paper_mismatch"            # another paper / not this paper's rubric
+REVIEW_PAPER_REORDERED = "paper_reordered"          # the same paper, another code / set
+REVIEW_REASONS = (
+    REVIEW_LOW_CONFIDENCE, REVIEW_LOW_PAGE_CONFIDENCE, REVIEW_NO_ANSWERS, REVIEW_MOSTLY_BLANK,
+    REVIEW_PAPER_MISMATCH, REVIEW_PAPER_REORDERED,
+)
+RECHECK_PREFIX = "Re-checked with the updated review rules (no AI call): "
+TEXT_LAYER_MIME_TYPES = ("application/pdf", DOCX_MIME)        # uploads with a text layer to check
 
 # current_step while a re-evaluation is queued / running: GET /api/results/{id} answers 202
 # (PENDING / PROCESSING, "Re-grading") until the new grade is stored.
@@ -282,6 +307,8 @@ class _Job:
     attempts: list[dict[str, Any]] = field(default_factory=list)
     # (usage, cost_inr) of the provider calls made by the AI call in progress
     call_log: list[tuple[ModelUsage, float | None]] = field(default_factory=list)
+    # Where this run's paper check came from (CHECK_SOURCE_*), None when no check was made.
+    check_source: str | None = None
 
 
 def _usage_recorder(job: _Job) -> Callable[[ModelUsage], None]:
@@ -474,7 +501,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
             _record(
                 db, sub, "Queue" if is_voice else step, PICKUP_MESSAGE,
                 current_step="Transcription" if is_voice else step, error_message=None, last_error_code=None,
-                ocr_cache_hit=False, flagged_pages=[], page_confidences=[],
+                review_reason=None, ocr_cache_hit=False, flagged_pages=[], page_confidences=[],
             )
             _write_artifact(job.job_dir, RUN_FILE, _run_info(job))
             step = "Custody"
@@ -512,7 +539,7 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
                 db, sub, "Queue",
                 f"{PICKUP_MESSAGE} Evaluation-only run ({reason}): the stored transcript is re-used.",
                 current_step=REGRADE_STEP if reason == "reevaluate" else "Rubric evaluation",
-                error_message=None, last_error_code=None,
+                error_message=None, last_error_code=None, review_reason=None,
             )
             _write_artifact(job.job_dir, RUN_FILE, _run_info(job))
             answers = _stored_answers(job)
@@ -544,11 +571,14 @@ def _run(db: Session, submission_id: int, mode: str, reason: str) -> None:
             "Computing topic mastery and Preparation ROI = (weightage x gain potential) / effort hours.",
             current_step="Insights & ROI",
         )
-        report = _validated_report(insights.build_evaluation_report(rubric.content, answers, evaluation))
+        # The marks reader's chapters live in ocr.json (also after a faculty review or re-evaluation).
+        content = chapter_rubric(rubric.content, (read_artifact(sub.id, OCR_FILE) or {}).get("question_chapters"))
+        report = _validated_report(insights.build_evaluation_report(content, answers, evaluation))
         n_priorities = len(report["roi_recommendations"])
         _record(
             db, sub, step,
-            f"Mastery computed for {len(report['topic_mastery'])} topic(s); "
+            f"Mastery computed for {len(report['topic_mastery'])} topic(s)"
+            f"{' (by the chapter of each printed question - the key has no question text)' if content is not rubric.content else ''}; "
             f"{n_priorities} study {'priority' if n_priorities == 1 else 'priorities'} generated.",
         )
 
@@ -581,14 +611,14 @@ def _blurry_mock(job: _Job) -> None:
     )
     _record(
         db, sub, "Queue", PICKUP_MESSAGE,
-        current_step=step, error_message=None, last_error_code=None,
+        current_step=step, error_message=None, last_error_code=None, review_reason=None,
     )
     _record(
         db, sub, step,
         "Low-quality scan (file name contains 'blurry'): stopped before pre-processing, OCR and "
         f"AI evaluation - no AI call made. {message}",
         status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step=step,
-        ocr_confidence=BLURRY_MOCK_CONFIDENCE, error_message=message,
+        ocr_confidence=BLURRY_MOCK_CONFIDENCE, error_message=message, review_reason=REVIEW_LOW_CONFIDENCE,
         page_confidences=[], flagged_pages=[],
     )
 
@@ -618,6 +648,26 @@ def _verify_custody(job: _Job) -> None:
         f"Custody verified: SHA-256 matches ingestion ({hashing.short_hash(sub.file_hash)}).",
         custody_verified=True,
     )
+
+
+def chapter_rubric(content: dict[str, Any], chapters: dict[Any, Any] | None) -> dict[str, Any]:
+    """A key without question text or chapters (a key-only rubric) graded by chapter: a COPY whose
+    questions take the chapter the marks reader gave from the printed paper as topic and chapter
+    (subject kept), so topic mastery, ROI, strengths / gaps and the study plan are per chapter.
+    Scoring is unchanged and the stored rubric is never written. Else `content` itself."""
+    chapters = chapters if isinstance(chapters, dict) else {}
+    by_number = {n: str(name) for key, name in chapters.items() if (n := mcq_marks._number(key)) and name}
+    questions = content.get("questions") if isinstance(content, dict) else None
+    if (
+        not by_number or not isinstance(questions, list) or paper_match._rubric_texts(content)[0]
+        or any(isinstance(q, dict) and q.get("chapter") for q in questions)
+    ):
+        return content
+    copied = []
+    for q in questions:
+        name = by_number.get(mcq_marks._number(q.get("question"))) if isinstance(q, dict) else None
+        copied.append({**q, "topic": name, "chapter": name} if name else q)
+    return {**content, "questions": copied}
 
 
 def _all_mcq(content: dict[str, Any] | None) -> bool:
@@ -722,7 +772,7 @@ def _voice_stage(job: _Job) -> OcrResult:
 # --------------------------------------------------------------------------- #
 READER_OCR = "ocr"            # handwriting transcription (ai.run_ocr)
 READER_MARKS = mcq_marks.READER  # marked-option reader for printed MCQ papers (mcq_marks)
-MARKS_MIN_PAGES = 3             # an MCQ-heavy PDF this long is read as a printed paper
+MARKS_MIN_PAGES = 3             # an all-MCQ PDF this long is read as a printed paper
 
 
 def ocr_cache_key(
@@ -745,11 +795,18 @@ def ocr_cache_key(
 
 
 def ocr_reader(sub: StudentSubmission, rubric_content: dict[str, Any] | None, page_count: int) -> str:
-    """READER_MARKS for a PDF read against an MCQ-heavy rubric (>= 10 questions, >= 80% MCQs) that
-    is at least MARKS_MIN_PAGES long or whose text layer looks like a printed question paper
-    (paper_detect); READER_OCR otherwise (handwriting, typed DOCX, photos, mixed rubrics).
-    Detection is a hint: if it fails, the page rule alone decides."""
-    if (sub.mime_type or "") != "application/pdf" or not mcq_marks.mcq_heavy(rubric_content):
+    """READER_MARKS for a PDF read against an all-MCQ rubric of at least 10 questions that is at
+    least MARKS_MIN_PAGES long or whose text layer looks like a printed question paper
+    (paper_detect), and for a photo / scan (image) read against such a rubric - answer sheets are
+    printed papers, so a photo of one is a marked printed paper; READER_OCR otherwise (typed DOCX,
+    and any rubric with a written question: the tick reader skips those, the transcription reader
+    reads ticks and text). Detection is a hint: if it fails, the page rule alone decides."""
+    mime = sub.mime_type or ""
+    if not mcq_marks.reads_ticks(rubric_content):
+        return READER_OCR
+    if mime.startswith("image/"):
+        return READER_MARKS
+    if mime != "application/pdf":
         return READER_OCR
     if page_count >= MARKS_MIN_PAGES:
         return READER_MARKS
@@ -780,11 +837,76 @@ def _paper_check(job: _Job, ocr: OcrResult) -> RubricMatch | None:
         _record(job.db, job.sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{PAPER_CHECK_FAILED}")
         return None
     _record(job.db, job.sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{match.message}")
+    job.check_source = CHECK_SOURCE_MARKS
     return match
 
 
+def rubric_label(rubric: Rubric) -> str:
+    """"'Biology - Genetics' (v1)" - how review messages name a rubric."""
+    return f"'{rubric.name}' ({rubric.version})"
+
+
+def document_paper_check(
+    data: bytes, rubric_content: dict[str, Any] | None, *, rubric_label: str | None = None,
+    settings: Settings | None = None,
+) -> RubricMatch | None:
+    """Same-paper check of a PDF / Word upload from its text layer alone (paper_detect, no AI call),
+    with the verdict of paper_detect.ingestion_hint and POST /api/intake/inspect
+    (paper_detect.rubric_check): None unless the text reads as a printed paper
+    (paper_detect.printed_paper - not a typed answer sheet with a few (a)-(d) sub-parts). Then the
+    printed question stems and code against the rubric when that can tell - another paper / version
+    (a hold verdict), or the rubric's questions found on this paper (paper_match.found_on_paper, e.g.
+    a rubric for one section of it: only logged); else, when the text cannot tell, the shape check
+    (a long printed paper against a small non-MCQ rubric), its message followed by
+    PAPER_SHAPE_ACTION; else None. Whether a hold verdict holds the sheet is review_decision's call
+    (text_layer=True). Raises when the file cannot be read (callers guard)."""
+    import paper_detect  # local import: paper_detect -> uploads -> pipeline
+
+    inspection, texts = paper_detect.inspect_document(data, settings or get_settings())
+    verdict = paper_detect.rubric_check(inspection, texts, rubric_content, rubric_label=rubric_label)
+    if verdict is None:
+        return None
+    if paper_match.structural(verdict):
+        return verdict.model_copy(update={"message": f"{verdict.message} {PAPER_SHAPE_ACTION}"})
+    if verdict.verdict in paper_match.HOLD_VERDICTS or paper_match.found_on_paper(verdict):
+        return verdict
+    return None
+
+
+def _text_layer_check(job: _Job) -> RubricMatch | None:
+    """Same-paper check of a PDF / Word upload read as handwriting (READER_OCR): its text layer
+    (document_paper_check, no AI call), logged here; review_decision decides whether its verdict
+    holds the sheet (job.check_source = CHECK_SOURCE_TEXT_LAYER). The run rules of _paper_check: a
+    full run that is not a rescan. None when not run or nothing to say. Never raises."""
+    sub = job.sub
+    if job.mode != MODE_FULL or job.reason == "rescan":
+        return None
+    if (sub.mime_type or "") not in TEXT_LAYER_MIME_TYPES:
+        return None
+    rubric = sub.rubric
+    try:
+        match = document_paper_check(
+            Path(sub.file_path).read_bytes(), rubric.content, rubric_label=rubric_label(rubric)
+        )
+    except Exception:  # noqa: BLE001 - the check must never fail the job
+        logger.exception("Text-layer paper check failed for submission %s - continuing without it", sub.id)
+        _record(job.db, sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{PAPER_CHECK_FAILED}")
+        return None
+    if match is not None:
+        _record(job.db, sub, "OCR & Parse", f"{PAPER_CHECK_PREFIX}{match.message}")
+        job.check_source = CHECK_SOURCE_TEXT_LAYER
+    return match
+
+
+def _check_for(job: _Job, ocr: OcrResult, reader: str) -> RubricMatch | None:
+    return _paper_check(job, ocr) if reader == READER_MARKS else _text_layer_check(job)
+
+
 def _ocr_artifact(job: _Job, ocr: OcrResult, check: RubricMatch | None) -> None:
-    extra = {"paper_check": check.model_dump(mode="json")} if check is not None else {}
+    extra = (
+        {"paper_check": check.model_dump(mode="json"), "paper_check_source": job.check_source}
+        if check is not None else {}
+    )
     _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, job.sub.rubric, **extra))
 
 
@@ -801,7 +923,7 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None, Rubr
         cache_key = ocr_cache_key(sub, rubric, provider, model, hints, reader)
         cached = _cache_hit(job, cache_key, provider, model)
         if cached is not None:
-            check = _paper_check(job, cached)
+            check = _check_for(job, cached, reader)
             _ocr_artifact(job, cached, check)
             return cached, None, check  # already cached - nothing to store
 
@@ -834,16 +956,19 @@ def _ocr_stage(job: _Job, pages: list[Any]) -> tuple[OcrResult, str | None, Rubr
     )
     _record(
         db, sub, "OCR & Parse",
-        f"Sending {len(pages)} page(s) to the {provider} vision model ({model}){split} to transcribe "
-        f"handwriting and map answers to question numbers (AI call 1; language hints: {', '.join(hints)}).",
+        f"Sending {len(pages)} page(s) to the {provider} vision model ({model}){split} to read the "
+        f"answers and map them to question numbers (AI call 1; language hints: {', '.join(hints)}).",
         current_step="OCR & answer structuring",
     )
     ocr = _ai_call(
         job, "OCR & Parse", "AI call 1 (OCR)",
         lambda on_usage: ai.run_ocr(pages, rubric.content, language_hints=hints, on_usage=on_usage),
     )
-    _write_artifact(job.job_dir, OCR_FILE, transcript_artifact(ocr, rubric))
-    return ocr, cache_key, None  # handwriting has no printed question text to check
+    # A printed paper uploaded with a non-MCQ rubric lands here: its text layer is checked (no AI
+    # call). The OCR call above stays - approving a held sheet grades this transcript.
+    check = _text_layer_check(job)
+    _ocr_artifact(job, ocr, check)
+    return ocr, cache_key, check
 
 
 def _transcript_cache_hit(job: _Job, cache_key: str, model: str) -> Transcript | None:
@@ -983,45 +1108,104 @@ def coverage_message(ocr: OcrResult, rubric_content: dict[str, Any]) -> str:
     return "; ".join(parts) + "."
 
 
-def _gate(job: _Job, ocr: OcrResult, page_total: int, *, paper_check: RubricMatch | None = None) -> bool:
-    """Record confidences; True (and HUMAN_REVIEW_REQUIRED) when the same-paper check found another
-    paper or version (reordered / mismatch - its message becomes the sheet's error message), the
-    sheet or any page is below the threshold, or a document sheet has an answer for fewer than half
-    of the rubric questions."""
-    db, sub = job.db, job.sub
-    threshold = get_settings().ocr_confidence_threshold
-    confidence = round(float(ocr.overall_confidence), 3)
-    pages = page_confidences(ocr, page_total)
-    flagged = [p["page"] for p in pages if p["confidence"] < threshold]
-    per_page = ", ".join(f"p{p['page']} {p['confidence']:.2f}" for p in pages)
-    _record(
-        db, sub, "OCR & Parse",
-        f"Extracted {len(ocr.answers)} answer(s); overall OCR confidence {confidence:.2f}"
-        + (f"; page confidence {per_page}" if per_page else "") + ".",
-        ocr_confidence=confidence, page_confidences=pages, flagged_pages=flagged,
-    )
-    _record(db, sub, "OCR & Parse", coverage_message(ocr, sub.rubric.content or {}))
-    numbers = set(_rubric_numbers(sub.rubric.content or {}))
-    answered = len(numbers & {a.question for a in ocr.answers if (a.answer or "").strip()})
-    mostly_blank = page_total > 0 and answered * 2 < len(numbers)  # voice rows (no pages) answer one question
-    if paper_check is not None and paper_check.verdict in paper_match.HOLD_VERDICTS:
-        # Scoring against another paper's key would be silently wrong: faculty decide. Approving the
-        # sheet in the review editor grades it in an evaluation-only run, which never re-checks.
-        _record(
-            db, sub, "Human review", PAPER_HOLD_MESSAGE,
-            status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step="Human review",
-            error_message=paper_check.message[:MAX_ERROR_CHARS],
-        )
-        return True
-    if confidence >= threshold and not flagged and not mostly_blank:
-        return False
+@dataclass(frozen=True)
+class ReviewDecision:
+    """review_decision(): whether the gate holds a sheet, why, and the confidences it records."""
 
-    for page in pages:
-        if page["page"] in flagged:
-            append_log(
-                sub, "Human review",
-                f"Page {page['page']} average {page['confidence']:.2f} < {threshold:.2f} - held for faculty review.",
+    hold: bool
+    reason: str | None                  # review_reason when held (REVIEW_*), else None
+    message: str | None                 # the held sheet's error_message, else None
+    confidence: float                   # the sheet confidence stored as ocr_confidence
+    pages: list[dict[str, Any]]         # [{page, confidence}] (page_confidences)
+    flagged: list[int]                  # pages below the threshold
+    answered: int                       # rubric questions with a non-empty answer
+    questions: int                      # rubric questions
+    page_legibility: bool = False       # nothing mapped: confidence is the mean page legibility
+    paper_check_set_aside: bool = False  # a text-layer comparison's hold verdict not applied (answers mapped)
+
+
+def _percent_range(values: list[float]) -> str:
+    low, high = round(min(values) * 100), round(max(values) * 100)
+    return f"{low}%" if low == high else f"{low}-{high}%"
+
+
+def paper_check_set_aside_message(decision: ReviewDecision) -> str:
+    """The log line for a text-layer comparison that review_decision set aside."""
+    return (
+        f"{PAPER_CHECK_PREFIX}not applied - {decision.answered} of {decision.questions} rubric questions have a "
+        "transcribed answer, so the document's text is read as the student's answers, not another paper's "
+        "questions."
+    )
+
+
+def review_decision(
+    ocr: OcrResult, page_total: int, rubric_content: dict[str, Any] | None, threshold: float, *,
+    paper_check: RubricMatch | None = None, rubric_label: str | None = None, voice: bool = False,
+    text_layer: bool = False,
+) -> ReviewDecision:
+    """The review gate as a pure function (no DB, no I/O): used by _gate and recheck_held_sheets.
+
+    Sheet confidence: the OCR's overall confidence, except when no rubric question has an answer
+    and the pages were assessed - then the mean page legibility (the reading quality of the sheet;
+    a mean over zero answers is not a confidence). Hold order:
+      1. same-paper check verdict reordered / mismatch -> paper_reordered / paper_mismatch (its message).
+         text_layer: the check came from the upload's text layer (a sheet read as handwriting,
+         document_paper_check), which explains a sheet the reader could not map. Its comparison
+         verdict holds only when fewer than half the rubric questions have an answer - a typed
+         answer sheet's text is the student's answers, which never read like the rubric's questions;
+         otherwise it is set aside (paper_check_set_aside) and the sheet goes on to 2-5. Its shape
+         verdict (paper_match.structural: far more printed questions with option lists than the
+         rubric has) holds either way. The marks reader's own check always holds;
+      2. no answers, no page below the threshold and the sheet at or above it (a voice answer: no
+         part of the recording mapped) -> no_answers;
+      3. sheet confidence below the threshold -> low_confidence;
+      4. any page below the threshold -> low_page_confidence;
+      5. a document sheet with an answer for fewer than half the rubric questions -> mostly_blank."""
+    pages = page_confidences(ocr, page_total)
+    numbers = set(_rubric_numbers(rubric_content))
+    answered = len(numbers & {a.question for a in ocr.answers if (a.answer or "").strip()})
+    nothing = bool(numbers) and answered == 0
+    legibility = nothing and bool(pages)
+    confidence = (
+        round(fmean(p["confidence"] for p in pages), 3) if legibility else round(float(ocr.overall_confidence), 3)
+    )
+    flagged = [p["page"] for p in pages if p["confidence"] < threshold]
+    label = f"rubric {rubric_label}" if rubric_label else "the selected rubric"
+    paper_hold = paper_check is not None and paper_check.verdict in paper_match.HOLD_VERDICTS
+    set_aside = (
+        paper_hold and text_layer and not paper_match.structural(paper_check) and answered * 2 >= len(numbers)
+    )
+
+    def decide(reason: str | None, message: str | None = None) -> ReviewDecision:
+        if message is not None and len(message) > MAX_ERROR_CHARS:
+            message = message[: MAX_ERROR_CHARS - 3] + "..."
+        return ReviewDecision(
+            hold=reason is not None, reason=reason, message=message, confidence=confidence, pages=pages,
+            flagged=flagged, answered=answered, questions=len(numbers), page_legibility=legibility,
+            paper_check_set_aside=set_aside,
+        )
+
+    if paper_hold and not set_aside:
+        # Scoring against another paper's key would be silently wrong: faculty decide.
+        reason = REVIEW_PAPER_REORDERED if paper_check.verdict == "reordered" else REVIEW_PAPER_MISMATCH
+        return decide(reason, paper_check.message)
+    if nothing and not flagged and (voice or confidence >= threshold):
+        if voice:
+            return decide(
+                REVIEW_NO_ANSWERS,
+                f"No part of the recording could be mapped to a question of {label} - routed to faculty "
+                "review; AI evaluation skipped.",
             )
+        none = (
+            "its only question has no transcribed answer" if len(numbers) == 1
+            else f"none of its {len(numbers)} questions has a transcribed answer"
+        )
+        legible = f" (page legibility {_percent_range([p['confidence'] for p in pages])})" if pages else ""
+        return decide(
+            REVIEW_NO_ANSWERS,
+            f"No answers found for {label}: {none} although the pages read clearly{legible} - check that the "
+            "sheet was uploaded with the right rubric; routed to faculty review; AI evaluation skipped.",
+        )
     if confidence < threshold:
         message = (
             f"OCR confidence {confidence:.2f} is below the {threshold:.2f} threshold - "
@@ -1029,19 +1213,72 @@ def _gate(job: _Job, ocr: OcrResult, page_total: int, *, paper_check: RubricMatc
         )
         if flagged:
             message += f" Low-confidence page(s): {', '.join(map(str, flagged))}."
-    elif flagged:
-        message = (
+        return decide(REVIEW_LOW_CONFIDENCE, message)
+    if flagged:
+        return decide(
+            REVIEW_LOW_PAGE_CONFIDENCE,
             f"Page {', '.join(map(str, flagged))} below the {threshold:.2f} threshold "
-            f"(overall {confidence:.2f}) - routed to faculty review; AI evaluation skipped."
+            f"(overall {confidence:.2f}) - routed to faculty review; AI evaluation skipped.",
+        )
+    if not voice and answered * 2 < len(numbers):  # a voice row answers one question
+        return decide(
+            REVIEW_MOSTLY_BLANK,
+            f"Mostly blank sheet - confirm before grading: only {answered}/{len(numbers)} rubric questions have "
+            "a transcribed answer - routed to faculty review; AI evaluation skipped.",
+        )
+    return decide(None)
+
+
+def _gate(job: _Job, ocr: OcrResult, page_total: int, *, paper_check: RubricMatch | None = None) -> bool:
+    """Record confidences; True (and HUMAN_REVIEW_REQUIRED with a review_reason) when
+    review_decision holds the sheet: another paper or version (the check's message becomes the
+    sheet's error message), no answers on legible pages, the sheet or any page below the threshold,
+    or a document sheet with an answer for fewer than half of the rubric questions. A text-layer
+    comparison set aside because the answers mapped is logged as not applied."""
+    db, sub = job.db, job.sub
+    threshold = get_settings().ocr_confidence_threshold
+    rubric = sub.rubric
+    decision = review_decision(
+        ocr, page_total, rubric.content, threshold, paper_check=paper_check, rubric_label=rubric_label(rubric),
+        voice=(sub.input_kind or "document") == INPUT_VOICE,
+        text_layer=job.check_source == CHECK_SOURCE_TEXT_LAYER,
+    )
+    per_page = ", ".join(f"p{p['page']} {p['confidence']:.2f}" for p in decision.pages)
+    if decision.page_legibility:
+        head = (
+            f"Extracted {len(ocr.answers)} answer(s); no rubric question has an answer, so the sheet confidence "
+            f"is the page legibility {decision.confidence:.2f}"
         )
     else:
-        message = (
-            f"Mostly blank sheet - confirm before grading: only {answered}/{len(numbers)} rubric questions have "
-            "a transcribed answer - routed to faculty review; AI evaluation skipped."
-        )
+        head = f"Extracted {len(ocr.answers)} answer(s); overall OCR confidence {decision.confidence:.2f}"
     _record(
-        db, sub, "Human review", message,
-        status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step="Human review", error_message=message,
+        db, sub, "OCR & Parse", head + (f"; page confidence {per_page}" if per_page else "") + ".",
+        ocr_confidence=decision.confidence, page_confidences=decision.pages, flagged_pages=decision.flagged,
+    )
+    _record(db, sub, "OCR & Parse", coverage_message(ocr, rubric.content or {}))
+    if decision.paper_check_set_aside:
+        _record(db, sub, "OCR & Parse", paper_check_set_aside_message(decision))
+    if not decision.hold:
+        return False
+    if decision.reason in (REVIEW_PAPER_MISMATCH, REVIEW_PAPER_REORDERED):
+        # Approving the sheet in the review editor grades it in an evaluation-only run, which never
+        # re-checks; a re-run with another rubric checks again.
+        _record(
+            db, sub, "Human review", PAPER_HOLD_MESSAGE,
+            status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step="Human review",
+            error_message=decision.message, review_reason=decision.reason,
+        )
+        return True
+    for page in decision.pages:
+        if page["page"] in decision.flagged:
+            append_log(
+                sub, "Human review",
+                f"Page {page['page']} average {page['confidence']:.2f} < {threshold:.2f} - held for faculty review.",
+            )
+    _record(
+        db, sub, "Human review", decision.message or "",
+        status=SubmissionStatus.HUMAN_REVIEW_REQUIRED, current_step="Human review",
+        error_message=decision.message, review_reason=decision.reason,
     )
     return True
 
@@ -1170,8 +1407,9 @@ def _persist(job: _Job, report: dict[str, Any]) -> None:
     _record(
         db, sub, "Persistence",
         f"Saved to the governed results store (SQLite mock of RDS) as result v{version}: {score} marks, "
-        f"{float(report['overall_mastery']):.0f}% mastery; {cost_text} ({calls}){latency_text}.",
+        f"{float(report['overall_mastery']):.1f}% of the total; {cost_text} ({calls}){latency_text}.",
         status=SubmissionStatus.COMPLETED, current_step="Completed", error_message=None, last_error_code=None,
+        review_reason=None,
     )
 
 
@@ -1240,7 +1478,7 @@ def _fail(job: _Job, step: str, exc: BaseException) -> None:
             f"{step} failed - routed to the dead-letter queue (simulated DLQ){' ' + tries if tries else ''} "
             f"[{code}]: {message} Use Retry to re-drive.",
             status=SubmissionStatus.FAILED, current_step="Failed", error_message=message, last_error_code=code,
-            **changes,
+            review_reason=None, **changes,
         )
     except Exception:  # noqa: BLE001
         logger.exception("Could not mark submission %s as FAILED", submission_id)
@@ -1316,7 +1554,7 @@ def synthetic_regrade(db: Session, sub: StudentSubmission, target: Rubric) -> Ev
         f"Re-evaluated with rubric {target.version} ({before} -> {target.version}: "
         f"{_fmt(report['total_score'])}/{_fmt(report['total_marks'])}); OCR reused - no vision call. "
         f"{DEMO_REGRADE_MESSAGE}.",
-        status=SubmissionStatus.COMPLETED, current_step="Completed",
+        status=SubmissionStatus.COMPLETED, current_step="Completed", review_reason=None,
     )
     return result
 
@@ -1337,12 +1575,121 @@ def recover_interrupted_jobs(db: Session) -> int:
         sub.current_step = "Failed"
         sub.error_message = INTERRUPTED_MESSAGE
         sub.last_error_code = "interrupted"
+        sub.review_reason = None
         append_log(sub, "Dead-letter queue", INTERRUPTED_MESSAGE)
         sub.updated_at = utcnow()
     if stuck:
         db.commit()
         logger.warning("Marked %d interrupted submission(s) as FAILED", len(stuck))
     return len(stuck)
+
+
+def recheck_held_sheets(db: Session) -> int:
+    """Startup backfill, no AI call: sheets held by an older build (review_reason NULL, not demo
+    rows) that still have their raw OCR (ocr.json) and no faculty-reviewed transcript are re-gated
+    with review_decision - from the stored OCR, the stored page count, the rubric, and the stored
+    paper check or the text-layer check of the upload still on disk. A sheet that still holds gets
+    its confidences, review_reason and error message updated plus one "Human review" log line; one
+    that would pass now is left untouched (faculty decide). Idempotent (review_reason is set).
+    Returns the number of rows updated. Never raises."""
+    try:
+        ids = list(db.scalars(
+            select(StudentSubmission.id).where(
+                StudentSubmission.status == SubmissionStatus.HUMAN_REVIEW_REQUIRED,
+                StudentSubmission.review_reason.is_(None),
+                StudentSubmission.is_demo.is_not(True),
+            ).order_by(StudentSubmission.id)
+        ))
+    except Exception:  # noqa: BLE001 - start-up must never fail on the backfill
+        logger.exception("Could not list held sheets to re-check")
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
+    settings = get_settings()
+    updated = 0
+    for submission_id in ids:
+        try:
+            if _recheck_held_sheet(db, submission_id, settings):
+                updated += 1
+        except Exception:  # noqa: BLE001 - one bad row must not stop the others
+            logger.exception("Could not re-check held submission %s - left unchanged", submission_id)
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+    if updated:
+        logger.info("Re-checked %d held sheet(s) with the updated review rules", updated)
+    return updated
+
+
+def _recheck_held_sheet(db: Session, submission_id: int, settings: Settings) -> bool:
+    sub = db.get(StudentSubmission, submission_id)
+    if sub is None or sub.rubric is None:
+        return False
+    if (settings.artifact_dir / str(sub.id) / REVIEWED_OCR_FILE).exists():
+        return False  # faculty already worked on the transcript
+    data = read_artifact(sub.id, OCR_FILE)
+    if data is None:
+        return False
+    try:
+        ocr = OcrResult.model_validate(data)
+    except ValidationError:
+        return False
+    rubric = sub.rubric
+    if data.get("rubric_id") not in (None, rubric.id):
+        return False  # mapped against another rubric - nothing comparable to re-gate
+    voice = (sub.input_kind or "document") == INPUT_VOICE
+    page_total = 0 if voice else int(sub.page_count or 0) or max(
+        (a.page for a in ocr.page_assessments if isinstance(a.page, int) and a.page >= 1), default=1
+    )
+    label = rubric_label(rubric)
+    check: RubricMatch | None = None
+    stored = data.get("paper_check")
+    if isinstance(stored, dict):
+        try:
+            check = RubricMatch.model_validate(stored)
+        except ValidationError:
+            check = None
+    # Where the stored check came from; without paper_check_source, only the marks reader's OCR has
+    # printed stems or a code (the handwriting reader returns neither).
+    source = data.get("paper_check_source") or (
+        CHECK_SOURCE_MARKS if ocr.question_stems or ocr.paper_code else CHECK_SOURCE_TEXT_LAYER
+    )
+    # A rescan skips the check because faculty already saw one; an older build never checked a
+    # sheet read as handwriting, so a rescan without any paper check in its log is checked now.
+    run = read_artifact(sub.id, RUN_FILE) or {}
+    seen_check = any(
+        isinstance(entry, dict) and str(entry.get("message") or "").startswith(PAPER_CHECK_PREFIX)
+        for entry in sub.processing_log or []
+    )
+    path = Path(sub.file_path) if sub.file_path else None
+    if (
+        check is None and not voice and not (run.get("reason") == "rescan" and seen_check)
+        and (sub.mime_type or "") in TEXT_LAYER_MIME_TYPES and path is not None and path.is_file()
+    ):
+        try:
+            check = document_paper_check(path.read_bytes(), rubric.content, rubric_label=label, settings=settings)
+        except Exception:  # noqa: BLE001 - retried on the next start-up
+            logger.warning(
+                "Text-layer check failed for held submission %s - re-checked on the next start-up",
+                sub.id, exc_info=True,
+            )
+            return False
+        source = CHECK_SOURCE_TEXT_LAYER
+    decision = review_decision(
+        ocr, page_total, rubric.content, settings.ocr_confidence_threshold, paper_check=check,
+        rubric_label=label, voice=voice, text_layer=source == CHECK_SOURCE_TEXT_LAYER,
+    )
+    if not decision.hold:
+        return False
+    _record(
+        db, sub, "Human review", f"{RECHECK_PREFIX}{decision.message}",
+        ocr_confidence=decision.confidence, page_confidences=decision.pages, flagged_pages=decision.flagged,
+        review_reason=decision.reason, error_message=decision.message,
+    )
+    return True
 
 
 def last_run_mode(submission_id: int) -> str:

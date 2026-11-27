@@ -36,20 +36,38 @@ export function formatDateTime(iso: string): string {
 }
 
 /**
- * Why a HUMAN_REVIEW_REQUIRED sheet was held: "paper" = the same-paper check found another paper
- * or another code / set of it (error_message is that check's sentence); "confidence" = OCR
- * confidence or a page below the threshold; "other" = another reason in error_message (a mostly
- * blank sheet).
+ * Why a HUMAN_REVIEW_REQUIRED sheet was held, for the review panel and the queue row:
+ * "paper" = another paper / the wrong rubric, or another code / set of the paper (error_message is
+ * the check's sentence); "confidence" = the sheet or a page below the OCR threshold; "no_answers" =
+ * no rubric question has an answer although the pages read clearly (usually the wrong rubric);
+ * "other" = another reason in error_message (a mostly blank sheet).
  */
-export type ReviewHold = "paper" | "confidence" | "other";
+export type ReviewHold = "paper" | "confidence" | "no_answers" | "other";
 
 export function reviewHold(
-  sub: Pick<Submission, "ocr_confidence" | "flagged_pages" | "error_message">,
+  sub: Pick<Submission, "ocr_confidence" | "flagged_pages" | "error_message" | "review_reason">,
   threshold: number,
 ): ReviewHold {
+  switch (sub.review_reason) {
+    case "paper_mismatch":
+    case "paper_reordered":
+      return "paper";
+    case "low_confidence":
+    case "low_page_confidence":
+      return "confidence";
+    case "no_answers":
+      return "no_answers";
+    case "mostly_blank":
+      return "other";
+  }
+  // Older API builds (no review_reason): read the stored sentence and numbers.
   const message = sub.error_message ?? "";
-  if (/rubric/i.test(message) && /(paper|code|set|version|order)/i.test(message)) return "paper";
-  const low = (sub.ocr_confidence !== null && sub.ocr_confidence < threshold) || (sub.flagged_pages ?? []).length > 0;
+  if (/rubric/i.test(message) && /(paper|code|set|version|order)/i.test(message)) return "paper";
+  const flagged = (sub.flagged_pages ?? []).length > 0;
+  // Exactly 0 with no page below the threshold was the old default when no rubric question had an
+  // answer (the mean of no answer confidences), not a low reading.
+  if (!flagged && sub.ocr_confidence === 0) return "no_answers";
+  const low = (sub.ocr_confidence !== null && sub.ocr_confidence < threshold) || flagged;
   return low || !message.trim() ? "confidence" : "other";
 }
 

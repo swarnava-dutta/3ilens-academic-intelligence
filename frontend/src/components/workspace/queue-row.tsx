@@ -74,7 +74,6 @@ export function QueueRow({
   const relative = formatRelative(s.created_at, now);
   const exact = formatDateTime(toUtcIso(s.created_at));
   const stepIndex = active ? pipelineStepIndex(s.current_step) : -1;
-  const lowConfidence = s.ocr_confidence !== null && s.ocr_confidence < threshold;
   const pct =
     typeof s.percentage === "number"
       ? Math.round(s.percentage)
@@ -90,6 +89,9 @@ export function QueueRow({
   const attemptsLabel = attempts > maxAttempts ? `attempt ${attempts}` : `attempts ${attempts}/${maxAttempts}`;
   const flaggedPages = s.flagged_pages ?? [];
   const hold = review ? reviewHold(s, threshold) : null;
+  // Held with no answers: 0 means nothing to measure (a voice answer, an older row), not a low reading.
+  const unmeasured = hold === "no_answers" && s.ocr_confidence === 0;
+  const lowConfidence = !unmeasured && s.ocr_confidence !== null && s.ocr_confidence < threshold;
   const languages = (s.language_hints ?? []).filter((l) => l !== "en");
   const isVoice = s.input_kind === "voice";
   const duration = isVoice ? formatClock(s.audio_seconds) : null;
@@ -226,8 +228,10 @@ export function QueueRow({
         </td>
 
         <td className={cn("px-4 py-2.5", DESKTOP_CELL)}>
-          {s.ocr_confidence === null ? (
-            <span className="text-slate-400">–</span>
+          {s.ocr_confidence === null || unmeasured ? (
+            <span className="text-slate-400" title={unmeasured ? "No answers to measure" : undefined}>
+              –
+            </span>
           ) : (
             <div className="flex items-center gap-2">
               <span className={cn("tabular-nums", lowConfidence ? "font-semibold text-amber-700" : "text-slate-700")}>
@@ -348,16 +352,34 @@ export function QueueRow({
       {flagged ? (
         <tr className={rowBg}>
           <td colSpan={QUEUE_COLUMNS.length} className={cn("border-l-4 pb-2.5 pl-3 pr-4 pt-0 sm:pl-4 sm:pr-5", edge)}>
-            {review && hold !== "confidence" ? (
+            {review && hold === "no_answers" ? (
+              <p className="text-sm text-amber-900">
+                <span>
+                  <span className="font-medium">No answers found - check the answer key.</span>{" "}
+                  <span className="text-slate-600">
+                    {isVoice
+                      ? "No part of the recording matched a question of the key"
+                      : "None of the key's questions has an answer although the pages read clearly"}
+                    ; the usual cause is a key for another paper. Open the sheet to re-run it with its own question paper.
+                  </span>
+                </span>
+              </p>
+            ) : review && hold !== "confidence" ? (
               <p className="text-sm text-amber-900">
                 <span>
                   <span className="font-medium">
-                    {hold === "paper" ? "Paper check: " : ""}
+                    {hold === "paper"
+                      ? s.review_reason === "paper_reordered"
+                        ? "Other code / set: "
+                        : s.review_reason === "paper_mismatch"
+                          ? "Different paper: "
+                          : "Paper check: "
+                      : ""}
                     {s.error_message}
                   </span>{" "}
                   <span className="text-slate-600">
                     {hold === "paper"
-                      ? "Held for faculty review - not scored. Open the sheet to score it with this rubric anyway, or upload it again with the rubric for its paper / code."
+                      ? "Held for faculty review - not scored. Open the sheet to re-run it with its own question paper or approve it."
                       : "Open the sheet to check the transcript or upload a rescan."}
                   </span>
                 </span>

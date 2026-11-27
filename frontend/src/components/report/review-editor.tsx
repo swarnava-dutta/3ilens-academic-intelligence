@@ -105,11 +105,24 @@ function PagePanel({ id, data }: { id: number; data: OcrReviewData }) {
  * Faculty OCR review (FR-2.4): page images on the left, the per-question transcript on the right.
  * Approve the transcript as-is, save corrections, or request a rescan; grading follows.
  */
-export function ReviewEditor({ submission, onChanged }: { submission: Submission; onChanged: () => void }) {
+export function ReviewEditor({
+  submission,
+  onChanged,
+  reviewer: sharedReviewer,
+  onReviewerChange,
+}: {
+  submission: Submission;
+  onChanged: () => void;
+  /** Reviewer name shared with the panel's other actions (re-run); kept here when absent. */
+  reviewer?: string;
+  onReviewerChange?: (value: string) => void;
+}) {
   const id = submission.id;
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [edits, setEdits] = useState<Record<number, string>>({});
-  const [reviewer, setReviewer] = useState("");
+  const [ownReviewer, setOwnReviewer] = useState("");
+  const reviewer = sharedReviewer ?? ownReviewer;
+  const setReviewer = onReviewerChange ?? setOwnReviewer;
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<null | "approve" | "correct" | "rescan">(null);
   const [error, setError] = useState<string | null>(null);
