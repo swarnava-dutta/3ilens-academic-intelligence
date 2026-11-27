@@ -1,7 +1,8 @@
-import { num } from "@/components/cohort/format";
+import { numOrNull } from "@/lib/coerce";
+import { inr } from "@/lib/format";
 import type { OwnerDashboard } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fmt, inr } from "./format";
+import { fmt } from "./format";
 import { Figure, stripCls } from "./kpis";
 import { ageText } from "./owner-ui";
 
@@ -15,22 +16,22 @@ export function CostPanel({ data }: { data: OwnerDashboard }) {
   const ops = data.operations;
   const spend = data.spend ?? null;
   const release = data.release ?? null;
-  const target = num(spend?.target_inr ?? ops?.target_inr) ?? 5;
-  const perSheet = num(spend ? spend.per_graded_sheet_inr : ops?.avg_cost_per_student_inr);
+  const target = numOrNull(spend?.target_inr ?? ops?.target_inr) ?? 5;
+  const perSheet = numOrNull(spend ? spend.per_graded_sheet_inr : ops?.avg_cost_per_student_inr);
   const over = perSheet !== null && perSheet > target;
-  const latencyTarget = num(ops?.target_latency_seconds) ?? 300;
-  const p95 = num(ops?.p95_latency_seconds);
+  const latencyTarget = numOrNull(ops?.target_latency_seconds) ?? 300;
+  const p95 = numOrNull(ops?.p95_latency_seconds);
   const scope = data.operations_scope ?? null;
   // Prefer live sheets for confidence (latency already is live-only); say how many sheets each tile covers.
-  const liveConfidence = scope && scope.live_confidence_sheets > 0 ? num(scope.live_confidence) : null;
-  const confidence = liveConfidence ?? num(ops?.mean_ocr_confidence);
+  const liveConfidence = scope && scope.live_confidence_sheets > 0 ? numOrNull(scope.live_confidence) : null;
+  const confidence = liveConfidence ?? numOrNull(ops?.mean_ocr_confidence);
   const latencyN = scope?.latency_sheets ?? null;
   const sheetsText = (n: number, live = true) => `${n} ${live ? "live " : ""}sheet${n === 1 ? "" : "s"}`;
   const confidenceHint =
     liveConfidence !== null && scope
       ? `mean over ${sheetsText(scope.live_confidence_sheets)}` +
-        (scope.confidence_sample_sheets > 0 && num(ops?.mean_ocr_confidence) !== null
-          ? ` · ${fmt((num(ops?.mean_ocr_confidence) ?? 0) * 100, 0)}% incl. ${scope.confidence_sample_sheets} sample`
+        (scope.confidence_sample_sheets > 0 && numOrNull(ops?.mean_ocr_confidence) !== null
+          ? ` · ${fmt((numOrNull(ops?.mean_ocr_confidence) ?? 0) * 100, 0)}% incl. ${scope.confidence_sample_sheets} sample`
           : "")
       : scope && scope.confidence_sheets > 0
         ? `mean over ${sheetsText(scope.confidence_sheets, false)}${scope.confidence_sample_sheets ? ` (${scope.confidence_sample_sheets} sample)` : ""}`

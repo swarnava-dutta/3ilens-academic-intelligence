@@ -3,10 +3,11 @@
 import { CheckCircle2, Loader2, ShieldQuestion, XCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorCode, errorMessage, errorStatus, getInvocations, reportPdfUrl, runConsistencyCheck } from "@/lib/api";
+import { formatConfidence, inr } from "@/lib/format";
 import type { ConsistencyCheck, Delivery, ModelInvocation, Result } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Notice, btnSecondary } from "./dialog";
-import { fmtBytes, fmtIST, fmtInr, fmtNumber, fmtSeconds, fraction, shortHash } from "./format";
+import { fmtBytes, fmtIST, fmtNumber, fmtSeconds, fraction, shortHash } from "./format";
 import { Pill, SectionCard } from "./primitives";
 import { realMinus } from "./patterns/shared";
 import { rubricLabel } from "./use-rubric";
@@ -245,7 +246,7 @@ export function InvocationsCard({ result }: { result: Result }) {
           <span className="text-xs text-slate-500">Synthetic - no model call</span>
         ) : cost.llm_cost_inr !== null ? (
           <span className="text-sm tabular-nums text-slate-700">
-            {fmtInr(cost.llm_cost_inr)} · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
+            {inr(cost.llm_cost_inr)} · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
           </span>
         ) : null
       }

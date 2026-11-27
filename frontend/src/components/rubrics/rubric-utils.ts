@@ -11,7 +11,7 @@ import type {
 import { hasGenericCriteria } from "./answer-key-apply";
 
 /** How a key's source file is labelled at intake and on the report. */
-export const SOURCE_ROLE_LABEL: Record<RubricSourceRole, string> = {
+const SOURCE_ROLE_LABEL: Record<RubricSourceRole, string> = {
   question_paper: "Question paper",
   rubric_file: "Rubric file",
   marked_copy: "Marked copy (ticks are the key)",
@@ -154,7 +154,7 @@ export function cloneContent(content: RubricContent): RubricContent {
 }
 
 /** Four blank options (more when the correct or an accepted option is E or F). */
-export function blankOptions(correct?: string | null, accepted?: string[] | null): string[] {
+function blankOptions(correct?: string | null, accepted?: string[] | null): string[] {
   const index = Math.max(
     letterIndex(correct),
     ...(accepted ?? []).map((letter) => letterIndex(letter)),
@@ -174,7 +174,7 @@ export function isMcq(q: Pick<RubricQuestion, "question_type">): boolean {
  * 2-6 letters scores full marks, e.g. "2 or 3" in a publisher key); "bonus" = full marks to every
  * student whatever they marked.
  */
-export type McqKeyMode = "single" | "several" | "bonus";
+type McqKeyMode = "single" | "several" | "bonus";
 
 export const MCQ_KEY_MODES: { value: McqKeyMode; label: string }[] = [
   { value: "single", label: "One correct option" },
@@ -205,7 +205,7 @@ export function acceptedLetters(q: Pick<RubricQuestion, "accepted_options">): st
 }
 
 /** "B or C", "A, B or C". */
-export function orList(letters: string[]): string {
+function orList(letters: string[]): string {
   if (letters.length <= 1) return letters.join("");
   return `${letters.slice(0, -1).join(", ")} or ${letters[letters.length - 1]}`;
 }
@@ -268,7 +268,7 @@ function marksText(marks: number): string {
 const AUTO_ANSWER = /^(?:option\s+[A-F](?:\s*(?:,|\bor\b|\/)\s*[A-F])*(?:\s*:[\s\S]*)?|bonus(?:\s+question)?\b[\s\S]*)$/i;
 
 /** Expected answer written from the key: "Option B: <text>", "Option B or C", "Bonus question" ("" when unset). */
-export function mcqAutoAnswer(q: RubricQuestion): string {
+function mcqAutoAnswer(q: RubricQuestion): string {
   const mode = mcqKeyMode(q);
   if (mode === "bonus") return "Bonus question";
   if (mode === "several") {
@@ -447,7 +447,7 @@ export function totalMarks(content: RubricContent | null | undefined): number {
   return (content?.questions ?? []).reduce((sum, q) => sum + (Number.isFinite(q.max_marks) ? q.max_marks : 0), 0);
 }
 
-export interface ContentIssues {
+interface ContentIssues {
   general: string[];
   /** Problems per question index. */
   byIndex: Record<number, string[]>;

@@ -13,11 +13,11 @@ import type {
   WhatIfScenarioResult,
   WhatIfTopicOption,
 } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 import { fmt, pct, signed } from "./format";
 import { Disclosure, linkCls } from "./owner-ui";
 import { EmptyNote, ErrorNote, focusRing, Panel, SamplePill, theadCls, thCls } from "./states";
-import { useAsync } from "./use-async";
 
 const MAX_SCENARIOS = 5;
 const DEFAULT_HOURS = 5;

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { pct1 } from "@/lib/format";
 import type { RosterRow, RosterSummary } from "@/lib/types";
 import { DeltaChip, UrgencyDot } from "./bits";
-import { fmtPct, rowKey } from "./format";
+import { rowKey } from "./format";
 import { trendTitle } from "./roster-table";
 
 const PANEL = "min-w-0 rounded-md border border-slate-200 bg-white";
@@ -73,7 +74,7 @@ export function ActFirst({
                       {row.student_name}
                     </button>
                     {latest ? (
-                      <span className="text-sm font-semibold tabular-nums text-slate-800">{fmtPct(latest.pct)}</span>
+                      <span className="text-sm font-semibold tabular-nums text-slate-800">{pct1(latest.pct)}</span>
                     ) : null}
                     {row.previous ? <DeltaChip delta={row.delta_pct} trend={row.trend} title={trendTitle(row)} /> : null}
                   </p>

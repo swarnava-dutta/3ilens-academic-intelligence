@@ -17,7 +17,7 @@ import { Menu } from "./summary/menu";
 import { focusRing, sectionTitle } from "./summary/tokens";
 
 /** The report's five anchors: the summary, three compact sections, then the folds. */
-export const REPORT_SECTIONS = [
+const REPORT_SECTIONS = [
   { id: "summary", label: "Summary" },
   { id: "subjects", label: "Subjects" },
   { id: "focus", label: "Focus" },
@@ -25,7 +25,7 @@ export const REPORT_SECTIONS = [
   { id: "more", label: "More details" },
 ] as const;
 
-export type ReportSectionId = (typeof REPORT_SECTIONS)[number]["id"];
+type ReportSectionId = (typeof REPORT_SECTIONS)[number]["id"];
 
 const SECTION_IDS: string[] = REPORT_SECTIONS.map((s) => s.id);
 

@@ -3,18 +3,12 @@
 import { Loader2 } from "lucide-react";
 import { useId, useState } from "react";
 import { useHealth } from "@/components/app-shell";
+import { KIND_LABELS, todayIst } from "@/components/students/format";
+import { readAppliedBy, rememberAppliedBy } from "@/components/students/log-action-dialog";
 import { createIntervention, errorCode, errorMessage } from "@/lib/api";
 import type { ContentSource, InterventionKind, InterventionRecord, Result } from "@/lib/types";
 import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
 
-export const KIND_LABELS: Record<InterventionKind, string> = {
-  nudge: "Nudge",
-  study_focus: "Study focus",
-  class_intervention: "Class intervention",
-  custom: "Custom",
-};
-
-const APPLIED_BY_KEY = "3ilens.intervention.appliedBy";
 const DEFAULT_HOURS = 3;
 
 const ERRORS: Record<string, string> = {
@@ -23,29 +17,6 @@ const ERRORS: Record<string, string> = {
   unknown_submission: "This submission no longer exists. Reload the page.",
   invalid_applied_at: "The applied date cannot be in the future.",
 };
-
-function readAppliedBy(): string {
-  try {
-    return window.localStorage.getItem(APPLIED_BY_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function rememberAppliedBy(name: string) {
-  try {
-    window.localStorage.setItem(APPLIED_BY_KEY, name);
-  } catch {
-    // Private mode / blocked storage: the name is just not remembered.
-  }
-}
-
-/** Today in IST as YYYY-MM-DD (the date input's value). */
-function todayIst(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(
-    new Date(),
-  );
-}
 
 /** Suggested action for a topic: its teaching nudge, else the ROI intervention's "teach" line. */
 export function suggestedAction(result: Result, topic: string): { text: string; source: ContentSource } | null {

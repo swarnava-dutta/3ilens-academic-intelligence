@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { createIntervention, errorMessage } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { CohortChapter } from "@/lib/types";
 import { btnPrimary, btnSecondary, Dialog, fieldClass } from "./dialog";
-import { formatPct, plural, RETEACH_LINE } from "./format";
+import { formatPct, RETEACH_LINE } from "./format";
 
 export const DEFAULT_CLASS_ACTION = "10-min re-teach + 5 unseen questions";
 

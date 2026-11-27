@@ -1,4 +1,6 @@
 // Formatting helpers for /students (one place, so cards, tables, the drawer and the CSV agree).
+import { urgencyOf } from "@/components/shared/urgency-badge";
+import { plural } from "@/lib/format";
 import type { InterventionKind, OutcomeStatus, RosterRow, Trend, Urgency } from "@/lib/types";
 
 /** Backend roster.py constants (kept in sync by hand; the API does the classifying). */
@@ -9,24 +11,9 @@ export const VERY_WEAK_MASTERY = 40;
 
 const IST = "Asia/Kolkata";
 
-/** 55.8 -> "55.8%" (1 decimal, the report's format); null -> "—". */
-export function fmtPct(n: number | null | undefined): string {
-  return typeof n === "number" && Number.isFinite(n) ? `${n.toFixed(1)}%` : "—";
-}
-
-/** Mastery with one decimal, like every other % on the page: 16.666 -> "16.7%", 25 -> "25.0%". */
-export function fmtMastery(n: number | null | undefined): string {
-  return fmtPct(n);
-}
-
 /** "1 mark" / "2.5 marks" (number via fmtMarks). */
 export function marksWord(n: number): string {
   return `${fmtMarks(n)} mark${Math.abs(n) === 1 ? "" : "s"}`;
-}
-
-/** "1 topic" / "3 topics". */
-export function plural(n: number, word: string, many = `${word}s`): string {
-  return `${n} ${n === 1 ? word : many}`;
 }
 
 /** Marks: 402 -> "402", 12.5 -> "12.5", negatives with a real minus sign. */
@@ -184,16 +171,11 @@ export function masteryFill(mastery: number): string {
   return "bg-rose-500";
 }
 
-/** The band a percentage falls in by score alone (the urgency rule before the weak-topic step). */
-export function scoreBand(pct: number): Urgency {
-  return pct >= 70 ? "on_track" : pct >= 55 ? "needs_attention" : "at_risk";
-}
-
 /** "2 topics below 40%" only when that rule moved the status (the score alone decides it
  * otherwise, and the score is already in the row); "" when the score band decided. */
 export function shortReason(row: RosterRow): string {
   if (!row.latest) return "";
-  if (row.latest.urgency !== scoreBand(row.latest.pct)) {
+  if (row.latest.urgency !== urgencyOf(row.latest.pct)) {
     return `${plural(row.very_weak_count, "topic")} below ${VERY_WEAK_MASTERY}%`;
   }
   return "";

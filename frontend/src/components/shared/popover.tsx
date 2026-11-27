@@ -9,9 +9,9 @@ export const menuItem =
   "flex min-h-10 w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-brand-navy focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-cyan";
 
 /**
- * A button that toggles a small panel (Export menu, More filters, the drawer's More menu).
- * Closes on outside click and Esc (focus returns to the button). `children` may be a function of
- * close() so an item can dismiss the panel.
+ * A button that toggles a small panel (Export menu, More filters, the drawer's More menu, the
+ * cohort's exam date and Share menu). Closes on outside click and Esc (focus returns to the
+ * button). `children` may be a function of close() so an item can dismiss the panel.
  */
 export function Popover({
   label,
@@ -20,6 +20,9 @@ export function Popover({
   align = "right",
   buttonClassName,
   panelClassName,
+  disabled,
+  title,
+  chevron = true,
   children,
 }: {
   label: ReactNode;
@@ -29,6 +32,10 @@ export function Popover({
   align?: "left" | "right";
   buttonClassName?: string;
   panelClassName?: string;
+  disabled?: boolean;
+  title?: string;
+  /** A chevron after the label that turns while the panel is open. */
+  chevron?: boolean;
   children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
@@ -71,12 +78,16 @@ export function Popover({
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={srLabel}
+        disabled={disabled}
+        title={title}
         onClick={() => setOpen((v) => !v)}
         className={buttonClassName}
       >
         {icon}
         {label}
-        <ChevronDown className={cn("h-4 w-4 transition-transform motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
+        {chevron ? (
+          <ChevronDown className={cn("h-4 w-4 transition-transform motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
+        ) : null}
       </button>
       {open ? (
         <div

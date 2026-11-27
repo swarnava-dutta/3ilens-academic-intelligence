@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Ban, ExternalLink, Loader2, MessageCircle, ShieldAlert } from "lucide-react";
 import { createDeliveries, downloadUrl, errorCode, errorMessage, errorStatus } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { Delivery, DeliveryStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { btnPrimary, btnSecondary, Dialog, fieldClass } from "./dialog";
-import { plural } from "./format";
 
 /** The API accepts at most this many submission ids per POST /api/deliveries. */
 export const MAX_DELIVERY_IDS = 200;

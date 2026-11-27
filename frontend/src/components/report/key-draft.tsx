@@ -46,7 +46,7 @@ export function questionRefs(numbers: number[], limit = 8): string {
   return numbers.length > limit ? `${shown} +${numbers.length - limit} more` : shown;
 }
 
-export interface DraftFacts {
+interface DraftFacts {
   questions: number;
   marks: number;
   mcqs: number;
@@ -66,7 +66,7 @@ function acceptedOptions(q: RubricQuestion): string[] {
   return [...new Set(letters)];
 }
 
-export function draftFacts(content: RubricContent): DraftFacts {
+function draftFacts(content: RubricContent): DraftFacts {
   const questions = content.questions ?? [];
   const mcqs = questions.filter((q) => q.question_type === "mcq");
   const bonus = mcqs.filter((q) => q.bonus === true).map((q) => q.question);
@@ -89,7 +89,7 @@ export function draftFacts(content: RubricContent): DraftFacts {
   };
 }
 
-export interface KeyDraftState {
+interface KeyDraftState {
   /** The dropped files (the question paper, its answer key, or both), in the order they came. */
   files: File[];
   /** A file that was not taken, or the one a third file replaced. */
@@ -273,7 +273,7 @@ export function KeyDraftFields({ state, disabled = false }: { state: KeyDraftSta
 }
 
 /** Name, questions, marks, keyed MCQs and the drafting warnings of a drafted key. */
-export function KeyDraftSummary({ draft, className }: { draft: RubricDraft; className?: string }) {
+function KeyDraftSummary({ draft, className }: { draft: RubricDraft; className?: string }) {
   const content = draft.draft;
   const facts = draftFacts(content);
   const code = (content.paper_code ?? "").trim();

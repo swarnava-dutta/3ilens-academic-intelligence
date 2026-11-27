@@ -2,10 +2,11 @@
 
 import type { ReactNode } from "react";
 import { ArrowDownRight, ArrowUpRight, ChevronDown } from "lucide-react";
-import { num } from "@/components/cohort/format";
+import { numOrNull } from "@/lib/coerce";
+import { MINUS } from "@/lib/format";
 import type { BatchSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fmt, MINUS } from "./format";
+import { fmt } from "./format";
 import { focusRing, tagCls } from "./states";
 
 /** Page-wide "small group" threshold: fewer students than this is never a whole-class figure (backend MIN_TREND_STUDENTS). */
@@ -16,7 +17,7 @@ export const linkText = "text-[#037285]";
 
 /** "3 days" / "2 d" / "10 h" from a fractional day count (half-up, like the backend). */
 export function ageText(days: number | null | undefined, short = false): string {
-  const d = num(days);
+  const d = numOrNull(days);
   if (d === null) return "—";
   if (d < 1) {
     const h = Math.round(d * 24);
@@ -29,7 +30,7 @@ export function ageText(days: number | null | undefined, short = false): string 
 
 /** Signed change, always 1 dp: "+6.1", "+10.0", "−0.4" (typographic minus), "0.0". */
 export function signed1(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   const text = Math.abs(v).toFixed(1);
   if (text === "0.0") return text;
@@ -38,20 +39,8 @@ export function signed1(value: number | null | undefined): string {
 
 /** Always 1 dp: "5.0", "3.3" ("—" when unknown). */
 export function fixed1(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : v.toFixed(1);
-}
-
-/** 1-dp percentage: "90.0%". */
-export function pctFixed(value: number | null | undefined): string {
-  const v = num(value);
-  return v === null ? "—" : `${v.toFixed(1)}%`;
-}
-
-/** 1-dp average as a title tooltip, e.g. "61.6%". */
-export function pct1(value: number | null | undefined): string {
-  const v = num(value);
-  return v === null ? "—" : `${v.toFixed(1)}%`;
 }
 
 /** Signed change with an arrow icon; the sign is in the text, colour is secondary. */
@@ -66,7 +55,7 @@ export function ChangeText({
   className?: string;
   title?: string;
 }) {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return <span className="text-slate-500">—</span>;
   const up = v > 0.04;
   const down = v < -0.04;

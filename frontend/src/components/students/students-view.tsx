@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { FilterBar, useDashboardFilters } from "@/components/shared/filter-bar";
 import { Notice, btnPrimary, btnSecondary } from "@/components/report/dialog";
+import { menuItem, Popover } from "@/components/shared/popover";
 import { bundleZipUrl, errorMessage, errorStatus, getStudentRoster } from "@/lib/api";
 import type { RosterRow, StudentRoster } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,6 @@ import { downloadCsv } from "./export-csv";
 import { isoDay, studentParam, versionedNames } from "./format";
 import { LogActionDialog, type LogTarget } from "./log-action-dialog";
 import { normalizeRoster } from "./normalize-roster";
-import { menuItem, Popover } from "./popover";
 import {
   actFirstRows,
   describeNarrowing,

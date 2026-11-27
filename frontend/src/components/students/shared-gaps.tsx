@@ -1,9 +1,10 @@
 "use client";
 
 import { ShareBar } from "@/components/charts/sparkline";
+import { pct1 } from "@/lib/format";
 import type { RosterTopic } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fmtMarks, fmtMastery, WEAK_MASTERY } from "./format";
+import { fmtMarks, WEAK_MASTERY } from "./format";
 
 const MAX_ITEMS = 3;
 const LINK =
@@ -70,7 +71,7 @@ export function SharedGaps({
                       {t.topic}
                       {t.subject ? <span className="ml-1.5 text-xs font-normal text-slate-500">{t.subject}</span> : null}
                     </span>
-                    <span className="shrink-0 text-xs tabular-nums text-slate-500">mean {fmtMastery(t.mean_mastery)}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-slate-500">mean {pct1(t.mean_mastery)}</span>
                   </span>
                   <span className="mt-1 block text-[13px] tabular-nums text-slate-700">
                     {t.below_60} of {t.tested} students below {WEAK_MASTERY}%

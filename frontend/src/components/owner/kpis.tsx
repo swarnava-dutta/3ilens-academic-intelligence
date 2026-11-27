@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
-import { num, shareOf } from "@/components/cohort/format";
+import { shareOf } from "@/components/cohort/format";
+import { numOrNull } from "@/lib/coerce";
+import { pct1 } from "@/lib/format";
 import type { OwnerDashboard, Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fmt } from "./format";
-import { ageText, ChangeText, pct1 } from "./owner-ui";
+import { ageText, ChangeText } from "./owner-ui";
 import { focusRing } from "./states";
 
 /**
@@ -102,7 +104,7 @@ export function OwnerKpis({
     t.failed ? `${t.failed} failed` : null,
   ].filter(Boolean);
   const atRiskShare = shareOf(counts.at_risk, graded);
-  const oldest = num(release?.oldest_days);
+  const oldest = numOrNull(release?.oldest_days);
   const releaseTone = oldest !== null && oldest >= 7 ? "rose" : oldest !== null && oldest >= 2 ? "amber" : "default";
   const riskTitle =
     `Students by their latest test, one row each (as on the Students page).` +

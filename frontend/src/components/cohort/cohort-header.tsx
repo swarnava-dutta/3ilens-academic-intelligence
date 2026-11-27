@@ -1,7 +1,8 @@
 import { RefreshCw, WifiOff } from "lucide-react";
+import { plural } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { FOCUS_RING, fullDate, plural } from "./format";
+import { FOCUS_RING, fullDate } from "./format";
 
 /** "NEET-C (sample) · NEET MCQ Practice - Mock 10 · sat 24 Nov 2026 · 12 students". Never batch.exam_type. */
 export function scopeSentence(cohort: Cohort): string {

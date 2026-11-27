@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { plural } from "@/lib/format";
 import type { Cohort, CohortItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { commonWrongPick, keyErrorLine } from "./action-cards";
 import { TD, TH } from "./card";
-import { FOCUS_RING, LINK_TEXT, lost, plural } from "./format";
+import { FOCUS_RING, LINK_TEXT, lost } from "./format";
 import type { CohortParams, ParamPatch } from "./url";
 
 const SHOW = 15;

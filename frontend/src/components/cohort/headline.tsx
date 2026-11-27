@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
+import { Popover } from "@/components/shared/popover";
+import { pct1, plural } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { COHORT_URGENCY_RULE, formatNumber, lost, pct1, plural, shareOf } from "./format";
-import { PopoverButton } from "./popover";
+import { COHORT_URGENCY_RULE, formatNumber, lost, POPOVER_PANEL, shareOf } from "./format";
 import type { CohortTab, ParamPatch } from "./url";
 
 type Tone = "good" | "bad" | "neutral";
@@ -82,8 +83,10 @@ export const MIN_SPREAD_N = 5;
 /** The urgency rule, readable on tap (a tooltip never shows on a touch screen). */
 function RuleButton() {
   return (
-    <PopoverButton
+    <Popover
       align="right"
+      chevron={false}
+      panelClassName={POPOVER_PANEL}
       title="How urgency is decided"
       buttonClassName="relative z-10 inline-flex h-6 w-6 items-center justify-center rounded-sm text-slate-500 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-cyan-700"
       label={
@@ -94,7 +97,7 @@ function RuleButton() {
       }
     >
       {() => <p className="text-[13px] leading-snug text-slate-700">{COHORT_URGENCY_RULE}.</p>}
-    </PopoverButton>
+    </Popover>
   );
 }
 

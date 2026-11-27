@@ -11,7 +11,7 @@ import { SectionCard } from "./primitives";
 import { rubricLabel } from "./use-rubric";
 
 /** Small header chip: "Provisional" (amber) or "Released" (lime). */
-export function ReleaseChip({ release, className }: { release: ReleaseInfo; className?: string }) {
+function ReleaseChip({ release, className }: { release: ReleaseInfo; className?: string }) {
   const released = release.status === "RELEASED";
   return (
     <span

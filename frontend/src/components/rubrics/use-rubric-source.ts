@@ -11,6 +11,7 @@ import {
   parseRubric,
   reevaluateSubmission,
 } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type {
   AnswerKeyExtraction,
   ReevaluationEstimate,
@@ -31,7 +32,7 @@ export type RubricMode = "file" | "paste";
  * failed draft) · drafting · fix: drafted, but the API would reject it (e.g. an MCQ without a
  * key) · ready: uploads are graded with it.
  */
-export type KeyStatus = "none" | "source" | "drafting" | "fix" | "ready";
+type KeyStatus = "none" | "source" | "drafting" | "fix" | "ready";
 
 /** How a staged intake file became the rubric source. */
 export type KeyOrigin = "key" | "paper" | "ticks";
@@ -42,7 +43,7 @@ export type KeyOrigin = "key" | "paper" | "ticks";
  * held: added while one file is drafted - not read yet: that draft's reply tells whether its file is
  * the answer key alone (then this one is the paper and both are drafted) or the paper.
  */
-export interface KeyStep {
+interface KeyStep {
   file: File;
   step: "reading" | "waiting" | "held";
 }
@@ -101,7 +102,7 @@ interface Snapshot {
   files: KeySourceFiles;
 }
 
-export interface RegradeState {
+interface RegradeState {
   /** "Re-grade with this key" is worth offering now. */
   offered: boolean;
   /** The snapshot the re-grade starts from (its cost estimate is confirmed first). */
@@ -267,12 +268,8 @@ function draftLabel(files: File[]): string {
   return files.map((f) => f.name).join(" and ");
 }
 
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 /** Friendly text for POST /api/rubrics/parse failures. */
-export function parseErrorMessage(err: unknown): string {
+function parseErrorMessage(err: unknown): string {
   const code = errorCode(err);
   const status = errorStatus(err);
   if (code === "ai_not_configured" || status === 503) {
@@ -286,9 +283,6 @@ export function parseErrorMessage(err: unknown): string {
   }
   if (code === "no_answer_key") {
     return 'No answer key was found in that file. Use a clear photo or a table such as "1-2, 2-4", a "Que. / Ans." grid or a paper with "Ans." lines - or add the question paper too.';
-  }
-  if (!code && (status === 404 || status === 405)) {
-    return "Drafting the answer key is not available on this API build.";
   }
   return errorMessage(err);
 }

@@ -29,7 +29,7 @@ export const FOLD = {
 
 export type GridFilter = "all" | "right" | "wrong" | "blank" | "bonus" | "partial" | "zero" | "unclear";
 
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 }
 
@@ -56,7 +56,7 @@ export function scrollToId(id: string, block: ScrollLogicalPosition = "start"): 
 }
 
 /** Briefly highlight an element (a static ring under reduced motion, see globals.css). */
-export function flash(el: HTMLElement): void {
+function flash(el: HTMLElement): void {
   el.classList.remove("sair-flash");
   // Restart the animation when the same element is flashed twice in a row.
   void el.offsetWidth;
@@ -73,7 +73,7 @@ export function foldForHash(hash: string): string | null {
 }
 
 /** Open (and mount) a fold. */
-export function openFold(id: string): void {
+function openFold(id: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<string>(OPEN_FOLD_EVENT, { detail: id }));
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useHealth } from "@/components/app-shell";
 import { getCohortSittings } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { Cohort, CohortChapter } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AboutData } from "./about-data";
@@ -11,7 +12,6 @@ import { ActionStrip } from "./action-strip";
 import { CohortHeader, StaleBanner } from "./cohort-header";
 import { CohortTabs, type RevealRequest, type TabDef } from "./cohort-tabs";
 import { btnSecondary, Toast, type ToastMessage } from "./dialog";
-import { plural } from "./format";
 import { HeadlineTiles } from "./headline";
 import { LogInterventionDialog, todayIso, type LogTarget } from "./log-intervention-dialog";
 import { ScopeBar } from "./scope-bar";

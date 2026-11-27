@@ -41,7 +41,7 @@ interface ChipLook {
 }
 
 /** One chip per stage: primary, cross-vendor fallback, server-side fallback, cache hit or failed. */
-export function routeLook(route: LlmRoute): ChipLook {
+function routeLook(route: LlmRoute): ChipLook {
   const stage = stageLabel(route.stage);
   const attempts = `attempts ${route.attempts}`;
   if ((route.served_provider ?? "").toLowerCase() === "cache") {

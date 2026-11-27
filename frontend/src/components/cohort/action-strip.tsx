@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { plural } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { FOCUS_RING, LINK_TEXT, plural } from "./format";
+import { FOCUS_RING, LINK_TEXT } from "./format";
 import type { CohortTab } from "./url";
 
 const LINK = cn("rounded-sm font-medium underline-offset-2 hover:underline", LINK_TEXT, FOCUS_RING);

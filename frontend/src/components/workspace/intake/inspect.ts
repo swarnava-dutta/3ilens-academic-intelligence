@@ -3,9 +3,9 @@
 // The API repeats every check on the bytes it receives; this only gives faculty early feedback.
 import { extensionOf, VOICE_DISABLED_TEXT } from "../format";
 
-export type DocumentKind = "pdf" | "jpeg" | "png" | "webp" | "docx";
+type DocumentKind = "pdf" | "jpeg" | "png" | "webp" | "docx";
 /** Voice answers (FR-2.8). */
-export type VoiceKind = "mp3" | "wav" | "m4a" | "ogg";
+type VoiceKind = "mp3" | "wav" | "m4a" | "ogg";
 export type SheetKind = DocumentKind | VoiceKind;
 
 const KIND_LABEL: Record<SheetKind, string> = {
@@ -91,7 +91,7 @@ const AUDIO_BRANDS = new Set(["M4A ", "M4B ", "F4A "]);
  * the voice-answer audio formats). Unsupported audio reads "AMR" / "FLAC"; any other
  * ISO-BMFF brand (mp4, isom, qt) reads "video".
  */
-export function sniffBytes(head: Uint8Array): string {
+function sniffBytes(head: Uint8Array): string {
   if (containsAscii(head, "%PDF-", 1024)) return "PDF";
   if (startsWith(head, [0xff, 0xd8, 0xff])) return "JPEG";
   if (startsWith(head, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "PNG";
@@ -161,7 +161,7 @@ export async function readHead(file: File, length = 1024): Promise<Uint8Array> {
 }
 
 /** True when the browser can hash locally (crypto.subtle needs a secure context: localhost/https). */
-export function canHash(): boolean {
+function canHash(): boolean {
   return typeof crypto !== "undefined" && typeof crypto.subtle?.digest === "function";
 }
 

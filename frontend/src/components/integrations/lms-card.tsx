@@ -3,9 +3,9 @@
 import { useCallback } from "react";
 import { ExternalLink } from "lucide-react";
 import { CardSkeleton, ErrorNote, focusRing, Panel, tagCls, theadCls, thCls } from "@/components/owner/states";
-import { useAsync } from "@/components/owner/use-async";
 import { API_BASE_URL, getLmsInfo, lmsUrl } from "@/lib/api";
 import type { LmsEndpoint } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 
@@ -15,7 +15,7 @@ function takesResultFilters(path: string): boolean {
 }
 
 /** curl example for an endpoint, e.g. curl -H "X-API-Key: $KEY" "<url>" -o results.csv */
-export function curlFor(endpoint: LmsEndpoint, headerName: string): string {
+function curlFor(endpoint: LmsEndpoint, headerName: string): string {
   const url = lmsUrl(endpoint.path, takesResultFilters(endpoint.path) ? { include_provisional: true } : undefined);
   const file = endpoint.path.split("/").pop() || "export";
   const isCsv = /csv/i.test(endpoint.format) || file.endsWith(".csv");

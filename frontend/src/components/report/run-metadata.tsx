@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
+import { formatConfidence } from "@/lib/format";
 import type { Result } from "@/lib/types";
-import { formatConfidence } from "@/lib/utils";
 import { fmtIST, isoDateIST, shortHash } from "./format";
 import { LlmRouteChips } from "./llm-route";
 import { rubricLabel } from "./use-rubric";

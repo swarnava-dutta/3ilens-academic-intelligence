@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { Flag } from "lucide-react";
+import { formatConfidence } from "@/lib/format";
 import type { UncertainWord } from "@/lib/types";
-import { formatConfidence } from "@/lib/utils";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -10,15 +10,15 @@ function escapeRegExp(text: string): string {
 /** "[note to examiner: ...]" markers the transcriber leaves around text addressed to the grader. */
 const EXAMINER_NOTE = /\[\s*note\s+to\s+(?:the\s+)?examiner\s*[:\-]?\s*([^\]]*)\]/gi;
 
-export const EXAMINER_NOTE_LABEL = "Possible instruction to examiner - ignored by grader";
+const EXAMINER_NOTE_LABEL = "Possible instruction to examiner - ignored by grader";
 
 /** True when the text carries at least one "[note to examiner: ...]" marker. */
-export function hasExaminerNote(text: string | null | undefined): boolean {
+function hasExaminerNote(text: string | null | undefined): boolean {
   return !!text && new RegExp(EXAMINER_NOTE.source, "i").test(text);
 }
 
 /** Amber flag chip shown in place of a "[note to examiner: ...]" marker; the note stays readable. */
-export function ExaminerNoteChip({ note }: { note: string }) {
+function ExaminerNoteChip({ note }: { note: string }) {
   const text = note.trim();
   return (
     <span

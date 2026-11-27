@@ -1,6 +1,6 @@
 "use client";
 
-import { type Domain, Empty, extremes, fmt, Frame, Plot, Text, textWidth, tipBody, useChart } from "./core";
+import { type Domain, Empty, extremes, fmt, Plot, Text, textWidth, tipBody, useChart } from "./core";
 
 // Sequential cyan ramp, light to dark.
 const LIGHT = [0xcd, 0xee, 0xf4];
@@ -62,35 +62,5 @@ export function HeatStrip({
         );
       })}
     </Plot>
-  );
-}
-
-/**
- * Categorical twin of the dense heat strip for long runs (a 180-question paper): one small cell per item,
- * its short text inside, coloured by category, details in the tooltip.
- */
-export function CellGrid({
-  cells,
-}: {
-  cells: { text: string; title: string; fill: string; ink: string; rows: [string, string][] }[];
-}) {
-  const c = useChart();
-  if (!cells.length) return <Empty />;
-  return (
-    <Frame chart={c}>
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(2rem,1fr))] gap-0.5 text-[11px] font-medium tabular-nums">
-        {cells.map((d, i) => (
-          <li
-            key={i}
-            {...c.mark(tipBody(d.title, d.rows))}
-            aria-label={`${d.title}: ${d.rows.map((r) => r.join(" ")).join(", ")}`}
-            className="grid h-6 place-items-center rounded-[2px]"
-            style={{ background: d.fill, color: d.ink }}
-          >
-            {d.text}
-          </li>
-        ))}
-      </ul>
-    </Frame>
   );
 }

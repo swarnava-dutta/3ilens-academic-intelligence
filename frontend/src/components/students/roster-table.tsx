@@ -4,14 +4,13 @@ import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Sparkline } from "@/components/charts/sparkline";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
+import { pct1 } from "@/lib/format";
 import type { RosterPending, RosterRow, SubmissionStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ActionStatus, DeltaChip, NameTags, type DemoTag } from "./bits";
 import {
   fmtDay,
   fmtMarks,
-  fmtMastery,
-  fmtPct,
   looksLikeFileName,
   marksWord,
   masteryFill,
@@ -124,17 +123,17 @@ export function trendTitle(row: RosterRow): string | undefined {
   if (!prev.comparable && latest) {
     return (
       `Not a trend: ${previousKind(prev)} is a different kind of test from ${shortOf(latest)} ` +
-      `(${latest.questions} Qs, ${fmtMarks(latest.total_marks)} marks). Earlier score ${fmtPct(prev.pct)}, uploaded ${fmtDay(prev.date)}.`
+      `(${latest.questions} Qs, ${fmtMarks(latest.total_marks)} marks). Earlier score ${pct1(prev.pct)}, uploaded ${fmtDay(prev.date)}.`
     );
   }
-  return `vs ${shortOf(prev)} (uploaded ${fmtDay(prev.date)}, ${fmtMarks(prev.total_marks)} marks): ${fmtPct(prev.pct)}`;
+  return `vs ${shortOf(prev)} (uploaded ${fmtDay(prev.date)}, ${fmtMarks(prev.total_marks)} marks): ${pct1(prev.pct)}`;
 }
 
 function trendSentence(row: RosterRow): string {
   if (!row.latest || !row.previous || row.delta_pct === null) return "First paper.";
   if (!row.previous.comparable) return "The earlier paper is a different kind of test, so there is no trend.";
   const dir = row.delta_pct > 0 ? "up" : row.delta_pct < 0 ? "down" : "unchanged,";
-  return `Score ${fmtPct(row.previous.pct)} to ${fmtPct(row.latest.pct)}, ${dir} ${Math.abs(row.delta_pct).toFixed(1)} points.`;
+  return `Score ${pct1(row.previous.pct)} to ${pct1(row.latest.pct)}, ${dir} ${Math.abs(row.delta_pct).toFixed(1)} points.`;
 }
 
 function NewerTags({ row }: { row: RosterRow }) {
@@ -149,7 +148,7 @@ function NewerTags({ row }: { row: RosterRow }) {
           className={cn(LINK_TAG, "bg-slate-100 text-slate-700")}
           title={`${newer.test_name} · uploaded ${fmtDay(newer.date)} · outside the current batch / test filter`}
         >
-          Newer: {shortOf(newer)} {fmtPct(newer.pct)} (outside filter)
+          Newer: {shortOf(newer)} {pct1(newer.pct)} (outside filter)
         </Link>
       ) : null}
       {pending ? (
@@ -191,7 +190,7 @@ function WeakestCell({ row }: { row: RosterRow }) {
       <p className="flex min-w-0 items-center gap-1.5" title={`${w.weakest.topic} (${w.weakest.subject}) · ${w.weakest.n} questions${whole}`}>
         <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-sm [print-color-adjust:exact]", masteryFill(w.weakest.mastery))} />
         <span className="min-w-0 truncate">{w.weakest.topic}</span>
-        <span className="ml-auto shrink-0 pl-1 tabular-nums text-slate-600">{fmtMastery(w.weakest.mastery)}</span>
+        <span className="ml-auto shrink-0 pl-1 tabular-nums text-slate-600">{pct1(w.weakest.mastery)}</span>
       </p>
       {w.more > 0 ? (
         <p className="mt-0.5 text-xs tabular-nums text-slate-500">
@@ -253,7 +252,7 @@ function TableRow({ row, tag, versioned, onOpen, onLog, detail = null }: { row: 
           <SubLine row={row} />
           {w ? (
             <p className="max-w-full truncate text-xs text-slate-500 lg:hidden print:hidden">
-              Weakest: {w.weakest.topic} {fmtMastery(w.weakest.mastery)}
+              Weakest: {w.weakest.topic} {pct1(w.weakest.mastery)}
               {w.more > 0 ? ` · +${w.more} more` : ""}
             </p>
           ) : null}
@@ -268,7 +267,7 @@ function TableRow({ row, tag, versioned, onOpen, onLog, detail = null }: { row: 
             <p className="whitespace-nowrap font-semibold text-brand-navy">
               {fmtMarks(latest.score)}/{fmtMarks(latest.total_marks)}
             </p>
-            <p className="text-xs text-slate-500">{fmtPct(latest.pct)}</p>
+            <p className="text-xs text-slate-500">{pct1(latest.pct)}</p>
             <DeltaChip delta={row.delta_pct} trend={row.trend} title={trendTitle(row)} className="mt-0.5 lg:hidden print:hidden" />
           </td>
           <td className={cn(TD, "hidden lg:table-cell print:table-cell")} title={trendTitle(row)}>
@@ -344,7 +343,7 @@ function MobileCard({ row, tag, versioned, onOpen, detail = null }: { row: Roste
               <span className="font-semibold text-brand-navy">
                 {fmtMarks(latest.score)}/{fmtMarks(latest.total_marks)}
               </span>
-              <span className="text-slate-600">{fmtPct(latest.pct)}</span>
+              <span className="text-slate-600">{pct1(latest.pct)}</span>
               <DeltaChip delta={row.delta_pct} trend={row.trend} />
               {reason ? <span className="text-xs font-medium text-amber-800">{reason}</span> : null}
             </span>
@@ -353,7 +352,7 @@ function MobileCard({ row, tag, versioned, onOpen, detail = null }: { row: Roste
               <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] text-slate-600">
                 <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-sm", masteryFill(w.weakest.mastery))} />
                 <span className="min-w-0 truncate">Weakest: {w.weakest.topic}</span>
-                <span className="shrink-0 tabular-nums">{fmtMastery(w.weakest.mastery)}</span>
+                <span className="shrink-0 tabular-nums">{pct1(w.weakest.mastery)}</span>
               </span>
             ) : null}
             <span className="mt-1 block">
@@ -361,7 +360,7 @@ function MobileCard({ row, tag, versioned, onOpen, detail = null }: { row: Roste
             </span>
             {row.newer ? (
               <span className="mt-1 block text-xs text-slate-600">
-                Newer: {shortOf(row.newer)} {fmtPct(row.newer.pct)} (outside filter)
+                Newer: {shortOf(row.newer)} {pct1(row.newer.pct)} (outside filter)
               </span>
             ) : null}
             {row.pending ? (

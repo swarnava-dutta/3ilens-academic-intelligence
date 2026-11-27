@@ -10,5 +10,3 @@ export function Note({ children }: { children: ReactNode }) {
 export const pct = (v: number) => fmtPctValue(v);
 
 export const signedPts = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmtNumber(Math.abs(v))} pts`;
-
-export const round1 = (v: number) => Math.round(v * 10) / 10;

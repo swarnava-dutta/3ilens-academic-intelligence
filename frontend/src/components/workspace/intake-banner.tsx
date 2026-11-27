@@ -9,15 +9,15 @@ import { formatDuration, toUtcIso } from "./format";
 import { QUEUE_POLL_MS } from "./use-submissions";
 
 /** Default acceptance target (50 PDFs in 30 min) when /api/health has no batch_target_seconds. */
-export const DEFAULT_BATCH_TARGET_SECONDS = 1_800;
+const DEFAULT_BATCH_TARGET_SECONDS = 1_800;
 
 const ACTIVE = new Set(["PENDING", "PROCESSING"]);
 
 /**
  * Status computed from the queue rows of one intake batch. Used until GET /api/intake-batches/{id}
- * answers (or when it is unavailable on this API build).
+ * answers.
  */
-export function localIntakeStatus(
+function localIntakeStatus(
   intakeBatchId: string,
   submissions: Submission[] | null,
   now: number | null,
@@ -100,8 +100,7 @@ export function IntakeBanner({
         const status = await getIntakeBatch(intakeBatchId);
         if (!cancelled) setRemote({ id: intakeBatchId, status });
       } catch {
-        // 404 before the first sheet lands, or the endpoint is not on this API build yet:
-        // keep counting from the queue rows instead.
+        // 404 before the first sheet lands: keep counting from the queue rows instead.
         unavailable = true;
       }
     };

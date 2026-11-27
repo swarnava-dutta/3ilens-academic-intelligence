@@ -13,7 +13,7 @@ export const CONTEXT = "#cbd5e1";
 export const CRITICAL = "#d03b3b";
 const STATUS = { good: "#0ca30c", warning: "#d97706", critical: CRITICAL };
 export const INK = "#334155"; // slate-700
-export const MUTED = "#64748b"; // slate-500
+const MUTED = "#64748b"; // slate-500
 export const AXIS = "#94a3b8"; // slate-400
 const GRID = "#e2e8f0";
 
@@ -24,7 +24,7 @@ export const toneColor = (t: Tone = "default") =>
 /** 1 decimal, half up (12.35 -> 12.4; toFixed would give 12.3 from binary rounding). */
 export const round1 = (v: number) => Math.round(v * 10) / 10;
 export const fmt = (v: number, unit = "") => `${round1(v)}${unit}`;
-export const signed = (v: number, unit = "") =>
+const signed = (v: number, unit = "") =>
   `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v), unit)}`;
 /** A change between two percentages is in points. */
 export const delta = (v: number, unit = "") => signed(v, unit === "%" ? " pts" : unit);
@@ -48,7 +48,7 @@ export function nice(lo: number, hi: number): Domain {
   return [Math.floor(lo / s) * s, Math.ceil(top / s) * s];
 }
 
-export function ticks([lo, hi]: Domain, n = 5) {
+function ticks([lo, hi]: Domain, n = 5) {
   const s = step(lo, hi, n);
   const out: number[] = [];
   for (let v = Math.ceil(lo / s) * s; v <= hi + s / 1e6; v += s) out.push(Number(v.toPrecision(10)));
@@ -71,7 +71,7 @@ export function textWidth(s: string) {
 }
 
 /** Greedy word wrap into at most `max` lines of `px` width; cut text ends in an ellipsis. */
-export function wrap(text: string, px: number, max = 2) {
+function wrap(text: string, px: number, max = 2) {
   const lines: string[] = [];
   for (const word of text.split(/\s+/)) {
     const last = lines.length - 1;
@@ -131,7 +131,7 @@ export function useChart() {
   return { w, setW, tip, mark };
 }
 
-export type Chart = ReturnType<typeof useChart>;
+type Chart = ReturnType<typeof useChart>;
 
 function Tooltip({ chart: { tip, w } }: { chart: Chart }) {
   if (!tip) return null;

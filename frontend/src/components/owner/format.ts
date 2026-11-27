@@ -1,12 +1,10 @@
 // Formatting helpers for the aggregate surfaces (owner, integrations, cohort patterns).
-import { num } from "@/components/cohort/format";
-
-/** Typographic minus (U+2212) so negative numbers never read as a hyphen. */
-export const MINUS = "−";
+import { numOrNull } from "@/lib/coerce";
+import { MINUS } from "@/lib/format";
 
 /** 3 -> "3", -3 -> "−3", 2.25 -> "2.3" (digits = max decimals, trailing zeros dropped). */
 export function fmt(value: number | null | undefined, digits = 1): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   const text = String(Number(Math.abs(v).toFixed(digits)));
   return v < 0 && text !== "0" ? `${MINUS}${text}` : text;
@@ -14,28 +12,21 @@ export function fmt(value: number | null | undefined, digits = 1): string {
 
 /** Signed delta: +3.2 / −1.5 / 0 ("—" when unknown). */
 export function signed(value: number | null | undefined, digits = 1): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   const text = fmt(v, digits);
   return v > 0 && text !== "0" ? `+${text}` : text;
 }
 
-/** Rupees with 2 decimals, e.g. "Rs 4.12" (negative-safe). */
-export function inr(value: number | null | undefined, digits = 2): string {
-  const v = num(value);
-  if (v === null) return "—";
-  return `Rs ${v < 0 ? MINUS : ""}${Math.abs(v).toFixed(digits)}`;
-}
-
 /** 0-100 percentage, e.g. "62%" / "62.5%" (digits = max decimals). */
 export function pct(value: number | null | undefined, digits = 0): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${fmt(v, digits)}%`;
 }
 
 /** 0-1 share as a percentage, e.g. 0.5 -> "50%". */
 export function share(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${Math.round(v * 100)}%`;
 }
 

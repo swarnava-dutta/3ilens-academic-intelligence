@@ -1,6 +1,6 @@
 // URL state, filtering and sorting for the /students roster. Pure functions: the table, the
 // mobile cards and the CSV export all read the same filtered, sorted list.
-import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
+import { URGENCIES, URGENCY_LABELS } from "@/components/shared/urgency-badge";
 import type { RosterRow, Urgency } from "@/lib/types";
 import { WEAK_MASTERY } from "./format";
 
@@ -18,7 +18,6 @@ export interface RosterParams {
   release: ReleaseFilter | null;
 }
 
-const URGENCIES: Urgency[] = ["at_risk", "needs_attention", "on_track"];
 const VIEWS: RosterView[] = ["trend", "technique", "waiting", "flagged", "ungraded"];
 const SORTS: RosterSort[] = ["priority", "lowest", "drop", "gain", "name", "marks_lost"];
 

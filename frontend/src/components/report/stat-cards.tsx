@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { Priority, Result } from "@/lib/types";
+import { clampPct, formatConfidence, inr } from "@/lib/format";
+import type { Result } from "@/lib/types";
 import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
-import { cn, formatConfidence } from "@/lib/utils";
-import { NET_TOTAL_TITLE, OUTCOME_LOOK, clampPct, fmtInr, fmtNumber, fmtPct1, fmtSeconds, safeNumber } from "./format";
+import { cn } from "@/lib/utils";
+import { NET_TOTAL_TITLE, OUTCOME_LOOK, fmtNumber, fmtPct1, fmtSeconds, safeNumber } from "./format";
 import { realMinus } from "./patterns/shared";
 import { MeterBar } from "./primitives";
 
@@ -22,16 +23,8 @@ const value = "text-xl font-semibold leading-tight tabular-nums text-brand-navy"
 const detail = "text-xs leading-snug text-slate-500";
 
 /** Marks deducted by negative marking across the paper (MCQ penalties). */
-export function totalPenalty(result: Result): number {
+function totalPenalty(result: Result): number {
   return result.question_evaluations.reduce((sum, q) => sum + Math.max(0, safeNumber(q.penalty)), 0);
-}
-
-export function topPriority(priorities: Priority[]): Priority | null {
-  let best: Priority | null = null;
-  for (const p of priorities) {
-    if (!best || safeNumber(p.roi) > safeNumber(best.roi)) best = p;
-  }
-  return best;
 }
 
 function OutcomeSplit({ result }: { result: Result }) {
@@ -170,15 +163,15 @@ export function StatCards({ result }: { result: Result }) {
             </>
           ) : (
             <>
-              <p className={value}>{fmtInr(costValue)}</p>
+              <p className={value}>{inr(costValue)}</p>
               <p className={cn("text-xs font-medium tabular-nums", costOk ? "text-lime-700" : "text-amber-700")}>
-                {costOk ? "Within" : "Above"} {fmtInr(cost.target_inr)} target · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
+                {costOk ? "Within" : "Above"} {inr(cost.target_inr)} target · {cost.calls} {cost.calls === 1 ? "call" : "calls"}
               </p>
               <MeterBar
                 size="sm"
                 percent={(costValue / Math.max(cost.target_inr, 0.01)) * 100}
                 label="Cost against the target"
-                valueText={`${fmtInr(costValue)} of ${fmtInr(cost.target_inr)}`}
+                valueText={`${inr(costValue)} of ${inr(cost.target_inr)}`}
                 fillClass={costOk ? "bg-brand-lime-600" : "bg-amber-500"}
               />
             </>
@@ -215,7 +208,7 @@ export function StatCards({ result }: { result: Result }) {
       </dl>
       <p className="text-xs leading-snug text-slate-500">
         {realMinus(markingRule).replace(/\.?\s*$/, ".")} Observed score is a screening result, not certified competency. Blank answers count in the
-        denominator; mapping is not approval. Targets per learner: under {fmtInr(cost.target_inr)} and{" "}
+        denominator; mapping is not approval. Targets per learner: under {inr(cost.target_inr)} and{" "}
         {fmtSeconds(lat.target_seconds)}.
       </p>
     </div>

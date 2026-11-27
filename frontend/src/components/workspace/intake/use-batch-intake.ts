@@ -33,18 +33,18 @@ export const UPLOAD_CONCURRENCY = 3;
 /** Above this many files the UI notes that production uses the queue API. */
 export const QUEUE_API_NOTE_THRESHOLD = 100;
 /** Most rows one staging session holds (the browser hashes every file). */
-export const MAX_STAGED = 300;
+const MAX_STAGED = 300;
 /** Concurrent POST /api/intake/inspect calls while staging PDFs / DOCX. */
-export const INSPECT_CONCURRENCY = 3;
+const INSPECT_CONCURRENCY = 3;
 /** Shown when an upload has no answer key (the API answers 422 rubric_required). */
 export const NO_KEY_MESSAGE =
   "Add the question paper or the answer key first - every upload needs its own answer key (rubric).";
 /** Refusals of the answer key itself (not of one sheet): a run stops at the first. */
 const KEY_REFUSALS = new Set(["unknown_rubric", "invalid_rubric", "rubric_required"]);
 
-export type RowPhase = "checking" | "ready" | "uploading" | "queued" | "rejected";
+type RowPhase = "checking" | "ready" | "uploading" | "queued" | "rejected";
 
-export interface StagedRow {
+interface StagedRow {
   key: string;
   /** Bumped when the file is replaced, so a late inspection of the old file is ignored. */
   version: number;
@@ -76,7 +76,7 @@ export function isVoiceRow(row: StagedRow): boolean {
   return isVoiceKind(row.signature?.kind);
 }
 
-export interface SkippedFile {
+interface SkippedFile {
   path: string;
   reason: string;
 }
@@ -123,7 +123,7 @@ const NO_KEYS: ReadonlySet<string> = new Set();
  * Rows an upload click holds until its upload starts: the ready rows (Upload), the rejected rows
  * (Retry rejected) or one row (its Retry).
  */
-export type HoldScope = "uploadable" | "rejected" | { key: string };
+type HoldScope = "uploadable" | "rejected" | { key: string };
 
 /** A row's display status after client checks and duplicate detection. */
 export interface RowView {
@@ -172,7 +172,7 @@ function patchRows(rows: StagedRow[], key: string, patch: Partial<StagedRow>, ve
   return rows.map((r) => (r.key === key && (version === undefined || r.version === version) ? { ...r, ...patch } : r));
 }
 
-export function describeRows(
+function describeRows(
   rows: StagedRow[],
   maxBytes: number,
   rubricId: number | null = null,

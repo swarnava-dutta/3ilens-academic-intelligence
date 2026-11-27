@@ -2,8 +2,9 @@
 
 import { FileImage } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { formatConfidence } from "@/lib/format";
 import type { QuestionEvaluation, Result, ResultKind } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Modal, btnSecondary } from "./dialog";
 import { RESULT_LOOK, fraction, resultLabel } from "./format";
 import { Pill, SectionCard } from "./primitives";

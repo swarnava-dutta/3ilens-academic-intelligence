@@ -3,8 +3,9 @@
 import { Fragment, useState } from "react";
 import { BarList, ChartFrame } from "@/components/charts";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
+import { formatWeight, pct1, plural } from "@/lib/format";
 import type { Cohort, CohortChapter } from "@/lib/types";
-import { cn, formatWeight } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { MeanBar } from "./action-cards";
 import { TD, TH } from "./card";
 import {
@@ -15,8 +16,6 @@ import {
   formatRoi,
   LINK_TEXT,
   neetWeight,
-  pct1,
-  plural,
   RETEACH_LINE,
   RETEACH_RULE,
   signed1,

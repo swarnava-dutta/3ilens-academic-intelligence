@@ -3,10 +3,10 @@
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { Modal, btnPrimary, btnSecondary, inputClass } from "@/components/report/dialog";
+import { Popover } from "@/components/shared/popover";
 import type { RosterSummary, RosterTopic, Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WEAK_MASTERY } from "./format";
-import { Popover } from "./popover";
 import { SORT_LABELS, type ReleaseFilter, type RosterParams, type RosterSort, type segmentCounts } from "./roster-logic";
 
 export type ParamUpdate = Record<string, string | null>;

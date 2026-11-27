@@ -1,33 +1,13 @@
 // Defensive defaults for GET /api/students rows (older or partial payloads must never crash the
-// page). The primitives and the batch / nudge / focus readers are shared with normalize-roster.ts.
+// page). The batch / nudge / focus readers are shared with normalize-roster.ts.
+import { arr, num, numOrNull, obj, str, strings } from "@/lib/coerce";
 import type { Batch, FocusItem, Quadrant, RubricRef, StudentCard, TeachingNudge, TopicPoint, Urgency } from "@/lib/types";
 
 const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 const QUADRANTS: Quadrant[] = ["priority_focus", "maintain", "deprioritise", "no_action"];
 
-export type Loose = Record<string, unknown> | null | undefined;
-
-export function o(v: unknown): Loose {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
-export function list(v: unknown): unknown[] {
-  return Array.isArray(v) ? v.filter((x) => x !== null && x !== undefined) : [];
-}
-export function num(v: unknown, fallback = 0): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-}
-export function numOrNull(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-export function str(v: unknown, fallback = ""): string {
-  return typeof v === "string" ? v : fallback;
-}
-export function strings(v: unknown): string[] {
-  return list(v).filter((x): x is string => typeof x === "string" && x.trim() !== "");
-}
-
 export function batchOf(v: unknown): Batch {
-  const b = o(v);
+  const b = obj(v);
   const mode = b?.strategy_mode;
   return {
     id: num(b?.id),
@@ -44,7 +24,7 @@ export function batchOf(v: unknown): Batch {
 }
 
 function testOf(v: unknown): RubricRef {
-  const t = o(v);
+  const t = obj(v);
   return {
     id: num(t?.id),
     version: str(t?.version),
@@ -56,7 +36,7 @@ function testOf(v: unknown): RubricRef {
 }
 
 export function nudgeOf(v: unknown): TeachingNudge | null {
-  const n = o(v);
+  const n = obj(v);
   const text = str(n?.text).trim();
   const label = str(n?.label).trim();
   if (!text && !label) return null;
@@ -65,18 +45,18 @@ export function nudgeOf(v: unknown): TeachingNudge | null {
     label,
     text,
     topic: typeof n?.topic === "string" && n.topic ? n.topic : null,
-    question_refs: list(n?.question_refs).filter((q): q is number => typeof q === "number"),
+    question_refs: arr(n?.question_refs).filter((q): q is number => typeof q === "number"),
     source: n?.source === "ai" || n?.source === "faculty" ? n.source : "template",
   };
 }
 
 function pointOf(v: unknown): TopicPoint {
-  const t = o(v);
+  const t = obj(v);
   return { topic: str(t?.topic, "Topic"), subject: str(t?.subject), mastery: num(t?.mastery) };
 }
 
 export function focusOf(v: unknown, i: number): FocusItem {
-  const f = o(v);
+  const f = obj(v);
   const q = f?.quadrant;
   return {
     topic: str(f?.topic, "Topic"),
@@ -88,7 +68,7 @@ export function focusOf(v: unknown, i: number): FocusItem {
 }
 
 export function normalizeStudent(v: unknown): StudentCard | null {
-  const s = o(v);
+  const s = obj(v);
   if (!s || typeof s.submission_id !== "number") return null;
   const status = s.status;
   const urgency = s.urgency;
@@ -112,11 +92,11 @@ export function normalizeStudent(v: unknown): StudentCard | null {
     urgency: typeof urgency === "string" && (URGENCIES as string[]).includes(urgency) ? (urgency as Urgency) : null,
     strengths: strings(s.strengths),
     gaps: strings(s.gaps),
-    nudges: list(s.nudges)
+    nudges: arr(s.nudges)
       .map(nudgeOf)
       .filter((n): n is TeachingNudge => n !== null),
-    topic_mastery: list(s.topic_mastery).map(pointOf),
-    top_focus: list(s.top_focus).map(focusOf),
+    topic_mastery: arr(s.topic_mastery).map(pointOf),
+    top_focus: arr(s.top_focus).map(focusOf),
     release_status: s.release_status === "RELEASED" ? "RELEASED" : s.release_status === "PROVISIONAL" ? "PROVISIONAL" : null,
     is_demo: s.is_demo === true,
     created_at: str(s.created_at),
@@ -124,7 +104,7 @@ export function normalizeStudent(v: unknown): StudentCard | null {
 }
 
 export function normalizeStudents(v: unknown): StudentCard[] {
-  return list(v)
+  return arr(v)
     .map(normalizeStudent)
     .filter((s): s is StudentCard => s !== null);
 }

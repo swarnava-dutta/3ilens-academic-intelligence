@@ -37,8 +37,6 @@ import { rubricPrompts, useRubric } from "./use-rubric";
 import { VoiceAnswerCard } from "./voice-answer";
 import { WhatsAppDialog } from "./whatsapp-dialog";
 
-export { normalizeResult } from "./normalize";
-
 /** The batch charts. Mounted when their fold first opens, so /api/cohort is fetched only then. */
 function BatchComparison({ result }: { result: Result }) {
   const { batch_id, rubric_id } = result.submission;

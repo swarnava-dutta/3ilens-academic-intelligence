@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
+import { plural } from "@/lib/format";
 import type { AtRiskRow, RankingRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, TD, TH } from "./card";
-import { formatNumber, formatPct, plural } from "./format";
+import { formatNumber, formatPct } from "./format";
 
 const EDGE = 5;
 const TOGGLE =

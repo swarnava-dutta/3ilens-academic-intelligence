@@ -4,10 +4,10 @@ import { ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleHelp, Circl
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { BloomBadge } from "@/components/shared/bloom-badge";
+import { formatConfidence } from "@/lib/format";
 import type { QuestionEvaluation } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
-  BONUS_TAG,
   NET_TOTAL_TITLE,
   RESULT_LOOK,
   TONE,
@@ -26,7 +26,7 @@ import { focusRing } from "./summary/tokens";
 import { UncertainText } from "./uncertain-text";
 
 /** "p. 2" chip that opens the page in the source-page viewer (the "Original pages" section). */
-export function SourcePageChip({ page, className }: { page: number; className?: string }) {
+function SourcePageChip({ page, className }: { page: number; className?: string }) {
   return (
     <button
       type="button"
@@ -54,21 +54,12 @@ export function OutcomeBadge({ q, className }: { q: QuestionEvaluation; classNam
   );
 }
 
-/** "Bonus" next to a bonus question's outcome. */
-export function BonusTag({ className }: { className?: string }) {
-  return (
-    <span title={BONUS_TAG.title} className="inline-flex">
-      <Pill className={cn("bg-brand-lime-50 text-xs text-lime-800", className)}>{BONUS_TAG.label}</Pill>
-    </span>
-  );
-}
-
 /**
  * How the key settles an MCQ, read from its marking note: "Bonus question - full marks to everyone",
  * "Accepted options B or C" (a key that accepts several options) or, for another option marked on
  * such a key, "Marked D, accepted B or C".
  */
-export function mcqKeyNote(note: string | null): { bonus: boolean; accepted: string[] } {
+function mcqKeyNote(note: string | null): { bonus: boolean; accepted: string[] } {
   const text = note ?? "";
   const match = /[Aa]ccepted(?: options?:?)?\s+([A-F](?:\s*(?:,|or|\/)\s*[A-F])+)/.exec(text);
   return {
@@ -86,7 +77,7 @@ function acceptedText(q: QuestionEvaluation): string {
 const signedMarks = (n: number) => (n > 0 ? `+${fmtMarks(n)}` : fmtMarks(n));
 
 /** MCQ outcome line: "Marked B · Accepted B · +4", "Marked A · Accepted B or C · −1", "Not answered · Accepted B · 0"... */
-export function mcqOutcome(q: QuestionEvaluation): { text: string; Icon: LucideIcon; look: string } {
+function mcqOutcome(q: QuestionEvaluation): { text: string; Icon: LucideIcon; look: string } {
   const sel = (q.selected_option ?? "").trim().toUpperCase();
   const marks = signedMarks(q.estimated_marks);
   const marked = !sel ? "Not answered" : sel === "MULTI" ? "More than one option marked" : sel === "UNKNOWN" ? "Mark unclear" : `Marked ${sel}`;

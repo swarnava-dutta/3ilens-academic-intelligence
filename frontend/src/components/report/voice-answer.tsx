@@ -18,7 +18,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
   te: "Telugu",
 };
 
-export function languageName(code: string): string {
+function languageName(code: string): string {
   const key = code.trim().toLowerCase().split(/[-_]/)[0];
   return LANGUAGE_NAMES[key] ?? code;
 }

@@ -3,12 +3,13 @@
 import type { RefObject } from "react";
 import { ChevronDown, FileArchive, FileDown, MessageCircle, Share2 } from "lucide-react";
 import { useHealth } from "@/components/app-shell";
+import { Popover } from "@/components/shared/popover";
 import { cohortViewBundleUrl, cohortViewPdfUrl, type CohortViewQuery } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { Cohort, CohortSitting } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ExamChip } from "./exam-date-card";
-import { dayMonth, plural } from "./format";
-import { PopoverButton } from "./popover";
+import { dayMonth, POPOVER_PANEL } from "./format";
 import type { CohortParams, ParamPatch } from "./url";
 
 const selectClass =
@@ -163,8 +164,10 @@ export function ScopeBar({
                 <ExamChip key={`${cohort.batch.id}-${cohort.batch.exam_date ?? ""}`} batch={cohort.batch} onSaved={onExamSaved} />
               </div>
             ) : null}
-            <PopoverButton
+            <Popover
               align="right"
+              chevron={false}
+              panelClassName={POPOVER_PANEL}
               disabled={n === 0}
               title={n === 0 ? "No graded sheets in this view" : undefined}
               buttonClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-brand-navy bg-brand-navy px-3 text-sm font-medium text-white transition-colors hover:bg-brand-navy-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700"
@@ -208,7 +211,7 @@ export function ScopeBar({
                   </li>
                 </ul>
               )}
-            </PopoverButton>
+            </Popover>
           </div>
         </div>
         <div

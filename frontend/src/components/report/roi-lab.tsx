@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { errorMessage, errorStatus, getStudyPlan } from "@/lib/api";
+import { clampPct } from "@/lib/format";
 import type {
   CalendarActivity,
   PlanAction,
@@ -16,7 +17,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Notice, btnSecondary } from "./dialog";
-import { clampPct, fmtHours, fmtISTDate, fmtMarks, fmtNumber, fmtPctValue, fmtRoi, plannedMinutesText, safeNumber } from "./format";
+import { fmtHours, fmtISTDate, fmtMarks, fmtNumber, fmtPctValue, fmtRoi, plannedMinutesText, safeNumber } from "./format";
 import { QRefChip } from "./immediate-reading";
 import { normalizePlan } from "./normalize";
 import { MeterBar, Pill, SectionCard } from "./primitives";
@@ -38,7 +39,7 @@ const PRESETS: { days: number; label: string }[] = [
   { days: 5, label: "5d · Consolidation" },
 ];
 
-export const MODE_LOOK: Record<StrategyMode, { label: string; pill: string }> = {
+const MODE_LOOK: Record<StrategyMode, { label: string; pill: string }> = {
   broad: { label: "Broad coverage", pill: "bg-slate-100 text-slate-700" },
   focused: { label: "Focused", pill: "bg-slate-100 text-slate-700" },
   revision: { label: "Revision", pill: "bg-slate-100 text-slate-700" },
@@ -537,7 +538,7 @@ const STAGE_SPAN: Record<RoadmapStage["horizon"], [number, number]> = {
 };
 
 /** 7/30/60/90-day roadmap: CSS Gantt on a 0-90 day axis plus one card per stage. */
-export function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }) {
+function Roadmap({ plan, days }: { plan: StudyPlan; days: number | null }) {
   const stages = plan.roadmap;
   if (stages.length === 0) return <p className="text-sm text-slate-500">No roadmap for these inputs.</p>;
   const examAt = days !== null && days >= 0 && days <= 90 ? (days / 90) * 100 : null;

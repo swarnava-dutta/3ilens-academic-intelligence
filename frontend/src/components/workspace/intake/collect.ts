@@ -8,7 +8,7 @@ export interface PickedFile {
 }
 
 /** Hard cap on files read from one pick/drop (keeps the browser responsive). */
-export const MAX_COLLECTED = 1_000;
+const MAX_COLLECTED = 1_000;
 
 function readEntriesOnce(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
   return new Promise((resolve, reject) => reader.readEntries(resolve, reject));

@@ -1,6 +1,8 @@
 // Defensive defaults for GET /api/results/{id}. Older API builds omit newer fields and older rows
 // predate contract v2, so every field the report reads is defaulted here; components can then
 // trust the shape (arrays are arrays, objects exist) without crashing the demo.
+import { URGENCIES, urgencyOf } from "@/components/shared/urgency-badge";
+import { arr, type Loose, num, numOrNull, nums, obj, oneOf, str, strings } from "@/lib/coerce";
 import type {
   Batch,
   BloomLevel,
@@ -48,32 +50,6 @@ import {
   withSubjectExtras,
 } from "./normalize-summary";
 
-type Loose<T> = { [K in keyof T]?: unknown } | null | undefined;
-
-function obj<T>(value: unknown): Loose<T> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Loose<T>) : null;
-}
-
-export function arr<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value.filter((v) => v !== null && v !== undefined) as T[]) : [];
-}
-
-export function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
-}
-
-function num(value: unknown, fallback = 0): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function numOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function str(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
-}
-
 function strOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
@@ -82,11 +58,6 @@ function bool(value: unknown, fallback = false): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function nums(value: unknown): number[] {
-  return Array.isArray(value) ? value.filter((v): v is number => typeof v === "number" && Number.isFinite(v)) : [];
-}
-
-const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 const BLOOM_LEVELS: BloomLevel[] = ["K1", "K2", "K3", "K4", "K5"];
 const BLOOM_SOURCES: BloomSource[] = ["faculty", "ai", "heuristic"];
 
@@ -96,12 +67,6 @@ function bloomLevel(value: unknown): BloomLevel | null {
 
 function bloomSource(value: unknown): BloomSource | null {
   return BLOOM_SOURCES.includes(value as BloomSource) ? (value as BloomSource) : null;
-}
-
-export function urgencyFromPct(pct: number): Urgency {
-  if (pct >= 70) return "on_track";
-  if (pct >= 55) return "needs_attention";
-  return "at_risk";
 }
 
 /**
@@ -417,10 +382,6 @@ const ACTION_KEYS = ["learn", "drill", "fix_errors", "maintain", "none"] as cons
 const ACTIVITY_KEYS = ["learn", "drill", "fix_errors", "review", "checkpoint"] as const;
 const HORIZON_KEYS = ["7", "30", "60", "90"] as const;
 
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
-}
-
 function normalizePlanTopic(raw: unknown): PlanTopic {
   const t = obj<PlanTopic>(raw);
   const mastery = num(t?.mastery);
@@ -557,7 +518,7 @@ function normalizeHistory(h: Loose<HistoryEntry>, nQuestions: number): HistoryEn
     score: num(h?.score),
     total_marks: num(h?.total_marks),
     pct,
-    urgency: URGENCIES.includes(h?.urgency as Urgency) ? (h?.urgency as Urgency) : urgencyFromPct(pct),
+    urgency: URGENCIES.includes(h?.urgency as Urgency) ? (h?.urgency as Urgency) : urgencyOf(pct),
     outcome_counts: {
       full: num(oc?.full),
       partial: num(oc?.partial),
@@ -651,7 +612,7 @@ export function normalizeResult(r: Result): Result {
 
   const lat = obj<Result["latency"]>(r.latency);
   const threshold = num(obj<Extraction>(r.extraction)?.threshold, 0.7);
-  const urgency = URGENCIES.includes(r.urgency as Urgency) ? (r.urgency as Urgency) : urgencyFromPct(pct);
+  const urgency = URGENCIES.includes(r.urgency as Urgency) ? (r.urgency as Urgency) : urgencyOf(pct);
   const subjectOf = subjectMap(topics);
   const subject_rollup = withSubjectExtras(subjectRollup(r.subject_rollup, topics), r.subject_rollup, questions, subjectOf);
   const study_plan = normalizeStudyPlan(r.study_plan, batch, pct);

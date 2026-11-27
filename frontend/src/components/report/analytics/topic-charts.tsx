@@ -1,15 +1,11 @@
 "use client";
 
-import { BarList, ChartFrame, Scatter, StackedBars, Waterfall } from "@/components/charts";
+import { ChartFrame, StackedBars, Waterfall } from "@/components/charts";
+import { round1 } from "@/components/charts/core";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import type { Result } from "@/lib/types";
-import { fmtNumber, fmtPct1, fmtRoi, orJoin, plannedMinutesText } from "../format";
-import { Note, pct, round1 } from "./shared";
-
-/** Defaults of the ROI engine (backend analytics.py). */
-const TARGET_MASTERY = 85;
-const WEAK_MASTERY = 70;
-const EXAM_TOTAL_MARKS = 720;
+import { fmtNumber, fmtPct1, orJoin, plannedMinutesText } from "../format";
+import { Note, pct } from "./shared";
 
 const Tag = ({ label }: { label: string }) => (
   <div>
@@ -17,122 +13,12 @@ const Tag = ({ label }: { label: string }) => (
   </div>
 );
 
-export function TopicTargets({ result }: { result: Result }) {
-  const title = "Topic mastery vs target";
-  const topics = [...result.topic_mastery].sort((a, b) => a.mastery - b.mastery || a.topic.localeCompare(b.topic));
-  if (!topics.length) {
-    return (
-      <ChartFrame title={title}>
-        <Note>No topic-level marks were recorded for this result.</Note>
-      </ChartFrame>
-    );
-  }
-  const planned = new Map(result.study_plan.topics.map((t) => [t.topic, t.target_mastery]));
-  const target = (topic: string) => planned.get(topic) || TARGET_MASTERY;
-  const below = topics.filter((t) => t.mastery < target(t.topic)).length;
-  const lowest = topics.filter((t) => t.mastery === topics[0].mastery).length;
-  return (
-    <ChartFrame
-      title={title}
-      takeaway={
-        below
-          ? `${below} of ${topics.length} topics are below target (dark tick); ` +
-            (lowest === 1
-              ? `the weakest is ${topics[0].topic} at ${pct(topics[0].mastery)}.`
-              : `${lowest} topics tie for weakest at ${pct(topics[0].mastery)}.`)
-          : `All ${topics.length} topics are at or above target (dark tick).`
-      }
-      table={{
-        columns: ["Topic", "Mastery %", "Target %", "Marks", "Out of"],
-        rows: topics.map((t) => [t.topic, t.mastery, target(t.topic), t.score, t.max_marks]),
-      }}
-    >
-      <BarList
-        items={topics.map((t) => ({
-          label: t.topic,
-          value: t.mastery,
-          max: 100,
-          target: target(t.topic),
-          valueLabel: pct(t.mastery),
-        }))}
-        unit="%"
-      />
-    </ChartFrame>
-  );
-}
-
-export function FocusQuadrant({ result }: { result: Result }) {
-  const title = "Where to focus";
-  const plan = result.study_plan;
-  const topics = plan.topics;
-  if (!topics.length) {
-    return (
-      <ChartFrame title={title}>
-        <Note>No study plan is available for this result.</Note>
-      </ChartFrame>
-    );
-  }
-  const weight = (marks: number) => Math.round((marks / EXAM_TOTAL_MARKS) * 10000) / 100;
-  const weights = topics.map((t) => weight(t.exam_marks)).sort((a, b) => a - b);
-  const mid = weights.length >> 1;
-  const split = weights.length % 2 ? weights[mid] : (weights[mid - 1] + weights[mid]) / 2;
-  const focus = new Set(plan.focus.slice(0, 5).map((t) => t.topic));
-  const weak = topics.filter((t) => t.mastery < WEAK_MASTERY && weight(t.exam_marks) >= split).map((t) => t.topic);
-  const hasContext = topics.some((t) => !focus.has(t.topic));
-  return (
-    <ChartFrame
-      title={title}
-      takeaway={
-        (weak.length
-          ? `${weak.length} of ${topics.length} topics are below ${WEAK_MASTERY}% mastery and at or above the median exam weightage (${fmtNumber(split, 2)}%): ` +
-            (weak.length > 4 ? `${weak.slice(0, 3).join(", ")} and ${weak.length - 3} more.` : `${weak.join(", ")}.`)
-          : `No topic is both below ${WEAK_MASTERY}% mastery and at or above the median exam weightage.`) +
-        " Marker size is effort hours."
-      }
-      legend={
-        focus.size && hasContext
-          ? [
-              { label: "Study plan focus", series: 1 },
-              { label: "Other topics", series: "context" },
-            ]
-          : undefined
-      }
-      table={{
-        columns: ["Topic", "Mastery %", "Exam weightage %", "Effort h", "ROI"],
-        rows: topics.map((t) => [t.topic, t.mastery, weight(t.exam_marks), t.effort_hours, fmtRoi(t.roi)]),
-      }}
-    >
-      <Scatter
-        points={topics.map((t) => ({
-          id: t.topic,
-          label: t.topic,
-          x: t.mastery,
-          y: weight(t.exam_marks),
-          size: t.effort_hours,
-          tone: focus.has(t.topic) || !focus.size ? "default" : "context",
-        }))}
-        xLabel="Mastery %"
-        yLabel="Exam weightage %"
-        // Padded so markers at 0% / 100% mastery or at the top weight stay inside the plot.
-        xDomain={[-5, 108]}
-        yDomain={[0, Math.max(1, Math.ceil(weights[weights.length - 1] * 1.1))]}
-        quadrants={{
-          x: WEAK_MASTERY,
-          y: split,
-          labels: ["Priority focus", "Maintain", "Deprioritise", "No action"],
-        }}
-      />
-      <Tag label="Illustrative weightage" />
-    </ChartFrame>
-  );
-}
-
 /**
  * The projected score as steps in marks on this paper (402 → +89 → +81 → +40 → 612 of 720, 85.0%): each
  * focus topic's gap to its target from the unrounded score / max, times this window's share of its
  * effort. The steps add up exactly to the projected score, so the bars, the table and the takeaway agree.
  */
-export function projectedSteps(result: Result): { label: string; value: number }[] {
+function projectedSteps(result: Result): { label: string; value: number }[] {
   const own = new Map(result.topic_mastery.map((t) => [t.topic, t]));
   return result.study_plan.focus
     .slice(0, 5)

@@ -1,5 +1,7 @@
 // Defensive defaults for GET /api/students/roster (an older or partial payload must never crash
 // the page: missing lists become [], missing numbers 0 / null, unknown enums a safe default).
+import { URGENCIES } from "@/components/shared/urgency-badge";
+import { arr, num, numOrNull, obj, oneOf, str, strings } from "@/lib/coerce";
 import type {
   FocusItem,
   InterventionKind,
@@ -22,12 +24,10 @@ import type {
   SubmissionStatus,
   TeachingNudge,
   Trend,
-  Urgency,
 } from "@/lib/types";
 import { shortTest } from "./format";
-import { batchOf, focusOf, list, nudgeOf, num, numOrNull, o, str, strings } from "./normalize";
+import { batchOf, focusOf, nudgeOf } from "./normalize";
 
-const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 const STATUSES: SubmissionStatus[] = ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "HUMAN_REVIEW_REQUIRED"];
 const REASONS: ReviewReason[] = [
   "low_confidence",
@@ -43,16 +43,12 @@ const RISKS: RiskLevel[] = ["low", "medium", "high"];
 const TRENDS: Trend[] = ["improving", "steady", "slipping"];
 const VERDICTS: NegativeMarkingBrief["verdict"][] = ["guessing", "skipping", "ok"];
 
-function oneOf<T extends string>(v: unknown, options: T[], fallback: T): T {
-  return typeof v === "string" && (options as string[]).includes(v) ? (v as T) : fallback;
-}
-
 function oneOfOrNull<T extends string>(v: unknown, options: T[]): T | null {
   return typeof v === "string" && (options as string[]).includes(v) ? (v as T) : null;
 }
 
 function paperOf(v: unknown): RosterPaper | null {
-  const p = o(v);
+  const p = obj(v);
   if (!p || typeof p.submission_id !== "number") return null;
   const name = str(p.test_name, "Assessment");
   return {
@@ -73,7 +69,7 @@ function paperOf(v: unknown): RosterPaper | null {
 }
 
 function pendingOf(v: unknown): RosterPending | null {
-  const p = o(v);
+  const p = obj(v);
   if (!p || typeof p.submission_id !== "number") return null;
   return {
     submission_id: p.submission_id,
@@ -84,7 +80,7 @@ function pendingOf(v: unknown): RosterPending | null {
 }
 
 function previousOf(v: unknown): RosterPrevious | null {
-  const p = o(v);
+  const p = obj(v);
   if (!p || typeof p.submission_id !== "number") return null;
   const name = str(p.test_name, "Assessment");
   return {
@@ -101,33 +97,33 @@ function previousOf(v: unknown): RosterPrevious | null {
 }
 
 function newerOf(v: unknown): RosterNewer | null {
-  const p = o(v);
+  const p = obj(v);
   if (!p || typeof p.submission_id !== "number") return null;
   const name = str(p.test_name, "Assessment");
   return { submission_id: p.submission_id, test_name: name, short_name: str(p.short_name) || shortTest(name), date: str(p.date), pct: num(p.pct) };
 }
 
 function sparkOf(v: unknown): RosterSparkPoint | null {
-  const p = o(v);
+  const p = obj(v);
   if (!p || typeof p.pct !== "number" || !Number.isFinite(p.pct)) return null;
   const name = str(p.test_name);
   return { submission_id: num(p.submission_id), date: str(p.date), pct: p.pct, test_name: name, short_name: str(p.short_name) || shortTest(name) };
 }
 
 function subjectOf(v: unknown): SubjectScore | null {
-  const s = o(v);
+  const s = obj(v);
   if (!s || !str(s.subject)) return null;
   return { subject: str(s.subject), score: num(s.score), max_marks: num(s.max_marks), pct: num(s.pct) };
 }
 
 function topicOf(v: unknown): RosterTopicMastery | null {
-  const t = o(v);
+  const t = obj(v);
   if (!t || !str(t.topic)) return null;
   return { topic: str(t.topic), subject: str(t.subject), mastery: num(t.mastery), n: num(t.n), subject_level: t.subject_level === true };
 }
 
 function briefOf(v: unknown): NegativeMarkingBrief | null {
-  const b = o(v);
+  const b = obj(v);
   if (!b) return null;
   const attempted = num(b.attempted);
   const blank = num(b.blank);
@@ -151,7 +147,7 @@ function briefOf(v: unknown): NegativeMarkingBrief | null {
 }
 
 function actionOf(v: unknown): RosterAction | null {
-  const a = o(v);
+  const a = obj(v);
   if (!a || typeof a.id !== "number") return null;
   return {
     id: a.id,
@@ -169,10 +165,10 @@ function nonNull<T>(items: (T | null)[]): T[] {
 }
 
 export function normalizeRow(v: unknown): RosterRow | null {
-  const r = o(v);
+  const r = obj(v);
   if (!r || !str(r.student_ref)) return null;
-  const actions = o(r.actions);
-  const priority = o(r.priority);
+  const actions = obj(r.actions);
+  const priority = obj(r.priority);
   const tier = numOrNull(priority?.tier);
   return {
     student_ref: str(r.student_ref),
@@ -181,20 +177,20 @@ export function normalizeRow(v: unknown): RosterRow | null {
     batch: batchOf(r.batch),
     latest: paperOf(r.latest),
     pending: pendingOf(r.pending),
-    waiting: nonNull(list(r.waiting).map(pendingOf)),
+    waiting: nonNull(arr(r.waiting).map(pendingOf)),
     newer: newerOf(r.newer),
     previous: previousOf(r.previous),
     delta_pct: numOrNull(r.delta_pct),
     trend: oneOfOrNull(r.trend, TRENDS),
-    spark: nonNull(list(r.spark).map(sparkOf)),
+    spark: nonNull(arr(r.spark).map(sparkOf)),
     papers_count: num(r.papers_count),
-    subjects: nonNull(list(r.subjects).map(subjectOf)),
-    topics: nonNull(list(r.topics).map(topicOf)).sort((a, b) => a.mastery - b.mastery),
+    subjects: nonNull(arr(r.subjects).map(subjectOf)),
+    topics: nonNull(arr(r.topics).map(topicOf)).sort((a, b) => a.mastery - b.mastery),
     weak_count: num(r.weak_count),
     very_weak_count: num(r.very_weak_count),
     negative_marking: briefOf(r.negative_marking),
-    nudges: nonNull(list(r.nudges).map(nudgeOf)) as TeachingNudge[],
-    focus: list(r.focus).map(focusOf) as FocusItem[],
+    nudges: nonNull(arr(r.nudges).map(nudgeOf)) as TeachingNudge[],
+    focus: arr(r.focus).map(focusOf) as FocusItem[],
     actions: {
       count: num(actions?.count),
       since_latest: num(actions?.since_latest),
@@ -205,7 +201,7 @@ export function normalizeRow(v: unknown): RosterRow | null {
 }
 
 function topicSummaryOf(v: unknown): RosterTopic | null {
-  const t = o(v);
+  const t = obj(v);
   if (!t || !str(t.topic)) return null;
   return {
     topic: str(t.topic),
@@ -218,8 +214,8 @@ function topicSummaryOf(v: unknown): RosterTopic | null {
     actions_improved: num(t.actions_improved),
     subject_level: t.subject_level === true,
     students_below: nonNull(
-      list(t.students_below).map((s) => {
-        const x = o(s);
+      arr(t.students_below).map((s) => {
+        const x = obj(s);
         if (!x || !str(x.student_ref)) return null;
         return {
           student_ref: str(x.student_ref),
@@ -233,9 +229,9 @@ function topicSummaryOf(v: unknown): RosterTopic | null {
 }
 
 function summaryOf(v: unknown, rows: RosterRow[]): RosterSummary {
-  const s = o(v);
-  const counts = o(s?.urgency_counts);
-  const nm = o(s?.negative_marking);
+  const s = obj(v);
+  const counts = obj(s?.urgency_counts);
+  const nm = obj(s?.negative_marking);
   const graded = rows.filter((r) => r.latest).length;
   return {
     students: num(s?.students, rows.length),
@@ -276,9 +272,9 @@ function summaryOf(v: unknown, rows: RosterRow[]): RosterSummary {
 }
 
 export function normalizeRoster(v: unknown): StudentRoster {
-  const r = o(v);
-  const rows = nonNull(list(r?.rows).map(normalizeRow));
-  const scope = o(r?.scope);
+  const r = obj(v);
+  const rows = nonNull(arr(r?.rows).map(normalizeRow));
+  const scope = obj(r?.scope);
   return {
     scope: {
       batch_id: numOrNull(scope?.batch_id),
@@ -287,7 +283,7 @@ export function normalizeRoster(v: unknown): StudentRoster {
     },
     summary: summaryOf(r?.summary, rows),
     rows,
-    topics: nonNull(list(r?.topics).map(topicSummaryOf)),
+    topics: nonNull(arr(r?.topics).map(topicSummaryOf)),
     generated_at: str(r?.generated_at),
   };
 }

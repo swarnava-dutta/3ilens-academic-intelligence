@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getFilters, type DashboardQuery } from "@/lib/api";
 import type { DashboardFilters, Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { URGENCY_LABELS } from "./urgency-badge";
+import { URGENCIES, URGENCY_LABELS } from "./urgency-badge";
 
 export type FilterKey = "batch" | "test" | "urgency" | "topic";
 
@@ -18,7 +18,6 @@ export const FILTER_PARAMS: Record<FilterKey, "batch_id" | "rubric_id" | "urgenc
 };
 
 const ALL_FILTERS: FilterKey[] = ["batch", "test", "urgency", "topic"];
-const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 
 function positiveId(value: string | null): number | null {
   if (!value) return null;

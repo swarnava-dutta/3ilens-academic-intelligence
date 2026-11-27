@@ -3,8 +3,9 @@
 import type { ReactNode } from "react";
 import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
+import { formatConfidence, formatDateTime } from "@/lib/format";
 import type { Submission } from "@/lib/types";
-import { formatConfidence, formatDateTime, reviewHold } from "@/lib/utils";
+import { reviewHold } from "@/lib/utils";
 import { humanizeStep } from "./format";
 import { SectionCard } from "./primitives";
 

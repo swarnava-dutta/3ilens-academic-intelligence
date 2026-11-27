@@ -15,7 +15,7 @@ const MIN_ANSWERED = 5;
 const signedPts = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${(Math.round(Math.abs(v) * 10) / 10).toFixed(1)} pts`;
 
 /** "105 right × 4 − 26 = 394, + 8 bonus = 402" (MCQ papers with one mark value). */
-export function reconciliationLine(result: Result): string | null {
+function reconciliationLine(result: Result): string | null {
   const qs = result.question_evaluations;
   if (!qs.length || qs.some((q) => q.question_type !== "mcq")) return null;
   const per = modalMarks(qs);

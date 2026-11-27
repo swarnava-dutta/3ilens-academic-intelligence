@@ -9,7 +9,7 @@ import { SectionCard } from "./primitives";
 import { openSourcePage } from "./report-events";
 
 /** Stored intervention, or a rule-template one built from the topic (older rows have none). */
-export function interventionFor(p: Priority): Intervention {
+function interventionFor(p: Priority): Intervention {
   if (p.intervention && (p.intervention.teach || p.intervention.practice || p.intervention.check_criterion)) {
     return p.intervention;
   }
@@ -22,7 +22,7 @@ export function interventionFor(p: Priority): Intervention {
 }
 
 /** Trigger questions: stored on the priority, else the topic's questions. */
-export function triggerQuestions(result: Result, p: Priority): number[] {
+function triggerQuestions(result: Result, p: Priority): number[] {
   if (p.trigger_questions.length) return uniqueSorted(p.trigger_questions);
   return uniqueSorted(topicRow(result, p.topic)?.questions ?? []);
 }

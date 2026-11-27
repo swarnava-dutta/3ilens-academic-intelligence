@@ -10,6 +10,7 @@
 //   ("4 marks: option C", "4 marks: option B or C", "4 marks to every student (bonus question)");
 // - a key that is already the same only fills an empty expected answer / empty criteria.
 // Self-contained (type imports only).
+import { plural } from "@/lib/format";
 import type { AnswerKeyEntry, AnswerKeyExtraction, AnswerKeyMethod, RubricContent, RubricQuestion } from "@/lib/types";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -18,7 +19,7 @@ const MAX_PAPER_CODE = 60;
 /** marking.BONUS_ANSWER. */
 const BONUS_ANSWER = "Bonus question";
 
-export interface KeyChange {
+interface KeyChange {
   question: number;
   /** "B", "B or C", "Bonus". */
   from: string;
@@ -283,7 +284,7 @@ function codeTokens(value: string): string[] {
 }
 
 /** "Code A" -> "A", "CODE - 45" -> "45", "045" -> "45", "A / P / W" -> "A/P/W"; null when no code. */
-export function normaliseCode(value: string | null | undefined): string | null {
+function normaliseCode(value: string | null | undefined): string | null {
   const text = squash(value).toUpperCase();
   if (!text) return null;
   const match = BARE_CODE.exec(text) ?? KEYWORD_CODE.exec(text);
@@ -293,14 +294,10 @@ export function normaliseCode(value: string | null | undefined): string | null {
 }
 
 /** Both codes known and no code in common ("A" vs "A/P/W" is the same booklet family). */
-export function codesDiffer(a: string | null, b: string | null): boolean {
+function codesDiffer(a: string | null, b: string | null): boolean {
   if (!a || !b) return false;
   const other = new Set(b.split("/"));
   return !a.split("/").some((token) => other.has(token));
-}
-
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
 }
 
 /** "Q3, Q7" (the first `limit`, then "+N more"). */

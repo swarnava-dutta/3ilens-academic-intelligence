@@ -1,7 +1,9 @@
+import { numOrNull } from "@/lib/coerce";
+import { clampPct } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader } from "./card";
-import { MASTERY_TARGET, TONES, clampPct, formatPct, num, toneFor, type Tone } from "./format";
+import { MASTERY_TARGET, TONES, formatPct, toneFor, type Tone } from "./format";
 
 const LEGEND_ORDER: Tone[] = ["weak", "ok", "good"];
 
@@ -14,7 +16,7 @@ export function TopicMastery({
 }) {
   const rows = (topics ?? [])
     .filter((t) => t && typeof t.topic === "string")
-    .map((t) => ({ topic: t.topic, mastery: num(t.mastery) }))
+    .map((t) => ({ topic: t.topic, mastery: numOrNull(t.mastery) }))
     .sort((a, b) => (a.mastery ?? 101) - (b.mastery ?? 101) || a.topic.localeCompare(b.topic));
   const weakest = rows.find((r) => r.mastery !== null);
 

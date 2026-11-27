@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, ClipboardList } from "lucide-react";
+import { clampPct, pct1, plural } from "@/lib/format";
 import type { Cohort, CohortChapter, CohortItem, CohortStudentRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { chapterTone, clampPct, FOCUS_RING, LINK_TEXT, nOf, pct1, plural, RETEACH_LINE, signed1 } from "./format";
+import { chapterTone, FOCUS_RING, LINK_TEXT, nOf, RETEACH_LINE, signed1 } from "./format";
 import type { CohortTab, ParamPatch } from "./url";
 
 const MAX_ROWS = 5;

@@ -12,8 +12,9 @@ import {
   type Ref,
 } from "react";
 import { ChartFrame } from "@/components/charts";
+import { formatConfidence } from "@/lib/format";
 import type { QuestionEvaluation, Result, ResultKind } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { FacultyBadge } from "../faculty-badge";
 import { fmtMarks, orJoin } from "../format";
 import { subjectMap } from "../normalize-summary";

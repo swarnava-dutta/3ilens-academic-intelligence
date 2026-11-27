@@ -2,7 +2,9 @@
 // focus_topics, the extended subject_rollup and the pattern additions. The server builds all of
 // them; an older payload gets an empty list (key insights: never guessed in the browser) or the
 // same counts read off the question rows, so the page still renders with one set of numbers.
-import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
+import { AT_RISK_BELOW, ON_TRACK_FROM, URGENCIES, URGENCY_LABELS, urgencyOf } from "@/components/shared/urgency-badge";
+import { arr, num, numOrNull, nums, obj, oneOf, str } from "@/lib/coerce";
+import { plural } from "@/lib/format";
 import type {
   BloomBucket,
   FatigueProfile,
@@ -25,48 +27,8 @@ import type {
 
 /** The ROI engine's target mastery (backend analytics.TARGET_MASTERY). */
 export const TARGET_MASTERY = 85;
-/** Urgency cut points (backend analytics.classify_urgency): <55 at risk, 55-70 needs attention, >=70 on track. */
-const AT_RISK_BELOW = 55;
-const ON_TRACK_FROM = 70;
 
 type Rec = Record<string, unknown>;
-
-function rec(value: unknown): Rec | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Rec) : null;
-}
-
-function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? value.filter((v) => v !== null && v !== undefined) : [];
-}
-
-function num(value: unknown, fallback = 0): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function numOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function str(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
-}
-
-function nums(value: unknown): number[] {
-  return list(value).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-}
-
-const URGENCIES: Urgency[] = ["at_risk", "needs_attention", "on_track"];
-
-function urgency(value: unknown, fallback: Urgency): Urgency {
-  return URGENCIES.includes(value as Urgency) ? (value as Urgency) : fallback;
-}
-
-/** Band of a percentage on the urgency rule, without the 2-topics-below-40 escalation. */
-export function bandOf(pct: number): Urgency {
-  if (pct >= ON_TRACK_FROM) return "on_track";
-  if (pct >= AT_RISK_BELOW) return "needs_attention";
-  return "at_risk";
-}
 
 /** 2 decimals: drops binary noise (0.85 x 180 = 152.99999...). */
 const tidy = (n: number) => Math.round(n * 100) / 100;
@@ -125,7 +87,7 @@ export function withSubjectExtras(
   questions: QuestionEvaluation[],
   subjectOf: Map<number, string>,
 ): SubjectRollup[] {
-  const given = new Map(list(raw).map((r) => [str(rec(r)?.subject), rec(r) ?? {}] as const));
+  const given = new Map(arr(raw).map((r) => [str(obj(r)?.subject), obj(r) ?? {}] as const));
   return rows.map((row) => {
     const s = given.get(row.subject) ?? {};
     let qs = questions.filter((q) => subjectOf.get(q.question) === row.subject);
@@ -156,7 +118,7 @@ export function withSubjectExtras(
       penalty: num(s.penalty, c.penalty),
       marks_dropped: num(s.marks_dropped, tidy(row.max_marks - row.score)),
       gain_to_target: num(s.gain_to_target, gainToTarget(row.score, row.max_marks)),
-      band: urgency(s.band, bandOf(pct)),
+      band: oneOf(s.band, URGENCIES, urgencyOf(pct)),
       diagnosis: DIAGNOSES.includes(s.diagnosis as SubjectDiagnosis)
         ? (s.diagnosis as SubjectDiagnosis)
         : diagnose(pct, wrong + c.zero, blank),
@@ -169,7 +131,7 @@ export function withSubjectExtras(
 // --------------------------------------------------------------------------- //
 
 function normalizeFigure(raw: unknown): KeyInsightFigure | null {
-  const f = rec(raw);
+  const f = obj(raw);
   if (!f) return null;
   const value = typeof f.value === "number" || typeof f.value === "string" ? f.value : null;
   if (value === null) return null;
@@ -183,7 +145,7 @@ function normalizeFigure(raw: unknown): KeyInsightFigure | null {
 }
 
 function normalizeEvidence(raw: unknown): KeyInsightEvidence | null {
-  const e = rec(raw);
+  const e = obj(raw);
   if (!e) return null;
   const anchor = str(e.anchor).replace(/^#/, "").trim();
   const kind = e.kind === "subject" || e.kind === "topic" ? e.kind : "questions";
@@ -199,9 +161,9 @@ function normalizeEvidence(raw: unknown): KeyInsightEvidence | null {
 
 /** At most three server insights with a headline; an older payload has none ([]). */
 export function normalizeKeyInsights(raw: unknown): KeyInsight[] {
-  return list(raw)
+  return arr(raw)
     .map((item): KeyInsight | null => {
-      const i = rec(item);
+      const i = obj(item);
       const headline = str(i?.headline).trim();
       if (!i || !headline) return null;
       return {
@@ -209,7 +171,7 @@ export function normalizeKeyInsights(raw: unknown): KeyInsight[] {
         tone: i.tone === "good" || i.tone === "warn" ? i.tone : "neutral",
         headline,
         detail: str(i.detail).trim(),
-        figures: list(i.figures)
+        figures: arr(i.figures)
           .map(normalizeFigure)
           .filter((f): f is KeyInsightFigure => f !== null),
         evidence: normalizeEvidence(i.evidence),
@@ -257,13 +219,13 @@ export function normalizeScoreBand(
   ctx: { score: number; total: number; urgency: Urgency; questions: QuestionEvaluation[] },
 ): ScoreBand | null {
   if (!(ctx.total > 0)) return null;
-  const b = rec(raw);
+  const b = obj(raw);
   const derivedRanges = bandRanges(ctx.total);
-  const ranges = list(b?.thresholds)
+  const ranges = arr(b?.thresholds)
     .map((r): ScoreBandRange | null => {
-      const t = rec(r);
+      const t = obj(r);
       if (!t || typeof t.from_marks !== "number" || typeof t.to_marks !== "number") return null;
-      const key = urgency(t.key, "needs_attention");
+      const key = oneOf(t.key, URGENCIES, "needs_attention");
       return {
         key,
         label: str(t.label, URGENCY_LABELS[key]),
@@ -278,7 +240,7 @@ export function normalizeScoreBand(
   const target = num(b?.target_marks, tidy((ON_TRACK_FROM / 100) * ctx.total));
   const toTarget = num(b?.marks_to_target, Math.max(0, tidy(target - ctx.score)));
   const per = modalMarks(ctx.questions);
-  const key = urgency(b?.key, ctx.urgency);
+  const key = oneOf(b?.key, URGENCIES, ctx.urgency);
   return {
     key,
     label: str(b?.label, URGENCY_LABELS[key]),
@@ -305,8 +267,6 @@ function focusAction(mastery: number, wrong: number, blank: number): FocusAction
   if (wrong > blank) return "drill";
   return "learn";
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function studySentence(action: FocusAction, wrong: number, blank: number): string {
   if (action === "review") {
@@ -336,7 +296,7 @@ function missedRefs(qs: QuestionEvaluation[]): number[] {
 }
 
 function normalizeFocusRow(raw: unknown): FocusTopicRow | null {
-  const r = rec(raw);
+  const r = obj(raw);
   const topic = str(r?.topic).trim();
   if (!r || !topic) return null;
   const score = num(r.score);
@@ -377,7 +337,7 @@ export function normalizeFocusTopics(
   raw: unknown,
   ctx: { topics: TopicMastery[]; subjects: SubjectRollup[]; questions: QuestionEvaluation[] },
 ): FocusTopics {
-  const f = rec(raw);
+  const f = obj(raw);
   if (f && Array.isArray(f.rows)) {
     const level = f.level === "chapter" ? "chapter" : "subject";
     return {
@@ -389,9 +349,9 @@ export function normalizeFocusTopics(
         .map(normalizeFocusRow)
         .filter((r): r is FocusTopicRow => r !== null)
         .slice(0, 5),
-      keep_warm: list(f.keep_warm)
+      keep_warm: arr(f.keep_warm)
         .map((item) => {
-          const w = rec(item);
+          const w = obj(item);
           const topic = str(w?.topic).trim();
           return w && topic ? { topic, subject: str(w.subject), mastery: num(w.mastery) } : null;
         })
@@ -459,10 +419,10 @@ export function normalizeFocusTopics(
 // --------------------------------------------------------------------------- //
 
 function normalizeBloom(raw: unknown): { buckets: BloomBucket[]; informative: boolean | null } {
-  const asObject = rec(raw);
-  const items = Array.isArray(raw) ? raw : list(asObject?.buckets ?? asObject?.levels ?? asObject?.rows);
+  const asObject = obj(raw);
+  const items = Array.isArray(raw) ? raw : arr(asObject?.buckets ?? asObject?.levels ?? asObject?.rows);
   const buckets = items
-    .map((b) => rec(b))
+    .map((b) => obj(b))
     .filter((b): b is Rec => !!b && typeof b.level === "string")
     .map((b) => ({
       level: b.level as BloomBucket["level"],
@@ -514,7 +474,7 @@ export function subjectPacing(questions: QuestionEvaluation[], subjectOf: Map<nu
 function normalizePacing(raw: unknown): SubjectPacing[] | null {
   if (!Array.isArray(raw)) return null;
   return raw
-    .map((p) => rec(p))
+    .map((p) => obj(p))
     .filter((p): p is Rec => !!p && typeof p.subject === "string")
     .map((p) => {
       const first = numOrNull(p.first_accuracy);
@@ -538,7 +498,7 @@ function normalizePacing(raw: unknown): SubjectPacing[] | null {
 
 /** Patterns with defaults: Bloom informative flag, pacing within each subject (answered questions only). */
 export function normalizePatterns(raw: unknown, questions: QuestionEvaluation[], subjectOf?: Map<number, string>): StudentPatterns {
-  const p = rec(raw);
+  const p = obj(raw);
   const bloom = normalizeBloom(p?.bloom_profile);
   const levels = new Set(questions.map((q) => q.bloom_level).filter(Boolean));
   const allHeuristic = questions.length > 0 && questions.every((q) => q.bloom_source === "heuristic" || !q.bloom_source);
@@ -546,12 +506,12 @@ export function normalizePatterns(raw: unknown, questions: QuestionEvaluation[],
     typeof p?.bloom_informative === "boolean"
       ? p.bloom_informative
       : (bloom.informative ?? (bloom.buckets.length >= 2 && levels.size >= 2 && !allHeuristic));
-  const fatigueRaw = rec(p?.fatigue) as (FatigueProfile & Rec) | null;
+  const fatigueRaw = obj(p?.fatigue) as (FatigueProfile & Rec) | null;
   const fatigue: FatigueProfile | null = fatigueRaw
     ? {
         ...fatigueRaw,
-        series: list(fatigueRaw.series) as FatigueProfile["series"],
-        reasons: list(fatigueRaw.reasons).filter((r): r is string => typeof r === "string"),
+        series: arr(fatigueRaw.series) as FatigueProfile["series"],
+        reasons: arr(fatigueRaw.reasons).filter((r): r is string => typeof r === "string"),
         within_subject:
           normalizePacing(fatigueRaw.within_subject) ?? (subjectOf ? subjectPacing(questions, subjectOf) : null),
         within_subject_change_pts: numOrNull(fatigueRaw.within_subject_change_pts),
@@ -560,11 +520,11 @@ export function normalizePatterns(raw: unknown, questions: QuestionEvaluation[],
       }
     : null;
   return {
-    negative_marking: (rec(p?.negative_marking) as StudentPatterns["negative_marking"]) ?? null,
+    negative_marking: (obj(p?.negative_marking) as StudentPatterns["negative_marking"]) ?? null,
     fatigue,
-    transfer: (rec(p?.transfer) as StudentPatterns["transfer"]) ?? null,
+    transfer: (obj(p?.transfer) as StudentPatterns["transfer"]) ?? null,
     bloom_profile: bloom.buckets,
-    notes: list(p?.notes).filter((n): n is string => typeof n === "string"),
+    notes: arr(p?.notes).filter((n): n is string => typeof n === "string"),
     bloom_informative: informative,
   };
 }

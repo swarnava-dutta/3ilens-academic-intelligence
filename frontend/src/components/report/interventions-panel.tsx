@@ -5,13 +5,14 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
+import { KIND_LABELS } from "@/components/students/format";
 import { deleteIntervention, errorCode, errorMessage } from "@/lib/api";
 import type { InterventionRecord, OutcomeStatus, Result } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Notice, btnPrimary } from "./dialog";
 import { fmtIST, fmtNumber, fmtSigned } from "./format";
 import { SectionCard } from "./primitives";
-import { KIND_LABELS, RecordInterventionDialog } from "./record-intervention-dialog";
+import { RecordInterventionDialog } from "./record-intervention-dialog";
 
 const STATUS_LOOK: Record<OutcomeStatus, { label: string; Icon: LucideIcon; tone: string; title: string }> = {
   pending: {
@@ -46,7 +47,7 @@ const STATUS_LOOK: Record<OutcomeStatus, { label: string; Icon: LucideIcon; tone
   },
 };
 
-export function OutcomeStatusChip({ status }: { status: OutcomeStatus }) {
+function OutcomeStatusChip({ status }: { status: OutcomeStatus }) {
   const look = STATUS_LOOK[status] ?? STATUS_LOOK.pending;
   return (
     <span

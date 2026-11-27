@@ -5,9 +5,9 @@
 // printed questions with it (rubric_match: the same paper, another code / set, or a different
 // paper - also a long printed paper against a small non-MCQ key).
 // Advisory only: the API repeats its checks on upload (a document that does not match is held for
-// faculty review unless its answers map to the key - never rejected), and an API build without the
-// endpoint just shows nothing.
-import { errorStatus, inspectPaper } from "@/lib/api";
+// faculty review unless its answers map to the key - never rejected).
+import { inspectPaper } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { PaperInspection, RubricMatch } from "@/lib/types";
 import type { SheetKind } from "./inspect";
 
@@ -16,22 +16,16 @@ export function isPaperCandidate(kind: SheetKind | null | undefined): boolean {
   return kind === "pdf" || kind === "docx";
 }
 
-/** Set once the API answers 404 / 405 (an older build): stop asking for the rest of the session. */
-let unsupported = false;
-
 /**
  * The inspection, or null when it is unavailable or failed (the upload repeats every check).
  * rubricId: compare the printed questions with that answer-key snapshot (rubric_match).
  */
 export async function fetchInspection(file: File, rubricId?: number | null): Promise<PaperInspection | null> {
-  if (unsupported) return null;
   try {
     const inspection = await inspectPaper(file, rubricId);
     // Older API builds leave rubric_match out.
     return { ...inspection, rubric_match: inspection.rubric_match ?? null };
-  } catch (err) {
-    const status = errorStatus(err);
-    if (status === 404 || status === 405) unsupported = true;
+  } catch {
     return null;
   }
 }
@@ -45,10 +39,6 @@ export function pageLimitProblem(inspection: PaperInspection | null | undefined)
   const pages = inspection.pages;
   if (pages === null) return `Longer than the ${inspection.max_pdf_pages}-page limit`;
   return `${pages} ${pages === 1 ? "page" : "pages"} - the limit is ${inspection.max_pdf_pages} pages`;
-}
-
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
 /** "Question paper with its answer key - 45 questions, 43 answers found." */
@@ -69,7 +59,7 @@ export function printedPaperLine(inspection: PaperInspection): string {
   return `${plural(inspection.pages, "page")}, ${questions}`;
 }
 
-export interface PaperTag {
+interface PaperTag {
   label: string;
   tone: "amber" | "neutral";
   hint: string;
@@ -148,13 +138,13 @@ export function rubricComparable(paper: PaperInspection | null | undefined): boo
  * review unless its answers map to the key (a typed answer sheet compared by its text is graded
  * when most rubric questions get an answer).
  */
-export const MATCH_HOLD_NOTE =
+const MATCH_HOLD_NOTE =
   "You can still upload it: it is held for faculty review unless its answers map to this key.";
 /** A printed paper far larger than the key (the size check): always held on upload. */
-export const SIZE_HOLD_NOTE =
+const SIZE_HOLD_NOTE =
   "You can still upload it: it is held for faculty review instead of being graded against this key.";
 /** Shown when the server's paper check does not run for this file (not a PDF or Word file): no hold is promised. */
-export const MATCH_CHECK_NOTE = "Check the answer key before uploading: this sheet would be graded against it.";
+const MATCH_CHECK_NOTE = "Check the answer key before uploading: this sheet would be graded against it.";
 
 /**
  * True when the server's paper check runs on upload for this file: a PDF or Word file with any
@@ -173,7 +163,7 @@ export function mismatchHeld(inspection: { file_type?: string | null } | null | 
  * The size check's verdict (backend paper_match.structural): a mismatch with nothing compared and
  * no printed sheet code - far more printed questions than the key has. Held on upload either way.
  */
-export function sizeMismatch(match: RubricMatch | null | undefined): boolean {
+function sizeMismatch(match: RubricMatch | null | undefined): boolean {
   return !!match && match.verdict === "mismatch" && match.compared === 0 && !match.sheet_code;
 }
 
@@ -183,7 +173,7 @@ export function matchHoldNote(match: RubricMatch | null | undefined, held: boole
   return sizeMismatch(match) ? SIZE_HOLD_NOTE : MATCH_HOLD_NOTE;
 }
 
-export interface MatchTag {
+interface MatchTag {
   label: string;
   tone: "rose" | "amber";
   /** One short line for the row. */

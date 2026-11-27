@@ -9,11 +9,11 @@ import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
 import { fmtIST } from "./format";
 import { normalizeDelivery } from "./normalize";
 
-export const WHATSAPP_TEMPLATE = "Namaste {{1}}, {{2}}'s 3iLens report for {{3}} is ready. Download (valid 24 h): {{4}}";
-export const SIMULATED_CAPTION = "Simulated channel - Gupshup/Twilio integration out of PoC scope";
+const WHATSAPP_TEMPLATE = "Namaste {{1}}, {{2}}'s 3iLens report for {{3}} is ready. Download (valid 24 h): {{4}}";
+const SIMULATED_CAPTION = "Simulated channel - Gupshup/Twilio integration out of PoC scope";
 
 /** "+91 98765 43210" -> "+91 98••••••10" (only the country code and the last two digits stay visible). */
-export function maskRecipient(raw: string): string {
+function maskRecipient(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (!digits) return "";
   const hasPlus = raw.trim().startsWith("+");
@@ -26,13 +26,13 @@ export function maskRecipient(raw: string): string {
 }
 
 /** Never "sent": the PoC only records a blocked / simulated delivery and issues a signed link. */
-export function deliveryHeadline(d: Pick<Delivery, "status">): string {
+function deliveryHeadline(d: Pick<Delivery, "status">): string {
   return d.status === "BLOCKED_TEMPLATE_PENDING"
     ? "Blocked - template awaiting Meta approval · NOT sent"
     : "Simulated only · NOT sent";
 }
 
-export async function copyText(text: string): Promise<boolean> {
+async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;

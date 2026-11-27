@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { RubricVersionsPanel } from "@/components/rubrics/rubric-versions";
+import { plural } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { ToastMessage } from "./dialog";
-import { CHAPTER_TONES, COHORT_URGENCY_RULE, FOCUS_RING, LINK_TEXT, plural, RETEACH_LINE, RETEACH_RULE, TONES, type ChapterTone, type Tone } from "./format";
+import { CHAPTER_TONES, COHORT_URGENCY_RULE, FOCUS_RING, LINK_TEXT, RETEACH_LINE, RETEACH_RULE, TONES, type ChapterTone, type Tone } from "./format";
 
 const H3 = "text-[13px] font-semibold text-slate-800";
 

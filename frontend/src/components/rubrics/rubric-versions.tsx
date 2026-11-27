@@ -5,12 +5,11 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { btnPrimary, btnSecondary, Dialog, fieldClass, type ToastMessage } from "@/components/cohort/dialog";
 import {
   createRubricVersion,
-  errorCode,
   errorMessage,
-  errorStatus,
   getReevaluationEstimate,
   getRubrics,
 } from "@/lib/api";
+import { inr, plural } from "@/lib/format";
 import type { ReevaluationEstimate, Rubric, RubricContent, RubricVersionResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { BloomSuggestions } from "./bloom-suggestions";
@@ -29,14 +28,6 @@ import {
 } from "./rubric-utils";
 
 type EstimateState = { rubricId: number; data: ReevaluationEstimate | null; error: string | null } | null;
-
-function inr(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `Rs ${value.toFixed(2)}` : "—";
-}
-
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /** Rubrics in the same family as `rubric` (same name, or linked by parent_id), oldest first. */
 function lineage(rubric: Rubric, all: Rubric[]): Rubric[] {
@@ -193,11 +184,7 @@ export function RubricVersionsPanel({
       setChangeNote("");
       await onRerunQueued();
     } catch (err) {
-      const status = errorStatus(err);
-      const message =
-        !errorCode(err) && (status === 404 || status === 405)
-          ? "Editing answer keys is not available on this server yet."
-          : errorMessage(err);
+      const message = errorMessage(err);
       setSaveError(message);
       onToast({ kind: "error", message: `Answer key not saved: ${message}` });
     } finally {

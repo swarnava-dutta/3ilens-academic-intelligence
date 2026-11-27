@@ -8,8 +8,6 @@ import {
   CONTEXT,
   type Domain,
   Empty,
-  extremes,
-  fmt,
   HGrid,
   INK,
   nice,
@@ -19,9 +17,7 @@ import {
   Text,
   textWidth,
   tipBody,
-  toneColor,
   useChart,
-  type Tone,
 } from "./core";
 
 type Col = { label: string; value: number; color: string; tip: ReactNode; note?: string };
@@ -76,32 +72,6 @@ function ColumnPlot({ cols, domain, unit, label, flush, int }: {
       })}
       <line x1={left} x2={c.w} y1={zero} y2={zero} stroke={AXIS} shapeRendering="crispEdges" />
     </Plot>
-  );
-}
-
-export function Columns({
-  items,
-  domain,
-  unit,
-}: {
-  items: { label: string; value: number; tone?: Tone }[];
-  domain?: Domain;
-  unit?: string;
-}) {
-  if (!items.length) return <Empty />;
-  const values = items.map((d) => d.value);
-  return (
-    <ColumnPlot
-      cols={items.map((d) => ({
-        label: d.label,
-        value: d.value,
-        color: toneColor(d.tone),
-        tip: tipBody(d.label, [["Value", fmt(d.value, unit)]]),
-      }))}
-      domain={domain ?? nice(Math.min(0, ...values), Math.max(0, ...values))}
-      unit={unit}
-      label={`Column chart of ${items.length} items. ${extremes(items, (v) => fmt(v, unit))}`}
-    />
   );
 }
 

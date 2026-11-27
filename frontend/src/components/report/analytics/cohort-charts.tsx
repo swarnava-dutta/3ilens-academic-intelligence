@@ -1,9 +1,9 @@
 "use client";
 
-import { ChartFrame, Dumbbell, Histogram, LineChart } from "@/components/charts";
+import { ChartFrame, Dumbbell, Histogram } from "@/components/charts";
+import { round1 } from "@/components/charts/core";
 import type { Cohort, Result } from "@/lib/types";
-import { fmtISTDate } from "../format";
-import { Note, pct, round1, signedPts } from "./shared";
+import { Note, pct, signedPts } from "./shared";
 
 export type CohortState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: Cohort };
 
@@ -97,62 +97,6 @@ export function ScorePosition({ result, cohort }: { result: Result; cohort: Coho
     >
       <Histogram bins={bins} markerIndex={marked} markerLabel="This student" />
       <SampleNote cohort={c} result={result} />
-    </ChartFrame>
-  );
-}
-
-const SHORT = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
-
-export function ScoreTrend({ result }: { result: Result }) {
-  const title = "Score trend";
-  const tests = [...result.history].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
-  if (tests.length < 2) {
-    return (
-      <ChartFrame title={title}>
-        <Note>The trend appears after a second test.</Note>
-      </ChartFrame>
-    );
-  }
-  // x labels must be unique: a second test on the same day gets a suffix.
-  const seen = new Map<string, number>();
-  const xs = tests.map((h) => {
-    const t = Date.parse(h.date);
-    const day = Number.isNaN(t) ? h.rubric_name : SHORT.format(t);
-    const n = (seen.get(day) ?? 0) + 1;
-    seen.set(day, n);
-    return n > 1 ? `${day} (${n})` : day;
-  });
-  const first = tests[0];
-  const last = tests[tests.length - 1];
-  return (
-    <ChartFrame
-      title={title}
-      takeaway={
-        `${pct(first.pct)} on ${fmtISTDate(first.date)} to ${pct(last.pct)} on ${fmtISTDate(last.date)} ` +
-        `(${signedPts(round1(last.pct - first.pct))} over ${tests.length} tests); the tests are not equated for difficulty.`
-      }
-      table={{
-        columns: ["Date", "Test", "Score", "Out of", "%"],
-        rows: tests.map((h) => [
-          fmtISTDate(h.date),
-          `${h.rubric_name}${h.current ? " (this report)" : ""}`,
-          h.score,
-          h.total_marks,
-          h.pct,
-        ]),
-      }}
-    >
-      <LineChart
-        series={[
-          {
-            name: result.submission.student_name || "This student",
-            series: 1,
-            points: tests.map((h, i) => ({ x: xs[i], y: h.pct })),
-          },
-        ]}
-        yDomain={[0, 100]}
-        unit="%"
-      />
     </ChartFrame>
   );
 }

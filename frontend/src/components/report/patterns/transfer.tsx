@@ -6,7 +6,7 @@ import { fmtNumber } from "../format";
 import { MeterBar, SectionCard } from "../primitives";
 import { NullProfile } from "./shared";
 
-export const TRANSFER_LOOK: Record<TransferClass, { label: string; Icon: LucideIcon; chip: string; fill: string }> = {
+const TRANSFER_LOOK: Record<TransferClass, { label: string; Icon: LucideIcon; chip: string; fill: string }> = {
   memorisation: {
     label: "Memorisation",
     Icon: AlertTriangle,
@@ -39,7 +39,7 @@ export const TRANSFER_LOOK: Record<TransferClass, { label: string; Icon: LucideI
   },
 };
 
-export function TransferChip({ value, className }: { value: TransferClass; className?: string }) {
+function TransferChip({ value, className }: { value: TransferClass; className?: string }) {
   const look = TRANSFER_LOOK[value] ?? TRANSFER_LOOK.developing;
   return (
     <span

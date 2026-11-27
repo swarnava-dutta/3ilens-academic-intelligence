@@ -7,10 +7,11 @@ import { useOcrThreshold } from "@/components/app-shell";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { reportPdfUrl } from "@/lib/api";
+import { formatConfidence, formatDateTime, formatScore, inr } from "@/lib/format";
 import type { Submission } from "@/lib/types";
-import { cn, formatConfidence, formatDateTime, formatScore, reviewHold } from "@/lib/utils";
+import { cn, reviewHold } from "@/lib/utils";
 import { codeLabel } from "./intake/codes";
-import { formatClock, formatInr, formatRelative, PIPELINE_STEP_COUNT, pipelineStepIndex, shortHash, toUtcIso } from "./format";
+import { formatClock, formatRelative, PIPELINE_STEP_COUNT, pipelineStepIndex, shortHash, toUtcIso } from "./format";
 
 export const QUEUE_COLUMNS = ["Student", "File", "Status", "Current step", "OCR", "Score", "Cost", "Uploaded", "Action"];
 /** Columns hidden on phones (the status badge moves under the student name there). */
@@ -278,7 +279,7 @@ export function QueueRow({
             </span>
           ) : typeof s.llm_cost_inr === "number" ? (
             <span className="tabular-nums text-slate-700" title={s.ocr_cache_hit ? OCR_CACHE_TITLE : "LLM cost of this sheet"}>
-              {formatInr(s.llm_cost_inr)}
+              {inr(s.llm_cost_inr)}
             </span>
           ) : (
             <span className="text-slate-400">–</span>

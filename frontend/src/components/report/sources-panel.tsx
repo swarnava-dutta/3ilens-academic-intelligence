@@ -9,7 +9,7 @@ import type { PageRef, RubricSourceFile, Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { SectionCard } from "./primitives";
 
-export const NO_KEY_FILES =
+const NO_KEY_FILES =
   "The key for this sheet was not uploaded as a file (pasted or JSON), or it was drafted on this page for a re-run or re-grade.";
 
 const ORDER = { paper: 0, key: 1 } as const;

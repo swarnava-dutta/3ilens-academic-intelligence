@@ -1,8 +1,9 @@
 "use client";
 
 import { ChartFrame, HeatStrip } from "@/components/charts";
+import { formatConfidence } from "@/lib/format";
 import type { QuestionEvaluation, Result } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ProvenanceGatesCard } from "../controls";
 import { fmtFraction1 } from "../format";
 import { QRefChip } from "../immediate-reading";

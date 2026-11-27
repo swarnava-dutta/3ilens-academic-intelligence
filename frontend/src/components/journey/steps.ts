@@ -11,7 +11,7 @@ export const POC_STATUS_LABEL: Record<PocStatus, string> = {
   out_of_scope: "Out of scope",
 };
 
-export interface PocNote {
+interface PocNote {
   status: PocStatus;
   /** Optional second chip, e.g. delivery: PDF implemented + WhatsApp mocked. */
   secondary?: PocStatus;
@@ -21,7 +21,7 @@ export interface PocNote {
   linkLabel?: string;
 }
 
-export interface JourneyStep {
+interface JourneyStep {
   id: string;
   title: string;
   person: string;
@@ -161,7 +161,7 @@ export const JOURNEY_STEPS: JourneyStep[] = [
     poc: {
       status: "stand_in",
       text:
-        "Claude vision stands in for Google Vision. Real pre-processing (300 DPI render, deskew, contrast - 1.4 by default - and sharpen); any page below 0.70 confidence goes to faculty review with no grading call. OCR results are cached by SHA-256: a repeat file makes no vision call (Rs 0.00). Try a file name containing \"blurry\".",
+        "Claude vision stands in for Google Vision. Real pre-processing (200 DPI render, deskew, contrast - 1.4 by default - and sharpen); any page below 0.70 confidence goes to faculty review with no grading call. OCR results are cached by SHA-256: a repeat file makes no vision call (Rs 0.00). Try a file name containing \"blurry\".",
       href: "/#upload",
       linkLabel: "Run the review-gate demo",
     },

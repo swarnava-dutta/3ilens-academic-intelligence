@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { pct1 } from "@/lib/format";
 import type { OwnerBehaviourRow, OwnerExamBehaviour, OwnerSignal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fmt } from "./format";
-import { fixed1, linkCls, pctFixed, SMALL_GROUP, SmallGroupTag } from "./owner-ui";
+import { fixed1, linkCls, SMALL_GROUP, SmallGroupTag } from "./owner-ui";
 import { EmptyNote, theadCls, thCls } from "./states";
 
 const SMALL = SMALL_GROUP;
@@ -29,8 +30,6 @@ function Previous({ row }: { row: OwnerBehaviourRow }) {
     </span>
   );
 }
-
-const share = pctFixed;
 
 /**
  * Exam behaviour tab (negatively-marked MCQs): how much students attempt, how often an attempt is
@@ -109,10 +108,10 @@ export function ExamBehaviourPanel({
                   {r.students} {r.students < SMALL ? <SmallGroupTag n={r.students} /> : null}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-900" title={`${r.attempted} of ${r.mcqs} MCQs`}>
-                  {share(r.attempt_rate_pct)}
+                  {pct1(r.attempt_rate_pct)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-900" title={`${r.correct} right of ${r.attempted} attempted`}>
-                  {share(r.accuracy_pct)}
+                  {pct1(r.accuracy_pct)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-900" title={`${fixed1(r.marks_lost)} marks lost in all`}>
                   {fixed1(r.marks_lost_per_student)}
@@ -147,11 +146,11 @@ export function ExamBehaviourPanel({
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
               <div>
                 <dt className="text-slate-500">Attempted</dt>
-                <dd className="tabular-nums text-slate-900">{share(r.attempt_rate_pct)}</dd>
+                <dd className="tabular-nums text-slate-900">{pct1(r.attempt_rate_pct)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">Right when attempted</dt>
-                <dd className="tabular-nums text-slate-900">{share(r.accuracy_pct)}</dd>
+                <dd className="tabular-nums text-slate-900">{pct1(r.accuracy_pct)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">Marks lost / student</dt>
@@ -174,7 +173,7 @@ export function ExamBehaviourPanel({
       {overall ? (
         <p className="text-xs text-slate-500">
           All batches: {overall.students} students · {overall.blank} of {overall.mcqs} questions left blank ·{" "}
-          {share(overall.attempt_rate_pct)} attempted · {share(overall.accuracy_pct)} right when attempted ·{" "}
+          {pct1(overall.attempt_rate_pct)} attempted · {pct1(overall.accuracy_pct)} right when attempted ·{" "}
           {fixed1(overall.marks_lost_per_student)} marks lost per student
           {overall.tests > 1
             ? ` (pooled over ${overall.tests} different tests, so a longer paper weighs more)`

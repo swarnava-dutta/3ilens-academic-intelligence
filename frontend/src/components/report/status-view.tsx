@@ -5,8 +5,9 @@ import { useState, type ReactNode } from "react";
 import { useOcrThreshold } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { errorCode, errorMessage, retrySubmission } from "@/lib/api";
+import { formatConfidence, formatDateTime } from "@/lib/format";
 import type { ProcessingLogEntry, ResultPending } from "@/lib/types";
-import { cn, formatConfidence, formatDateTime, reviewHold, type ReviewHold } from "@/lib/utils";
+import { cn, reviewHold, type ReviewHold } from "@/lib/utils";
 import { AuditTrailCard } from "./audit-trail";
 import { humanizeStep } from "./format";
 import { PIPELINE_STAGES, PipelineStepper, VOICE_PIPELINE_STAGES, stageStates, type StageState } from "./pipeline-stepper";
@@ -23,7 +24,7 @@ import { rubricLabel as formatRubricLabel, useRubric } from "./use-rubric";
 const STALE_ZERO_HOLD = "OCR confidence 0.00 is below";
 
 /** The backend may add a processing log to the 202 body; render it when present. */
-export function pendingLog(pending: ResultPending): ProcessingLogEntry[] {
+function pendingLog(pending: ResultPending): ProcessingLogEntry[] {
   const log = (pending as ResultPending & { processing_log?: unknown }).processing_log;
   return Array.isArray(log) ? (log as ProcessingLogEntry[]) : [];
 }

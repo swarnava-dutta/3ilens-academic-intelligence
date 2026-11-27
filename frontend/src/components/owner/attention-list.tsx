@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { forwardRef, useImperativeHandle, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Eye, Info, TrendingUp } from "lucide-react";
+import { pct1 } from "@/lib/format";
 import type { OwnerAtRiskStudent, OwnerRelease, OwnerSignal, OwnerSignalSeverity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fmt } from "./format";
-import { ageText, ChangeText, clockText, dayText, Disclosure, linkCls, linkText, pct1 } from "./owner-ui";
+import { ageText, ChangeText, clockText, dayText, Disclosure, linkCls, linkText } from "./owner-ui";
 import { btnQuiet, focusRing, theadCls, thCls } from "./states";
 import type { OwnerTab } from "./owner-tabs";
 

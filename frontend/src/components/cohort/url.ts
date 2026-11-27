@@ -2,12 +2,12 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
+import { URGENCIES } from "@/components/shared/urgency-badge";
 import type { CohortItemFlag, Urgency } from "@/lib/types";
 
 export const TABS = ["students", "chapters", "questions", "behaviour", "progress"] as const;
 export type CohortTab = (typeof TABS)[number];
 
-const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
 const FLAGS: CohortItemFlag[] = ["possible_key_error", "hard", "often_skipped", "weak_discrimination"];
 
 export interface CohortParams {

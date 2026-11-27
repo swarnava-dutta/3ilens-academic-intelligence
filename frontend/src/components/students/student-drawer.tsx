@@ -7,21 +7,20 @@ import { BarList, LineChart } from "@/components/charts";
 import { Modal, Notice, btnPrimary, btnSecondary } from "@/components/report/dialog";
 import { WhatsAppDialog } from "@/components/report/whatsapp-dialog";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
+import { menuItem, Popover } from "@/components/shared/popover";
 import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import { errorMessage, getInterventions, getStudentHistory, reportPdfUrl } from "@/lib/api";
+import { pct1, plural } from "@/lib/format";
 import type { HistoryEntry, InterventionRecord, RosterRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { OutcomeChip, UrgencyDot } from "./bits";
 import {
   fmtDay,
   fmtMarks,
-  fmtMastery,
-  fmtPct,
   KIND_LABELS,
   looksLikeFileName,
   marksWord,
   masteryFill,
-  plural,
   previousKind,
   shortOf,
   shortTest,
@@ -30,7 +29,6 @@ import {
   WEAK_MASTERY,
 } from "./format";
 import type { LogTarget } from "./log-action-dialog";
-import { menuItem, Popover } from "./popover";
 
 const EFFECT_CAVEAT =
   "Observational: students and topics were not randomised, so a change after an action is indicative, not proof that the action caused it.";
@@ -150,7 +148,7 @@ function ScoreTrend({
       ) : papers.length === 1 ? (
         <p className="text-sm text-slate-700">
           <Link href={`/report/${papers[0].submission_id}`} className={cn(LINK, "text-lg font-semibold tabular-nums")}>
-            {fmtPct(papers[0].pct)}
+            {pct1(papers[0].pct)}
           </Link>{" "}
           on {papers[0].rubric_name} ({fmtMarks(papers[0].score)}/{fmtMarks(papers[0].total_marks)}, uploaded{" "}
           {fmtDay(papers[0].date)}). <span className="text-slate-500">The trend appears after the next paper.</span>
@@ -165,7 +163,7 @@ function ScoreTrend({
             <span key={p.submission_id}>
               {i ? ", " : ""}
               <Link href={`/report/${p.submission_id}`} className={LINK}>
-                {shortTest(p.rubric_name)} {fmtPct(p.pct)}
+                {shortTest(p.rubric_name)} {pct1(p.pct)}
               </Link>{" "}
               (uploaded {fmtDay(p.date)})
             </span>
@@ -189,7 +187,7 @@ function ScoreTrend({
                 <span className="shrink-0 tabular-nums text-slate-600">
                   {fmtMarks(p.score)}/{fmtMarks(p.total_marks)}
                 </span>
-                <span className="w-12 shrink-0 text-right font-medium tabular-nums text-slate-800">{fmtPct(p.pct)}</span>
+                <span className="w-12 shrink-0 text-right font-medium tabular-nums text-slate-800">{pct1(p.pct)}</span>
                 {p.submission_id === row.latest?.submission_id ? <span className="sr-only">(latest in scope)</span> : null}
                 <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               </Link>
@@ -254,7 +252,7 @@ function ActionsLogged({
             </p>
             {a.outcome ? (
               <p className="mt-0.5 text-xs tabular-nums text-slate-600">
-                Mastery {fmtMastery(a.outcome.baseline_mastery)} → {fmtMastery(a.outcome.follow_up_mastery)} on{" "}
+                Mastery {pct1(a.outcome.baseline_mastery)} → {pct1(a.outcome.follow_up_mastery)} on{" "}
                 {shortTest(a.outcome.follow_up_test)} ({a.outcome.mastery_change > 0 ? "+" : ""}
                 {a.outcome.mastery_change.toFixed(1)})
               </p>
@@ -447,7 +445,7 @@ export function StudentDrawer({
               title={scoped ? "Latest paper in this filter" : "Latest paper"}
               aside={
                 <span className="text-xs tabular-nums text-slate-500">
-                  {fmtMarks(latest.score)}/{fmtMarks(latest.total_marks)} · {fmtPct(latest.pct)}
+                  {fmtMarks(latest.score)}/{fmtMarks(latest.total_marks)} · {pct1(latest.pct)}
                 </span>
               }
             >
@@ -481,7 +479,7 @@ export function StudentDrawer({
                   </p>
                   <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Stat label="Attempted" value={`${nm.attempted}/${nm.items}`} />
-                    <Stat label="Accuracy" value={nm.accuracy === null ? "—" : fmtPct(nm.accuracy * 100)} />
+                    <Stat label="Accuracy" value={nm.accuracy === null ? "—" : pct1(nm.accuracy * 100)} />
                     <Stat label="Wrong" value={nm.wrong} sub={`−${marksWord(nm.marks_lost)}`} />
                     <Stat label="Blank" value={nm.blank} sub={nm.verdict === "skipping" ? "too many skipped" : undefined} />
                   </dl>
@@ -523,7 +521,7 @@ export function StudentDrawer({
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-slate-500">{t.n} Qs</span>
                       <span className="w-12 shrink-0 text-right font-medium tabular-nums text-slate-800">
-                        {fmtMastery(t.mastery)}
+                        {pct1(t.mastery)}
                       </span>
                       <button
                         type="button"

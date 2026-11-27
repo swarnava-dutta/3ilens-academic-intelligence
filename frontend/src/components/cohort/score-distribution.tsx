@@ -1,7 +1,8 @@
+import { plural } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader } from "./card";
-import { formatPct, plural, shareOf } from "./format";
+import { formatPct, shareOf } from "./format";
 
 export function ScoreDistribution({
   buckets,

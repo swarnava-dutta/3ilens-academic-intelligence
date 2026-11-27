@@ -9,9 +9,9 @@ import { checkSignature, deriveStudentName, isVoiceKind, readHead, rollNoProblem
 import { fetchInspection, isPaperCandidate, pageLimitProblem, RECHECK_DELAY_MS, rubricComparable } from "./paper";
 import { voiceQuestionFor } from "./voice-fields";
 
-export type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
+type SingleNotice = { kind: "success" | "error"; message: string; submission?: Submission };
 
-export interface SingleUploadSettings {
+interface SingleUploadSettings {
   /** The intake's answer-key snapshot (created by an earlier upload of this key), with its hash... */
   rubricId?: number;
   rubricHash?: string;

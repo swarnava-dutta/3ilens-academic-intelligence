@@ -7,6 +7,7 @@ import { RotateCw } from "lucide-react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { getOwnerDashboard, updateBatch } from "@/lib/api";
 import type { OwnerDashboard as OwnerData } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 import { AttentionList, type AttentionHandle } from "./attention-list";
 import { BatchesTable } from "./batches-table";
@@ -15,7 +16,6 @@ import { OwnerKpis, stripCls } from "./kpis";
 import { clockText, periodText } from "./owner-ui";
 import { OwnerTabs, parseOwnerTab, type OwnerTab, type OwnerTabsHandle } from "./owner-tabs";
 import { btnQuiet, ErrorNote, focusRing } from "./states";
-import { useAsync } from "./use-async";
 import { WhatIfSimulator } from "./what-if";
 
 function Bone({ className }: { className?: string }) {

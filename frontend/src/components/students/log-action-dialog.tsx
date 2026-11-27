@@ -4,11 +4,12 @@ import { Loader2 } from "lucide-react";
 import { useId, useState } from "react";
 import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "@/components/report/dialog";
 import { createIntervention, errorCode, errorMessage } from "@/lib/api";
+import { pct1 } from "@/lib/format";
 import type { ContentSource, InterventionKind, InterventionRecord, RosterRow, TeachingNudge } from "@/lib/types";
-import { fmtDay, fmtMastery, isoDay, KIND_LABELS, shortOf, todayIst } from "./format";
+import { fmtDay, isoDay, KIND_LABELS, shortOf, todayIst } from "./format";
 
 /** Same key as the report's Record-intervention dialog, so the name is remembered across both. */
-export const APPLIED_BY_KEY = "3ilens.intervention.appliedBy";
+const APPLIED_BY_KEY = "3ilens.intervention.appliedBy";
 
 export const INTERVENTION_ERRORS: Record<string, string> = {
   invalid_state: "Actions can be logged only against a graded result.",
@@ -201,12 +202,12 @@ function LogForm({
           <select id={`${ids}-topic`} className={inputClass} value={topic} onChange={(e) => chooseTopic(e.target.value)}>
             {topics.map((t) => (
               <option key={t.topic} value={t.topic}>
-                {t.topic} ({fmtMastery(t.mastery)})
+                {t.topic} ({pct1(t.mastery)})
               </option>
             ))}
           </select>
           {mastery !== undefined ? (
-            <p className="text-xs text-slate-500">Baseline mastery {fmtMastery(mastery)} on the latest paper.</p>
+            <p className="text-xs text-slate-500">Baseline mastery {pct1(mastery)} on the latest paper.</p>
           ) : null}
         </div>
         <div className="space-y-1">

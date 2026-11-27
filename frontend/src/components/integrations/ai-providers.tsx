@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { btnPrimary } from "@/components/cohort/dialog";
-import { fmtDateTime, inr } from "@/components/owner/format";
+import { fmtDateTime } from "@/components/owner/format";
 import { CardSkeleton, ErrorNote, focusRing, Panel, tagCls, theadCls, thCls } from "@/components/owner/states";
-import { useAsync } from "@/components/owner/use-async";
 import { stageLabel } from "@/components/report/llm-route";
 import { getLlmChain, runLlmDrill } from "@/lib/api";
+import { inr } from "@/lib/format";
 import type { LlmDrillResult, LlmRoute, ModelInvocation } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 
 /** "anthropic" + "claude-sonnet-5-5" -> "Claude"; "openai" + "gpt-4o" -> "GPT-4o". */
@@ -24,7 +25,7 @@ function providerLabel(provider: string | null, model: string | null): string {
 }
 
 /** Route chip, e.g. "Claude -> GPT-4o (simulated_outage)". */
-export function RouteChip({ route }: { route: LlmRoute }) {
+function RouteChip({ route }: { route: LlmRoute }) {
   const primary = providerLabel(route.primary_provider, route.primary_model);
   const served = route.served_provider ? providerLabel(route.served_provider, route.served_model) : "no answer";
   return (

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ChartFrame, Dumbbell } from "@/components/charts";
+import { pct1 } from "@/lib/format";
 import type { OwnerDashboard, OwnerProgressStudent } from "@/lib/types";
-import { ChangeText, Disclosure, linkCls, pctFixed, signed1 } from "./owner-ui";
+import { ChangeText, Disclosure, linkCls, signed1 } from "./owner-ui";
 import { EmptyNote } from "./states";
 import { TrendChart } from "./trend-chart";
 
@@ -29,7 +30,7 @@ function MoverList({ title, rows, empty }: { title: string; rows: OwnerProgressS
                 <span className="text-xs text-slate-500">· {m.batch_name}</span>
               </span>
               <span className="shrink-0 tabular-nums text-slate-700">
-                {pctFixed(m.before_pct)} &rarr; {pctFixed(m.after_pct)} <ChangeText value={m.change} suffix="" className="ml-1 font-medium" />
+                {pct1(m.before_pct)} &rarr; {pct1(m.after_pct)} <ChangeText value={m.change} suffix="" className="ml-1 font-medium" />
                 <span className="sr-only">
                   {" "}
                   ({m.before_test} to {m.after_test})
@@ -96,8 +97,8 @@ export function ProgressPanel({ data }: { data: OwnerDashboard }) {
             rows: withPairs.map(({ b, p }) => [
               b.batch.name,
               p.students,
-              pctFixed(p.mean_before),
-              pctFixed(p.mean_after),
+              pct1(p.mean_before),
+              pct1(p.mean_after),
               signed1(p.mean_change),
               p.improved,
               p.declined,

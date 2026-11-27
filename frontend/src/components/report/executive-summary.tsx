@@ -1,11 +1,11 @@
 import { URGENCY_LABELS } from "@/components/shared/urgency-badge";
+import { formatConfidence } from "@/lib/format";
 import type { Result, TopicMastery } from "@/lib/types";
-import { formatConfidence } from "@/lib/utils";
 import { fmtNumber, fmtPct1, fraction, safeNumber } from "./format";
 import { SectionCard } from "./primitives";
 
 /** Strongest and weakest topic by observed percentage (ties: more marks at stake first). */
-export function topicExtremes(topics: TopicMastery[]): { strongest: TopicMastery | null; weakest: TopicMastery | null } {
+function topicExtremes(topics: TopicMastery[]): { strongest: TopicMastery | null; weakest: TopicMastery | null } {
   if (topics.length === 0) return { strongest: null, weakest: null };
   const sorted = [...topics].sort(
     (a, b) => safeNumber(a.mastery) - safeNumber(b.mastery) || safeNumber(b.max_marks) - safeNumber(a.max_marks),
@@ -42,7 +42,7 @@ function fallbackParagraphs(result: Result): string[] {
  * One-line computed summary (mirrors backend analytics.summary_line): the fallback when no AI
  * narrative was stored (every demo row, and rows graded before narratives were recorded).
  */
-export function summaryLine(result: Result): string {
+function summaryLine(result: Result): string {
   const { strongest, weakest } = topicExtremes(result.topic_mastery);
   const urgency = URGENCY_LABELS[result.urgency]?.toLowerCase();
   let line = `Scored ${fmtNumber(result.total_score)}/${fmtNumber(result.total_marks)} (${fmtPct1(result.total_score, result.total_marks)}${
@@ -59,7 +59,7 @@ export function summaryLine(result: Result): string {
 }
 
 /** The AI narrative when one was stored, else the computed summary line (labelled as such). */
-export function narrativeOrSummary(result: Result): { text: string; computed: boolean } {
+function narrativeOrSummary(result: Result): { text: string; computed: boolean } {
   const ai = (result.summary ?? "").trim();
   return ai ? { text: ai, computed: false } : { text: summaryLine(result), computed: true };
 }

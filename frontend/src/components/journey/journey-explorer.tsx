@@ -13,7 +13,7 @@ const STATUS_LOOK: Record<PocStatus, { chip: string; dot: string }> = {
   out_of_scope: { chip: "border border-slate-200 text-slate-500", dot: "bg-slate-300" },
 };
 
-export function StatusChip({ status, className }: { status: PocStatus; className?: string }) {
+function StatusChip({ status, className }: { status: PocStatus; className?: string }) {
   return (
     <span
       className={cn(

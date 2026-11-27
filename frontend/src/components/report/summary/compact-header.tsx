@@ -111,7 +111,7 @@ function RenameStudent({
 }
 
 /** "NEET-A · Mock-07 · 27 Nov 2026 · 156 days to NEET". */
-export function reportSubtitle(result: Result): string {
+function reportSubtitle(result: Result): string {
   const meta = result.report_meta;
   const batch = meta.batch;
   const days = result.study_plan.days_to_exam ?? batch.days_to_exam;

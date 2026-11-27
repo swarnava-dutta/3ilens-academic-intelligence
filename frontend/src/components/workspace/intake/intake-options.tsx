@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { getFilters } from "@/lib/api";
+import { useId } from "react";
+import { useHealth } from "@/components/app-shell";
 import type { Batch, LanguageHint } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { batchLabel } from "../format";
@@ -76,7 +76,7 @@ export function LanguageChips({
   );
 }
 
-/** Optional batch selector (GET /api/filters batches); hidden when only one batch exists. */
+/** Optional batch selector (the shell's GET /api/filters batches); hidden when only one batch exists. */
 export function BatchSelect({
   value,
   onChange,
@@ -90,21 +90,7 @@ export function BatchSelect({
   disabled?: boolean;
 }) {
   const ids = useId();
-  const [batches, setBatches] = useState<Batch[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getFilters()
-      .then((f) => {
-        if (!cancelled) setBatches(f.batches ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setBatches([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { batches } = useHealth();
 
   if (!batches || batches.length < 2) {
     const label = batchLabel(batches?.[0] ?? fallback);

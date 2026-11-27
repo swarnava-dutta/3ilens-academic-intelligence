@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { pct1 } from "@/lib/format";
 import type { TrendPoint } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fmt, fmtDate, fmtShortDate } from "./format";
-import { dayText, pctFixed, SMALL_GROUP } from "./owner-ui";
+import { dayText, SMALL_GROUP } from "./owner-ui";
 import { btnQuiet, EmptyNote, theadCls, thCls } from "./states";
 
 /** Categorical slots in fixed order (validated default palette); a marker shape doubles the identity. */
@@ -62,7 +63,7 @@ const dayMs = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).getTime(
 function tip(p: TrendPoint): string {
   const marks = p.max_marks ? ` · out of ${fmt(p.max_marks, 0)} marks` : "";
   const main = isMain(p) ? "" : " · small group, not joined";
-  return `${p.batch_name} · ${p.test_name} · ${fmtDate(p.date)}: ${pctFixed(p.average_pct)} average, ${p.students} student${p.students === 1 ? "" : "s"}${marks}${main}`;
+  return `${p.batch_name} · ${p.test_name} · ${fmtDate(p.date)}: ${pct1(p.average_pct)} average, ${p.students} student${p.students === 1 ? "" : "s"}${marks}${main}`;
 }
 
 /**
@@ -140,7 +141,7 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
               <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{dayText(p.date)}</td>
               <td className="px-3 py-1.5 text-slate-800">{p.batch_name}</td>
               <td className="px-3 py-1.5 text-slate-700">{p.test_name}</td>
-              <td className="px-3 py-1.5 text-right font-medium tabular-nums text-slate-900">{pctFixed(p.average_pct)}</td>
+              <td className="px-3 py-1.5 text-right font-medium tabular-nums text-slate-900">{pct1(p.average_pct)}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{p.students}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{p.max_marks ? fmt(p.max_marks, 0) : "—"}</td>
               <td className="px-3 py-1.5 text-slate-700">{isMain(p) ? "yes" : "no (small group)"}</td>
@@ -161,7 +162,7 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
           </p>
           <p className="text-xs text-slate-600">{p.test_name}</p>
           <p className="mt-0.5 text-xs tabular-nums text-slate-700">
-            <span className="text-sm font-medium text-slate-900">{pctFixed(p.average_pct)}</span> · {p.students} student
+            <span className="text-sm font-medium text-slate-900">{pct1(p.average_pct)}</span> · {p.students} student
             {p.students === 1 ? "" : "s"}
             {p.max_marks ? ` · out of ${fmt(p.max_marks, 0)}` : ""} · {isMain(p) ? "whole class" : "small group"}
           </p>
@@ -182,7 +183,7 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
             </svg>
             <span className="font-medium text-slate-900">{s.name}</span>
             <span className="tabular-nums text-slate-600" title={tip(s.last)}>
-              latest {pctFixed(s.last.average_pct)} ({dayText(s.last.date)}
+              latest {pct1(s.last.average_pct)} ({dayText(s.last.date)}
               {isMain(s.last) ? "" : `, ${s.last.students} student${s.last.students === 1 ? "" : "s"}`})
             </span>
           </li>
@@ -201,7 +202,7 @@ export function TrendChart({ trend }: { trend: TrendPoint[] }) {
         className="mt-2 h-auto w-full"
         role="img"
         aria-label={`Average percentage per sitting for ${series.length} batches from ${fmtDate(new Date(t0).toISOString())} to ${fmtDate(new Date(t1).toISOString())}. ${series
-          .map((s) => `${s.name}: latest ${pctFixed(s.last.average_pct)} on ${dayText(s.last.date)}`)
+          .map((s) => `${s.name}: latest ${pct1(s.last.average_pct)} on ${dayText(s.last.date)}`)
           .join("; ")}. The table view lists every value.`}
       >
         {[0, 25, 50, 75, 100].map((v) => (

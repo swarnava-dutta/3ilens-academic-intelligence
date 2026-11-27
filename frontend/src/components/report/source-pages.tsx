@@ -5,8 +5,9 @@
 import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage, errorStatus, getPages, pageImageUrl } from "@/lib/api";
+import { formatConfidence } from "@/lib/format";
 import type { PageRef, Result } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Modal, btnSecondary } from "./dialog";
 import { Pill, SectionCard } from "./primitives";
 import { OPEN_PAGE_EVENT, currentHash, pageFromHash, replaceHash, scrollToId } from "./report-events";

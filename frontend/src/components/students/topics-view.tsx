@@ -5,10 +5,11 @@ import { Fragment, useEffect, useId, useState } from "react";
 import { ShareBar } from "@/components/charts/sparkline";
 import { Modal, Notice, btnPrimary, btnSecondary, inputClass } from "@/components/report/dialog";
 import { createIntervention, errorCode, errorMessage, getInterventions } from "@/lib/api";
+import { pct1 } from "@/lib/format";
 import type { InterventionRecord, RosterRow, RosterTopic, RosterTopicStudent } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { OutcomeChip } from "./bits";
-import { fmtDay, fmtMarks, fmtMastery, masteryFill, rowKey, todayIst, WEAK_MASTERY } from "./format";
+import { fmtDay, fmtMarks, masteryFill, rowKey, todayIst, WEAK_MASTERY } from "./format";
 import { appliedAtFor, INTERVENTION_ERRORS, readAppliedBy, rememberAppliedBy } from "./log-action-dialog";
 
 const TH = "px-3 py-2 text-left text-xs font-medium text-slate-500";
@@ -65,7 +66,7 @@ function TopicStudents({
             ) : (
               <span className="min-w-0 truncate font-medium text-slate-800">{s.student_name}</span>
             )}
-            <span className="tabular-nums text-slate-700">{fmtMastery(s.mastery)}</span>
+            <span className="tabular-nums text-slate-700">{pct1(s.mastery)}</span>
             <span className="ml-auto flex items-center gap-2 text-xs text-slate-500">
               {records === null ? (
                 "…"
@@ -233,7 +234,7 @@ export function TopicsView({
                         <span className="text-slate-500">not tested</span>
                       )}
                     </td>
-                    <td className={cn(TD, "text-right tabular-nums")}>{fmtMastery(t.mean_mastery)}</td>
+                    <td className={cn(TD, "text-right tabular-nums")}>{pct1(t.mean_mastery)}</td>
                     <td className={cn(TD, "text-right tabular-nums")}>{t.marks_lost > 0 ? fmtMarks(t.marks_lost) : "—"}</td>
                     <td className={cn(TD, "tabular-nums")}>{improvedShare(t)}</td>
                   </tr>
@@ -284,7 +285,7 @@ export function TopicsView({
                 </span>
                 <span className="mt-1.5 block text-[13px] tabular-nums text-slate-700">
                   {t.tested ? `${t.below_60} of ${t.tested} below ${WEAK_MASTERY}%` : "not tested"} · mean{" "}
-                  {fmtMastery(t.mean_mastery)}
+                  {pct1(t.mean_mastery)}
                 </span>
                 {t.tested ? <ShareBar value={t.below_60} max={t.tested} className="mt-1.5" /> : null}
                 <span className="mt-1 block text-xs tabular-nums text-slate-500">

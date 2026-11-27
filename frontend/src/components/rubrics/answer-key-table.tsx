@@ -28,7 +28,7 @@ function lettersFor(q: RubricQuestion): string[] {
  * An MCQ without a usable key: no correct option within its options, fewer than two accepted
  * options, and not a bonus question.
  */
-export function missingKey(q: RubricQuestion): boolean {
+function missingKey(q: RubricQuestion): boolean {
   return isMcq(q) && !mcqKeySet(q);
 }
 

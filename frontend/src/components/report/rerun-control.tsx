@@ -2,7 +2,7 @@
 
 import { ChevronRight, Loader2, RefreshCcw } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
-import { errorCode, errorMessage, errorStatus, rerunSubmission } from "@/lib/api";
+import { errorCode, errorMessage, rerunSubmission } from "@/lib/api";
 import type { Submission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Notice, btnPrimary, btnSecondary, inputClass } from "./dialog";
@@ -20,10 +20,6 @@ function rerunError(err: unknown): string {
   const code = errorCode(err);
   if (code === "invalid_rubric") return `The drafted key cannot be used: ${errorMessage(err)}`;
   if (code && RERUN_ERRORS[code]) return RERUN_ERRORS[code];
-  const status = errorStatus(err);
-  if (!code && (status === 404 || status === 405)) {
-    return "This API build cannot re-run a sheet yet (POST /api/submissions/{id}/rerun). Update and restart the backend.";
-  }
   return errorMessage(err);
 }
 

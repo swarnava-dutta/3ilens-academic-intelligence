@@ -1,5 +1,5 @@
 import { CircleCheck, TriangleAlert } from "lucide-react";
-import type { ReleaseInfo, Urgency } from "@/lib/types";
+import type { Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const BAND_LOOK: Record<Urgency, { cls: string; Icon: typeof TriangleAlert }> = {
@@ -18,27 +18,6 @@ export function BandChip({ band, label, className }: { band: Urgency; label: str
     <span className={cn(chip, look.cls, className)}>
       <look.Icon className="h-3.5 w-3.5" aria-hidden />
       {label}
-    </span>
-  );
-}
-
-/** "Provisional" (teacher review pending) or "Reviewed" once released. */
-export function ReleaseStatusChip({ release, className }: { release: ReleaseInfo; className?: string }) {
-  const released = release.status === "RELEASED";
-  return (
-    <span
-      className={cn(
-        chip,
-        released ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-white text-slate-700 ring-slate-300",
-        className,
-      )}
-    >
-      {released ? (
-        <CircleCheck className="h-3.5 w-3.5" aria-hidden />
-      ) : (
-        <TriangleAlert className="h-3.5 w-3.5 text-[#B45309]" aria-hidden />
-      )}
-      {released ? "Reviewed" : "Provisional"}
     </span>
   );
 }

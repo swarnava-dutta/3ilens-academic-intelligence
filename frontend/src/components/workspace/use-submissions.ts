@@ -6,14 +6,14 @@ import type { Submission, Urgency } from "@/lib/types";
 
 export const QUEUE_POLL_MS = 3_000;
 /** Poll interval when no sheet is waiting or being read (the window gaining focus refreshes too). */
-export const QUEUE_IDLE_POLL_MS = 30_000;
+const QUEUE_IDLE_POLL_MS = 30_000;
 
 /** True while a sheet is waiting or being read, or before the first list arrives (poll fast). */
 export function queueBusy(submissions: Submission[] | null): boolean {
   return submissions === null || submissions.some((s) => s.status === "PENDING" || s.status === "PROCESSING");
 }
 
-export interface QueueState {
+interface QueueState {
   /** Last good list (null until the first successful load). */
   submissions: Submission[] | null;
   /** errorMessage() of the latest failed poll; cleared on the next success. */

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { CalendarDays, Check, Loader2, RotateCcw } from "lucide-react";
 import { useHealth } from "@/components/app-shell";
+import { Popover } from "@/components/shared/popover";
 import { errorCode, errorMessage, errorStatus, updateBatch } from "@/lib/api";
 import type { Batch, StrategyMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { btnPrimary, btnSecondary, fieldClass } from "./dialog";
-import { PopoverButton } from "./popover";
+import { POPOVER_PANEL } from "./format";
 
 export const STRATEGY_LOOK: Record<StrategyMode, { label: string; range: string; text: string }> = {
   broad: {
@@ -130,7 +131,10 @@ export function ExamChip({ batch, onSaved }: { batch: Batch; onSaved: () => Prom
   const strategy = batch.strategy_mode ? STRATEGY_LOOK[batch.strategy_mode] : null;
   const days = batch.days_to_exam;
   return (
-    <PopoverButton
+    <Popover
+      align="left"
+      chevron={false}
+      panelClassName={POPOVER_PANEL}
       title="Exam date and study-plan mode for this batch"
       buttonClassName="inline-flex h-9 max-w-full items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-[13px] text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700"
       label={
@@ -159,6 +163,6 @@ export function ExamChip({ batch, onSaved }: { batch: Batch; onSaved: () => Prom
       }
     >
       {(close) => <ExamDateForm batch={batch} onSaved={onSaved} close={close} />}
-    </PopoverButton>
+    </Popover>
   );
 }

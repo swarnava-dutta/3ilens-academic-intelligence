@@ -37,7 +37,7 @@ function detect(policy: MarkingPolicy | undefined): Preset {
 }
 
 /** One-line summary, e.g. "steps of 0.5 · -1 per wrong MCQ". */
-export function policySummary(policy: MarkingPolicy | undefined): string {
+function policySummary(policy: MarkingPolicy | undefined): string {
   if (!policy) return "Default rule: 0.5-mark steps, no negative marking";
   const mode =
     policy.partial_credit === "steps"

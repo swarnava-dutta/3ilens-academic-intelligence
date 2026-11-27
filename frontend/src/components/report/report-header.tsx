@@ -2,26 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, MessageCircle, Printer, RefreshCcw } from "lucide-react";
+import { ArrowLeft, Printer, RefreshCcw } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
-import { UrgencyBadge } from "@/components/shared/urgency-badge";
 import {
   errorCode,
   errorMessage,
   getResultVersions,
   reevaluateSubmission,
-  reportPdfUrl,
 } from "@/lib/api";
-import type { ReleaseInfo, Result, ResultVersion, RubricContent, Submission } from "@/lib/types";
-import { cn, formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@/lib/format";
+import type { Result, ResultVersion, RubricContent, Submission } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { Modal, Notice, btnPrimary, btnSecondary } from "./dialog";
-import { fmtIST } from "./format";
 import { KeyDraftFields, questionRefs, useKeyDraft } from "./key-draft";
-import { ReleaseChip } from "./release-gate";
 import { rubricLabel } from "./use-rubric";
 
-export function BackToWorkspace({ className }: { className?: string }) {
+function BackToWorkspace({ className }: { className?: string }) {
   return (
     <Link
       href="/"
@@ -37,13 +34,7 @@ export function BackToWorkspace({ className }: { className?: string }) {
 }
 
 /** Report metadata as a definition list under the title row. */
-function MetaList({
-  items,
-  children,
-}: {
-  items: { term: string; value: ReactNode; mono?: boolean; title?: string }[];
-  children?: ReactNode;
-}) {
+function MetaList({ items }: { items: { term: string; value: ReactNode; mono?: boolean; title?: string }[] }) {
   return (
     <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-slate-200 px-4 py-3 sm:px-6">
       {items.map((it) => (
@@ -54,7 +45,6 @@ function MetaList({
           </dd>
         </div>
       ))}
-      {children}
     </dl>
   );
 }
@@ -111,10 +101,6 @@ export function ReportHeader({
       />
     </header>
   );
-}
-
-export function evaluatedLabel(submission: Submission): string {
-  return `Evaluated ${formatDateTime(submission.updated_at)}`;
 }
 
 /** Question numbers of a drafted key that the current result does not have, and vice versa. */
@@ -275,109 +261,5 @@ export function VersionSelect({ submissionId, viewing }: { submissionId: number;
         </select>
       </dd>
     </div>
-  );
-}
-
-/**
- * SAIR header: breadcrumb, student, urgency and release status, run metadata, version picker and
- * the report actions (PDF, simulated WhatsApp, re-grade with the same or another key, print). An archived
- * version (`version` set) only offers print: the other actions act on the current result.
- */
-export function SairHeader({
-  result,
-  release,
-  version,
-  onWhatsApp,
-  onReevaluated,
-}: {
-  result: Result;
-  release: ReleaseInfo;
-  version?: number;
-  onWhatsApp: () => void;
-  onReevaluated: () => void;
-}) {
-  const [rerunOpen, setRerunOpen] = useState(false);
-  const { submission, report_meta: meta } = result;
-  const batch = meta.batch;
-  return (
-    <header className="rounded-md border border-slate-200 bg-white">
-      <div className="px-4 py-4 sm:px-6 sm:py-5">
-        <nav aria-label="Breadcrumb" className="text-[13px] text-slate-500">
-          <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            <li>
-              <Link
-                href="/"
-                className="rounded-sm font-medium text-brand-cyan-600 hover:text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-cyan"
-              >
-                Workspace
-              </Link>
-            </li>
-            <li aria-hidden>/</li>
-            <li>{meta.institution.name}</li>
-            <li aria-hidden>/</li>
-            <li className="text-slate-700">
-              {batch.name}
-              {batch.exam_type ? ` · ${batch.exam_type}` : ""}
-            </li>
-          </ol>
-        </nav>
-
-        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] text-slate-500">
-              Student academic intelligence report · {submission.input_kind === "voice" ? "voice answer" : "answer sheet"}
-            </p>
-            <h1 className="mt-0.5 break-words text-2xl font-semibold text-brand-navy">
-              {submission.student_name || "Unnamed student"}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <UrgencyBadge urgency={result.urgency} reasons={result.urgency_reasons} />
-              <ReleaseChip release={release} />
-              {submission.is_demo ? <span className={quietTag}>Synthetic demo record</span> : null}
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 print:hidden">
-            {version === undefined ? (
-              <>
-                <a href={reportPdfUrl(submission.id)} className={btnPrimary}>
-                  <Download className="h-4 w-4" aria-hidden />
-                  Download PDF
-                </a>
-                <button type="button" onClick={onWhatsApp} className={btnSecondary}>
-                  <MessageCircle className="h-4 w-4" aria-hidden />
-                  Send via WhatsApp
-                  <span className="text-xs font-normal text-slate-500">(simulated)</span>
-                </button>
-                <button type="button" onClick={() => setRerunOpen(true)} className={btnSecondary}>
-                  <RefreshCcw className="h-4 w-4" aria-hidden />
-                  Re-grade…
-                </button>
-              </>
-            ) : null}
-            <button type="button" onClick={() => window.print()} className={btnSecondary}>
-              <Printer className="h-4 w-4" aria-hidden />
-              Print
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <MetaList
-        items={[
-          { term: "Rubric", value: `${rubricLabel(result.rubric)} · ${result.rubric.status}` },
-          {
-            term: "Source file",
-            value: submission.original_filename || "Unknown file",
-            mono: true,
-            title: submission.original_filename,
-          },
-          { term: "Executed", value: fmtIST(meta.executed_at) },
-          { term: "Run ID", value: meta.run_id, mono: true },
-        ]}
-      >
-        <VersionSelect submissionId={submission.id} viewing={version} />
-      </MetaList>
-      <RegradeDialog open={rerunOpen} onClose={() => setRerunOpen(false)} result={result} onQueued={onReevaluated} />
-    </header>
   );
 }

@@ -2,9 +2,10 @@
 
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { plural } from "@/lib/format";
 import type { RosterSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fmtMarks, plural, TREND_PTS } from "./format";
+import { fmtMarks, TREND_PTS } from "./format";
 
 export type TileKey = "at_risk" | "moving" | "technique" | "waiting";
 

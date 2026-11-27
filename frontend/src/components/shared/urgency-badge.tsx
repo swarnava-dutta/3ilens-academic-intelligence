@@ -1,6 +1,20 @@
 import type { Urgency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** The urgency values, in the backend's order (schemas.URGENCIES). */
+export const URGENCIES: Urgency[] = ["on_track", "needs_attention", "at_risk"];
+
+/** Urgency cut points (backend analytics.classify_urgency): <55 at risk, 55-70 needs attention, >=70 on track. */
+export const AT_RISK_BELOW = 55;
+export const ON_TRACK_FROM = 70;
+
+/** The band of a percentage by score alone (the urgency rule before the weak-topic step). */
+export function urgencyOf(pct: number): Urgency {
+  if (pct >= ON_TRACK_FROM) return "on_track";
+  if (pct >= AT_RISK_BELOW) return "needs_attention";
+  return "at_risk";
+}
+
 /** The one urgency rule used everywhere (backend analytics.classify_urgency). */
 export const URGENCY_RULE =
   ">=70% on track, 55-70% needs attention, <55% at risk; one level worse when 2+ topics are below 40%";

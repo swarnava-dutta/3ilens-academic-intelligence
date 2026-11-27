@@ -1,57 +1,43 @@
-// Cohort-only presentation helpers. Shared formatters live in @/lib/utils.
+// Cohort-only presentation helpers. Shared formatters live in @/lib/format.
+import { numOrNull } from "@/lib/coerce";
+import { clampPct, MINUS } from "@/lib/format";
 import type { Cohort } from "@/lib/types";
 import { masteryTone } from "@/lib/utils";
 
-/** Finite number or null (guards against NaN / undefined from an evolving backend). */
-export function num(value: number | null | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/** Clamp to 0-100 for widths/heights. */
-export function clampPct(value: number | null | undefined): number {
-  const v = num(value);
-  if (v === null) return 0;
-  return Math.min(100, Math.max(0, v));
-}
-
 /** 12 -> "12", 12.345 -> "12.3" (drops trailing zeros). */
 export function formatNumber(value: number | null | undefined, digits = 1): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   return String(Number(v.toFixed(digits)));
 }
 
 /** Share of a whole as a 0-100 number; null when the whole is 0. */
 export function shareOf(part: number, whole: number): number | null {
-  const p = num(part);
-  const w = num(whole);
+  const p = numOrNull(part);
+  const w = numOrNull(whole);
   if (p === null || w === null || w <= 0) return null;
   return (p / w) * 100;
 }
 
 export function formatPct(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${Math.round(v)}%`;
 }
 
 export function formatRoi(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   return v >= 10 ? v.toFixed(1) : v.toFixed(2);
 }
 
 export function formatHours(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${formatNumber(v)} h`;
-}
-
-export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
 /** True when there is at least one evaluated result to chart. */
 export function hasResults(cohort: Cohort): boolean {
-  return (cohort.total_submissions ?? 0) > 0 && num(cohort.average_score) !== null;
+  return (cohort.total_submissions ?? 0) > 0 && numOrNull(cohort.average_score) !== null;
 }
 
 export type Tone = "good" | "ok" | "weak";
@@ -93,17 +79,9 @@ export const MASTERY_TARGET = 75;
 // --------------------------------------------------------------------------- //
 // Cohort page formatting (one decimal in tiles and sentences, whole numbers in tables)
 // --------------------------------------------------------------------------- //
-export const MINUS = "−";
-
-/** 62.6 -> "62.6%" (always one decimal). */
-export function pct1(value: number | null | undefined): string {
-  const v = num(value);
-  return v === null ? "—" : `${v.toFixed(1)}%`;
-}
-
 /** 5.9 -> "+5.9", -1.5 -> "−1.5" (real minus sign). */
 export function signed1(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   const text = Math.abs(v).toFixed(1);
   return v > 0 ? `+${text}` : v < 0 ? `${MINUS}${text}` : text;
@@ -111,13 +89,13 @@ export function signed1(value: number | null | undefined): string {
 
 /** Signed change in percentage points: "+5.9 pts". */
 export function pts(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${signed1(v)} pts`;
 }
 
 /** Marks lost as a negative number with the real minus: 39 -> "−39". */
 export function lost(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   if (v === null) return "—";
   return v === 0 ? "0" : `${MINUS}${formatNumber(Math.abs(v))}`;
 }
@@ -173,6 +151,10 @@ export const RETEACH_RULE = `a third or more of the students who sat it (2 or mo
 export const LINK_TEXT = "text-cyan-700 hover:text-cyan-800";
 export const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-700";
 
+/** The shared Popover's panel on this page: flat (a border, no shadow), sized for a short form or note. */
+export const POPOVER_PANEL =
+  "min-w-0 w-[min(22rem,calc(100vw-2rem))] border-slate-300 p-3 text-sm text-slate-700 shadow-none print:block";
+
 export const LOW_CHAPTER = 40;
 
 export type ChapterTone = "low" | "under" | "ok";
@@ -200,6 +182,6 @@ export function chapterTone(value: number | null | undefined) {
 
 /** NEET chapter weight (0-1 share of the exam) as "3.3%"; "—" when not in the chapter table. */
 export function neetWeight(value: number | null | undefined): string {
-  const v = num(value);
+  const v = numOrNull(value);
   return v === null ? "—" : `${(v * 100).toFixed(1)}%`;
 }

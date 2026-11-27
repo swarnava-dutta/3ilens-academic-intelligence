@@ -2,9 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { BarList } from "@/components/charts";
 import { BLOOM_LABELS } from "@/components/shared/bloom-badge";
+import { pct1, plural } from "@/lib/format";
 import type { Cohort, StudentRiskRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { FOCUS_RING, formatNumber, formatPct, lost, nOf, pct1, plural } from "./format";
+import { FOCUS_RING, formatNumber, formatPct, lost, nOf } from "./format";
 
 const THRESHOLDS = "default - confirm with academic lead";
 const LINK = cn("rounded-sm font-medium text-slate-800 hover:text-cyan-700 hover:underline", FOCUS_RING);

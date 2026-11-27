@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BarList, ChartFrame, Dumbbell, LineChart } from "@/components/charts";
 import { errorMessage, getInterventionEffectiveness } from "@/lib/api";
+import { pct1, plural } from "@/lib/format";
 import type { Cohort, InterventionEffectiveness } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { dayMonth, FOCUS_RING, fullDate, LINK_TEXT, pct1, plural, pts } from "./format";
+import { dayMonth, FOCUS_RING, fullDate, LINK_TEXT, pts } from "./format";
 
 function BatchTrend({ cohort }: { cohort: Cohort }) {
   const scope = cohort.scope;

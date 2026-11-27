@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { BadgeCheck, Loader2 } from "lucide-react";
 import { errorMessage, releaseResult } from "@/lib/api";
+import { pct1, plural } from "@/lib/format";
 import { btnPrimary, btnSecondary, Dialog, fieldClass } from "./dialog";
-import { pct1, plural } from "./format";
 
 export interface ReleaseTarget {
   submission_id: number;

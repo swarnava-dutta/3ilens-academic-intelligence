@@ -3,9 +3,9 @@
 import { useId, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Dialog } from "@/components/cohort/dialog";
-import { inr } from "@/components/owner/format";
 import { DocPreview } from "@/components/preview/doc-preview";
 import { errorMessage } from "@/lib/api";
+import { inr } from "@/lib/format";
 import type { RubricContent } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { KeyFilesDrop, sourceFileLabel } from "./key-files-drop";

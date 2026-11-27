@@ -2,7 +2,7 @@
  * Short OCR caption from Health.ocr_adapter, e.g. "anthropic vision (claude-sonnet-5-5) - PoC
  * stand-in for Google Vision DOCUMENT_TEXT_DETECTION" -> "Claude vision (stand-in for Google Vision)".
  */
-export function ocrAdapterCaption(adapter: string | null | undefined): string {
+function ocrAdapterCaption(adapter: string | null | undefined): string {
   const text = (adapter ?? "").trim();
   if (!text) return "Vision LLM (stand-in for Google Vision)";
   const standIn = /google vision/i.test(text) ? " (stand-in for Google Vision)" : "";
@@ -23,7 +23,7 @@ export function PipelineStrip({
   const steps: { title: string; caption: string; ai?: boolean }[] = [
     { title: "Ingest", caption: "Magic bytes · SHA-256 · local (S3)" },
     { title: "Queue", caption: "BackgroundTasks (SQS) · retry 3× → DLQ" },
-    { title: "Pre-process", caption: "300 DPI · deskew · contrast · sharpen" },
+    { title: "Pre-process", caption: "200 DPI · deskew · contrast · sharpen" },
     { title: "OCR", caption: ocrAdapterCaption(ocrAdapter), ai: true },
     { title: "Evaluate", caption: "Rubric grading · nudges", ai: true },
     { title: "Insights & ROI", caption: "Deterministic engine" },

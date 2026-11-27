@@ -12,11 +12,8 @@ import type {
   CohortSitting,
   ConsistencyCheck,
   DashboardFilters,
-  DemoSeedResult,
-  DemoSet,
   Delivery,
   DeliveryInput,
-  ExamOption,
   Health,
   HistoryEntry,
   Institution,
@@ -32,7 +29,6 @@ import type {
   LmsResultRow,
   ModelInvocation,
   OcrReviewData,
-  OpsCosts,
   OwnerDashboard,
   PageRef,
   PaperInspection,
@@ -46,20 +42,17 @@ import type {
   ResultPending,
   ReviewInput,
   Rubric,
-  RubricCreateInput,
   RubricDraft,
   RubricSourceFile,
   RubricSourceKind,
   RubricSourceRole,
   RubricVersionInput,
   RubricVersionResult,
-  StudentCard,
   StudentRoster,
   StudyPlan,
   Submission,
   Urgency,
   VoiceTranscript,
-  WeightageMatrix,
   WhatIfInput,
   WhatIfOptions,
   WhatIfResult,
@@ -258,7 +251,7 @@ function refusedSourceFile(err: unknown): RubricSourceKind | null {
 
 /**
  * What an intake file looks like (answer sheet, printed MCQ paper or a paper with its answer key),
- * read locally from its text layer - no AI call, nothing stored. Older API builds answer 404.
+ * read locally from its text layer - no AI call, nothing stored.
  * With rubricId the printed questions are also compared with that rubric (rubric_match).
  */
 export async function inspectPaper(file: File, rubricId?: number | null): Promise<PaperInspection> {
@@ -325,11 +318,6 @@ export function cohortViewPdfUrl(query?: CohortViewQuery): string {
 
 export function cohortViewBundleUrl(query?: CohortViewQuery): string {
   return absolute(withQuery("/api/reports/bundle.zip", cohortViewParams(query)));
-}
-
-/** POST /api/demo/seed?set=genetics|mixed|all|insights (default genetics: the 13-row Genetics cohort). */
-export async function seedDemoCohort(set?: DemoSet): Promise<DemoSeedResult> {
-  return (await api.post<DemoSeedResult>("/api/demo/seed", null, { params: queryParams({ set }) })).data;
 }
 
 // --------------------------------------------------------------------------- //
@@ -415,12 +403,6 @@ export async function getInvocations(id: number): Promise<ModelInvocation[]> {
   return (await api.get<ModelInvocation[]>(`/api/submissions/${id}/invocations`)).data;
 }
 
-export async function getOpsCosts(
-  groupBy: "purpose" | "batch" | "institution" | "model" = "purpose",
-): Promise<OpsCosts> {
-  return (await api.get<OpsCosts>("/api/ops/costs", { params: { group_by: groupBy } })).data;
-}
-
 export async function getIntakeBatch(intakeBatchId: string): Promise<IntakeBatchStatus> {
   return (await api.get<IntakeBatchStatus>(`/api/intake-batches/${encodeURIComponent(intakeBatchId)}`)).data;
 }
@@ -439,7 +421,7 @@ export async function getReevaluationEstimate(rubricId: number): Promise<Reevalu
 }
 
 // --------------------------------------------------------------------------- //
-// Analytics (study plan, weightage, batches, consistency, rubric authoring)
+// Analytics (study plan, batches, consistency, rubric authoring)
 // --------------------------------------------------------------------------- //
 export async function getStudyPlan(
   id: number,
@@ -447,14 +429,6 @@ export async function getStudyPlan(
 ): Promise<StudyPlan> {
   const params = queryParams({ days_to_exam: options.daysToExam, study_hours: options.studyHours });
   return (await api.get<StudyPlan>(`/api/results/${id}/plan`, { params })).data;
-}
-
-export async function getWeightage(exam = "NEET"): Promise<WeightageMatrix> {
-  return (await api.get<WeightageMatrix>("/api/weightage", { params: { exam } })).data;
-}
-
-export async function getExams(): Promise<ExamOption[]> {
-  return (await api.get<ExamOption[]>("/api/exams")).data;
 }
 
 /** Set the exam / exam date of a batch (exam_date null = back to the assumed default). */
@@ -502,10 +476,6 @@ export async function extractAnswerKey(input: { file?: File; text?: string }): P
     .data;
 }
 
-export async function createRubric(input: RubricCreateInput): Promise<Rubric> {
-  return (await api.post<Rubric>("/api/rubrics", input)).data;
-}
-
 // --------------------------------------------------------------------------- //
 // Outputs (PDF, release, simulated delivery, students, filters)
 // --------------------------------------------------------------------------- //
@@ -514,7 +484,7 @@ export function reportPdfUrl(id: number, version?: number): string {
   return absolute(withQuery(`/api/reports/${id}/pdf`, { version }));
 }
 
-/** Filters the cohort PDF and the bundle accept (same as /api/cohort). */
+/** Filters the bundle accepts (same as /api/cohort). */
 function outputFilters(filters?: DashboardQuery) {
   return {
     batch_id: filters?.batch_id,
@@ -522,10 +492,6 @@ function outputFilters(filters?: DashboardQuery) {
     urgency: filters?.urgency,
     topic: filters?.topic,
   };
-}
-
-export function cohortPdfUrl(filters?: DashboardQuery): string {
-  return absolute(withQuery("/api/cohort/pdf", outputFilters(filters)));
 }
 
 export function bundleZipUrl(filters?: DashboardQuery): string {
@@ -545,22 +511,11 @@ export async function createDeliveries(input: DeliveryInput): Promise<Delivery[]
   return (await api.post<Delivery[]>("/api/deliveries", input)).data;
 }
 
-export async function getDeliveries(submissionId?: number): Promise<Delivery[]> {
-  return (await api.get<Delivery[]>("/api/deliveries", { params: queryParams({ submission_id: submissionId }) }))
-    .data;
-}
-
 /** Absolute URL for a Delivery.download_url (relative /api/download/{token}). */
 export function downloadUrl(relativePath: string): string {
   return /^https?:\/\//i.test(relativePath) ? relativePath : absolute(relativePath);
 }
 
-export async function getStudents(filters?: DashboardQuery): Promise<StudentCard[]> {
-  return (await api.get<StudentCard[]>("/api/students", { params: queryParams(filters) })).data;
-}
-
-/** Dated history for one learner. demo=true: synthetic records only; false: real only;
- * omitted: real records when any exist, else the demo ones (the two are never mixed). */
 /** Roster scope: batch + test + demo (false = real records only, true = demo only, null = both).
  * urgency / topic narrow the rows only; summary and topics always describe the scope. */
 export interface RosterQuery {
@@ -576,6 +531,8 @@ export async function getStudentRoster(query?: RosterQuery): Promise<StudentRost
   return (await api.get<StudentRoster>("/api/students/roster", { params: queryParams({ ...query }) })).data;
 }
 
+/** Dated history for one learner. demo=true: synthetic records only; false: real only;
+ * omitted: real records when any exist, else the demo ones (the two are never mixed). */
 export async function getStudentHistory(studentRef: string, demo?: boolean): Promise<HistoryEntry[]> {
   return (
     await api.get<HistoryEntry[]>(`/api/students/${encodeURIComponent(studentRef)}/history`, {

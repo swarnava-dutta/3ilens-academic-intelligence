@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { FOLD, OPEN_FOLD_EVENT, currentHash, openFoldAndScroll } from "./report-events";
 import { focusRing } from "./summary/tokens";
 
-export type ReportViewMode = "student" | "teacher";
+type ReportViewMode = "student" | "teacher";
 
 const STORE_KEY = "sair:report-view";
 const FACULTY_FOLDS: string[] = [FOLD.review, FOLD.teaching, FOLD.reading, FOLD.audit, FOLD.lab];

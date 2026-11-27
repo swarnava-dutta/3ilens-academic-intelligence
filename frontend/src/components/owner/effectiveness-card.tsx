@@ -4,12 +4,12 @@ import { useCallback, useState } from "react";
 import { IllustrativePill } from "@/components/shared/illustrative-pill";
 import { getInterventionEffectiveness } from "@/lib/api";
 import type { EffectRow, InterventionEffectiveness } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 import { fmt, signed } from "./format";
 import { Figure, stripCls } from "./kpis";
 import { Disclosure, signed1 } from "./owner-ui";
 import { CardSkeleton, EmptyNote, ErrorNote, Panel, SamplePill, tagCls } from "./states";
-import { useAsync } from "./use-async";
 
 const MIN_CALIBRATION_N = 5;
 /** Owner view: rows measured on fewer actions than this are drawn quietly and tagged. */

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { Fragment, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Loader2, Pencil, X } from "lucide-react";
 import { errorMessage } from "@/lib/api";
+import { inr, pct1 } from "@/lib/format";
 import type { BatchSummary, OwnerSittingRef, SamePaperComparison } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fmt, fmtDate, inr, pct } from "./format";
+import { fmt, fmtDate, pct } from "./format";
 import { UrgencyBar } from "./kpis";
-import { ageText, BatchDataTag, ChangeText, dayText, linkCls, pct1, SMALL_GROUP, SmallGroupTag } from "./owner-ui";
+import { ageText, BatchDataTag, ChangeText, dayText, linkCls, SMALL_GROUP, SmallGroupTag } from "./owner-ui";
 import { btnQuiet, EmptyNote, focusRing, Panel, theadCls, thCls } from "./states";
 
 const CHANGE_TOOLTIP =

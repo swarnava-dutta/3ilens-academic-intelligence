@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { applyAnswerKey, keyApplySummary, methodLabel, questionNumbers, type KeyApplyReport } from "./answer-key-apply";
 
 const KEY_EXTENSIONS = [".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp", ".txt"];
-export const KEY_FILE_ACCEPT =
+const KEY_FILE_ACCEPT =
   ".pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,text/plain";
 const MAX_PASTE_CHARS = 100_000;
 /** Changed keys listed with their old and new option. */
@@ -52,7 +52,7 @@ function extensionOf(name: string): string {
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
 }
 
-export function isKeyFileName(name: string): boolean {
+function isKeyFileName(name: string): boolean {
   return KEY_EXTENSIONS.includes(extensionOf(name));
 }
 
@@ -74,9 +74,6 @@ export function answerKeyErrorMessage(err: unknown): string {
   if (status === 413) return "That file is over the upload limit. Upload only the answer-key pages, or paste the key as text.";
   if (status === 415) return "Use a PDF, Word (.docx), image (PNG, JPG, WEBP) or text file for the answer key.";
   if (status === 502) return `The page images could not be read (${errorMessage(err)}). Try again, or paste the key as text.`;
-  if (!code && (status === 404 || status === 405)) {
-    return "Answer-key import is not available on this API build yet. Set the keys in the table instead.";
-  }
   if ((err as { code?: unknown } | null)?.code === "ECONNABORTED") {
     return "Reading the key took longer than 10 minutes. Upload only the answer-key pages, or paste the key as text.";
   }

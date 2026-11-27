@@ -168,11 +168,6 @@ export function pipelineStepIndex(step: string | null | undefined): number {
   return -1;
 }
 
-/** "Rs 1.23" (two decimals; "Rs 0.00" for a free OCR-cache hit). */
-export function formatInr(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `Rs ${value.toFixed(2)}` : "—";
-}
-
 /** 95 -> "1 min 35 s"; 3700 -> "1 h 2 min". */
 export function formatDuration(seconds: number | null | undefined): string {
   if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "—";

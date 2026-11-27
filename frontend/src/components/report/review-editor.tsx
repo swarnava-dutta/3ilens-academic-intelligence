@@ -13,8 +13,9 @@ import {
   rescanSubmission,
   submitOcrReview,
 } from "@/lib/api";
+import { formatConfidence } from "@/lib/format";
 import type { OcrReviewData, PageRef, Submission } from "@/lib/types";
-import { cn, formatConfidence } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Notice, btnAmber, btnPrimary, btnSecondary, inputClass } from "./dialog";
 import { fmtIST } from "./format";
 import { Pill } from "./primitives";

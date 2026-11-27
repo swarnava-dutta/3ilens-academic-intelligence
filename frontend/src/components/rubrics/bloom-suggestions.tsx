@@ -44,15 +44,12 @@ export function BloomSuggestions({
         data = await detectBloomLevels(rubricId, { mode: "heuristic" });
       }
     } catch (err) {
-      const status = errorStatus(err);
       setState({
         kind: "error",
         message:
-          !errorCode(err) && (status === 404 || status === 405)
-            ? "Bloom suggestions are not available on this API build yet."
-            : errorCode(err) === "unknown_rubric"
-              ? "This answer key is no longer stored - reload the page."
-              : errorMessage(err),
+          errorCode(err) === "unknown_rubric"
+            ? "This answer key is no longer stored - reload the page."
+            : errorMessage(err),
       });
       return;
     }

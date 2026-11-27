@@ -15,9 +15,9 @@ import {
   theadCls,
   thCls,
 } from "@/components/owner/states";
-import { useAsync } from "@/components/owner/use-async";
 import { createApiKey, getApiKeys, getInstitutions, lmsPreview, revokeApiKey } from "@/lib/api";
 import type { ApiKey, ApiKeyCreated, Institution, LmsResultRow } from "@/lib/types";
+import { useAsync } from "@/lib/use-async";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 import { LmsPreviewTable } from "./preview-table";
