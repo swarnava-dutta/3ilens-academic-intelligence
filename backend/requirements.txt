@@ -9,5 +9,5 @@ python-multipart>=0.0.20,<1
 python-dotenv>=1.0,<2
 Pillow>=11,<14
 PyMuPDF>=1.25,<2
-httpx>=0.28,<1
+httpx2>=2.16,<3
 pytest>=8,<10

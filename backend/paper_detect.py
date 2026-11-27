@@ -285,10 +285,6 @@ def paper_title(page_texts: list[str]) -> str | None:
 # --------------------------------------------------------------------------- #
 # Classification
 # --------------------------------------------------------------------------- #
-def _plural(count: int, word: str) -> str:
-    return f"{count} {word}{'' if count == 1 else 's'}"
-
-
 def classify(
     page_texts: list[str], *, file_type: str, pages: int | None, settings: Settings, too_long: bool = False
 ) -> PaperInspection:
@@ -303,7 +299,7 @@ def classify(
     title = paper_title(page_texts) if text_layer else None
     numbered = len(numbers)
     within = not too_long and (pages is None or pages <= settings.max_pdf_pages)
-    page_text = f"{_plural(pages, 'page')}, " if pages else ""
+    page_text = f"{marking.plural(pages, 'page')}, " if pages else ""
 
     if not text_layer and file_type == "docx":
         role = "answer_sheet"
@@ -320,13 +316,13 @@ def classify(
         role = "answer_key_paper"
         questions = max(numbered, markers)
         message = (
-            f"Question paper with its answer key ({_plural(questions, 'question')}, "
-            f"{_plural(markers, 'answer')} found) - draft the rubric from it; it is not a student's sheet."
+            f"Question paper with its answer key ({marking.plural(questions, 'question')}, "
+            f"{marking.plural(markers, 'answer')} found) - draft the rubric from it; it is not a student's sheet."
         )
     elif numbered >= MIN_PAPER_QUESTIONS and groups >= MIN_PAPER_OPTION_GROUPS:
         role = "question_paper"
         message = (
-            f"Printed MCQ paper ({page_text}about {_plural(numbered, 'question')}) - ticked, circled or shaded "
+            f"Printed MCQ paper ({page_text}about {marking.plural(numbered, 'question')}) - ticked, circled or shaded "
             "options are read as the student's answers; use it as the answer key instead if the ticks mark "
             "the correct options."
         )
@@ -336,12 +332,12 @@ def classify(
     else:
         role = "unknown"
         message = (
-            f"Printed text with about {_plural(numbered, 'numbered question')} - check whether this is a "
+            f"Printed text with about {marking.plural(numbered, 'numbered question')} - check whether this is a "
             "student's answer sheet or a question paper."
         )
     if not within and pages is not None:
         message += (
-            f" It has {_plural(pages, 'page')}; the upload limit is {settings.max_pdf_pages} pages - "
+            f" It has {marking.plural(pages, 'page')}; the upload limit is {settings.max_pdf_pages} pages - "
             "split it before uploading."
         )
     elif not within:
@@ -501,16 +497,9 @@ def rubric_check(
     )
 
 
-def _rubric_counts(rubric_content: dict | None) -> tuple[int, int]:
-    """(questions, MCQs) of a rubric."""
-    questions = (rubric_content or {}).get("questions") if isinstance(rubric_content, dict) else None
-    questions = [q for q in questions or [] if isinstance(q, dict)]
-    return len(questions), sum(1 for q in questions if marking.question_type(q) == "mcq")
-
-
 def rubric_shape(rubric_content: dict | None) -> str:
     """'has 5 questions, none of them MCQs' / 'has 12 questions, 2 of them MCQs'."""
-    return f"has {paper_match._mcq_note(*_rubric_counts(rubric_content))}"
+    return f"has {paper_match._mcq_note(*paper_match.rubric_counts(rubric_content))}"
 
 
 def _rubric_hold(
@@ -571,7 +560,7 @@ def ingestion_hint(
             hold = _rubric_hold(result, texts, rubric_content, named, rubric_label)
         except Exception as exc:  # noqa: BLE001 - a hint only
             logger.debug("Rubric check of the paper hint skipped: %s", exc)
-    detected = f"Printed MCQ paper detected (about {_plural(result.numbered_questions, 'numbered question')})"
+    detected = f"Printed MCQ paper detected (about {marking.plural(result.numbered_questions, 'numbered question')})"
     if result.role == "question_paper":
         if hold is not None:
             kind, why = hold
@@ -583,15 +572,15 @@ def ingestion_hint(
             )
         if read_as_handwriting:
             why = (
-                "is not an MCQ rubric" if not _rubric_counts(rubric_content)[1] else
+                "is not an MCQ rubric" if not paper_match.rubric_counts(rubric_content)[1] else
                 f"{rubric_shape(rubric_content)} (ticks are read only against an all-MCQ rubric of "
-                f"{mcq_marks.MCQ_HEAVY_MIN_QUESTIONS}+ questions)"
+                f"{marking.MCQ_HEAVY_MIN_QUESTIONS}+ questions)"
             )
             return f"{detected}; {named} {why}, so the sheet is read as handwriting against its questions."
         return f"{detected} - the student's ticked / circled / shaded options are read as answers."
     keyed = (
         f"This file looks like a question paper with its answer key "
-        f"({_plural(result.answer_markers, 'answer marker')}) - if it is not a student's sheet, draft the "
+        f"({marking.plural(result.answer_markers, 'answer marker')}) - if it is not a student's sheet, draft the "
         "rubric from it instead."
     )
     if hold is not None:

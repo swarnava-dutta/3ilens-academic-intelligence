@@ -62,6 +62,11 @@ def test_low_topics_move_one_level_worse_and_cap_at_at_risk():
     assert urgency == "on_track" and "1 topic below 40%" in reasons[-1]
 
 
+def test_num_maps_non_finite_values_to_the_default():
+    assert analytics.num(float("inf"), 7.0) == 7.0 and analytics.num("nan", 7.0) == 7.0
+    assert analytics.num("2.5") == 2.5 and analytics.num(None) == 0.0
+
+
 def test_seeded_genetics_demo_splits_5_3_4(seeded):
     cohort = seeded.client.get("/api/cohort").json()
     assert cohort["urgency_counts"] == {"on_track": 5, "needs_attention": 3, "at_risk": 4}

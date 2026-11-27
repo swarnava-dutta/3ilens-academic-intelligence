@@ -1,7 +1,8 @@
 """Typed Word (.docx) answer sheets and rubric sources - stdlib zipfile + xml.etree only.
 
 validate_docx() is the security gate (zip sanity, size/entry caps, real WordprocessingML,
-no macros). docx_text() extracts plain text (rubric parsing); docx_to_html() produces simple
+no macros). docx_text() extracts plain text (rubric parsing), numbered_text() the same with Word's
+automatic list numbers written out (answer keys); docx_to_html() produces simple
 escaped HTML + embedded images, which preprocessing renders to PDF so typed sheets take the
 same vision route as scans (no separate text path).
 """
@@ -10,6 +11,7 @@ from __future__ import annotations
 import html
 import io
 import posixpath
+import re
 import zipfile
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -161,12 +163,113 @@ def docx_text(data: bytes) -> str:
                 lines.append(_paragraph_text(child))
             elif child.tag == _w("tbl"):
                 lines.extend(" | ".join(cells) for cells in _table_rows(child))
-    # Collapse runs of blank lines.
+    return _joined(lines)
+
+
+def _joined(lines: list[str]) -> str:
+    """The lines as one text, runs of blank lines collapsed."""
     out: list[str] = []
     for line in lines:
         if line or (out and out[-1]):
             out.append(line)
     return "\n".join(out).strip()
+
+
+_ROMAN = ((1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
+          (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+
+
+def _list_label(value: int, number_format: str) -> str | None:
+    if number_format in ("decimal", "decimalZero"):
+        return str(value)
+    if number_format in ("lowerLetter", "upperLetter") and 1 <= value <= 26:
+        letter = chr(ord("a") + value - 1)
+        return letter if number_format == "lowerLetter" else letter.upper()
+    if number_format in ("lowerRoman", "upperRoman") and 1 <= value < 4000:
+        roman = ""
+        for amount, digits in _ROMAN:
+            while value >= amount:
+                roman += digits
+                value -= amount
+        return roman if number_format == "lowerRoman" else roman.upper()
+    return None
+
+
+def _list_levels(numbering: ET.Element) -> dict[str, dict[int, tuple[int, str, str]]]:
+    """numId -> ilvl -> (start, numFmt, lvlText) from word/numbering.xml."""
+    w = _w
+    abstract: dict[str | None, dict[int, tuple[int, str, str]]] = {}
+    for definition in numbering.findall(w("abstractNum")):
+        levels: dict[int, tuple[int, str, str]] = {}
+        for level in definition.findall(w("lvl")):
+            ilvl = int(level.get(w("ilvl"), "0") or 0)
+            start, fmt, text = level.find(w("start")), level.find(w("numFmt")), level.find(w("lvlText"))
+            levels[ilvl] = (
+                int(start.get(w("val"), "1")) if start is not None else 1,
+                fmt.get(w("val"), "decimal") if fmt is not None else "decimal",
+                text.get(w("val"), f"%{ilvl + 1}.") if text is not None else f"%{ilvl + 1}.",
+            )
+        abstract[definition.get(w("abstractNumId"))] = levels
+    nums: dict[str, dict[int, tuple[int, str, str]]] = {}
+    for num in numbering.findall(w("num")):
+        reference = num.find(w("abstractNumId"))
+        levels = dict(abstract.get(reference.get(w("val")) if reference is not None else None, {}))
+        for override in num.findall(w("lvlOverride")):
+            start = override.find(w("startOverride"))
+            ilvl = int(override.get(w("ilvl"), "0") or 0)
+            if start is not None and ilvl in levels:
+                levels[ilvl] = (int(start.get(w("val"), "1")), *levels[ilvl][1:])
+        nums[num.get(w("numId"), "")] = levels
+    return nums
+
+
+def numbered_text(data: bytes) -> str | None:
+    """docx_text with Word's automatic list numbers written out ("1.", "(a)"): a typed
+    key or paper whose numbers come from a numbered list has them only in word/numbering.xml.
+    None when no paragraph is numbered (docx_text is used)."""
+    w = _w
+    with _open(data) as archive:
+        body = _document(archive)
+        if body.find(f".//{w('numPr')}") is None:
+            return None
+        try:
+            levels = _list_levels(ET.fromstring(archive.read("word/numbering.xml")))
+        except (KeyError, ET.ParseError):
+            levels = {}  # a list with no definition: Word's default numbered list, "1.", "2." ...
+        counters: dict[str, list[int | None]] = {}
+        lines: list[str] = []
+        for child in body:
+            if child.tag == w("tbl"):
+                lines.extend(" | ".join(cells) for cells in _table_rows(child))
+                continue
+            if child.tag != w("p"):
+                continue
+            text = _paragraph_text(child)
+            numbered = child.find(f"{w('pPr')}/{w('numPr')}")
+            num_id = numbered.find(w("numId")) if numbered is not None else None
+            definition = None
+            if num_id is not None and num_id.get(w("val"), "0") != "0":  # numId 0 switches numbering off
+                definition = levels.get(num_id.get(w("val"), "")) or {0: (1, "decimal", "%1.")}
+            if numbered is None or not definition:
+                lines.append(text)
+                continue
+            level = numbered.find(w("ilvl"))
+            ilvl = int(level.get(w("val"), "0") or 0) if level is not None else 0
+            counts = counters.setdefault(num_id.get(w("val"), ""), [])  # type: ignore[union-attr]
+            counts.extend([None] * (ilvl + 1 - len(counts)))
+            start = definition.get(ilvl, (1, "decimal", ""))[0]
+            counts[ilvl] = start if counts[ilvl] is None else counts[ilvl] + 1  # type: ignore[operator]
+            del counts[ilvl + 1:]
+
+            def render(match: re.Match[str]) -> str:
+                at = int(match.group(1)) - 1
+                start_at, number_format, _text = definition.get(at, (1, "decimal", ""))
+                value = counts[at] if at < len(counts) and counts[at] is not None else start_at
+                return _list_label(value, number_format) or "\x00"  # type: ignore[arg-type]
+
+            label = re.sub(r"%(\d)", render, definition.get(ilvl, (1, "decimal", "%1."))[2])
+            lines.append(f"{label} {text}".strip() if label.strip() and "\x00" not in label else text)
+    return _joined(lines)
 
 
 # --------------------------------------------------------------------------- #

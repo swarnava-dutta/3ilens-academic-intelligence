@@ -13,22 +13,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
+import result_view
 import voice
-from database import StudentSubmission, get_db
+from database import get_db
 from errors import ApiError
 from schemas import VoiceTranscript
 
 router = APIRouter(tags=["Voice answers"])
 DbSession = Annotated[Session, Depends(get_db)]
-
-
-def _submission(db: Session, submission_id: int) -> StudentSubmission:
-    sub = db.get(StudentSubmission, submission_id, options=[selectinload(StudentSubmission.result)])
-    if sub is None:
-        raise ApiError(404, f"Submission {submission_id} not found.", "not_found")
-    return sub
 
 
 @router.get(
@@ -39,7 +33,7 @@ def _submission(db: Session, submission_id: int) -> StudentSubmission:
 )
 def submission_audio(submission_id: int, db: DbSession) -> FileResponse:
     """The stored voice answer, inline (for an <audio> player)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     path = voice.audio_path(sub)
     if path is None:
         raise ApiError(404, f"Submission {submission_id} has no stored voice answer.", "no_audio")
@@ -52,7 +46,7 @@ def submission_audio(submission_id: int, db: DbSession) -> FileResponse:
 @router.get("/api/submissions/{submission_id}/transcript", response_model=VoiceTranscript)
 def submission_transcript(submission_id: int, db: DbSession) -> VoiceTranscript:
     """The speech-to-text transcript of a voice answer (synthetic for sample rows)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     data = voice.transcript_out(db, sub)
     if data is None:
         raise ApiError(404, f"Submission {submission_id} has no voice transcript.", "no_transcript")

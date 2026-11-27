@@ -12,7 +12,6 @@ k = 1.0, or the institution's outcome-calibration factor (outcomes.effectiveness
 """
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
 from statistics import fmean, median
 from typing import Any
 
@@ -20,25 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 import analytics
+from analytics import num as _num
 from database import Batch, Institution, StudentSubmission, SubmissionStatus
 from errors import ApiError
-from hashing import student_ref_for
+from hashing import student_key
+from sittings import is_completed, r1
 
 FALLBACK_HOURS = 6.0
 DEFAULT_CONFIDENCE = 0.3
 LABEL = "Illustrative - linear effort-response model on the illustrative NEET matrix; not a calibrated forecast"
-
-
-def r1(value: float) -> float:
-    """Half-up to 1 dp, like the owner dashboard (round() would show 56.25 as 56.2, the page 56.3)."""
-    return float(Decimal(repr(float(value))).quantize(Decimal("0.1"), ROUND_HALF_UP))
-
-
-def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def hours_to_target(
@@ -85,15 +74,6 @@ def _confidence(topic: str, subject: str | None, chapter: str | None) -> float:
 # --------------------------------------------------------------------------- #
 # Scope
 # --------------------------------------------------------------------------- #
-def _usable(sub: StudentSubmission) -> bool:
-    r = sub.result
-    return sub.status == SubmissionStatus.COMPLETED and r is not None and _num(r.total_marks) > 0
-
-
-def _ref(sub: StudentSubmission) -> str:
-    return sub.student_ref or student_ref_for(sub.student_name)
-
-
 def scope(
     db: Session, *, institution_id: int | None = None, batch_id: int | None = None, rubric_id: int | None = None
 ) -> list[StudentSubmission]:
@@ -112,9 +92,9 @@ def scope(
         query = query.join(Batch, StudentSubmission.batch_id == Batch.id).where(Batch.institution_id == institution_id)
     latest: dict[str, StudentSubmission] = {}
     for sub in db.scalars(query).all():
-        if not _usable(sub):
+        if not is_completed(sub):
             continue
-        key = _ref(sub)
+        key = student_key(sub)
         current = latest.get(key)
         if current is None or (sub.created_at, sub.id) > (current.created_at, current.id):
             latest[key] = sub
@@ -128,10 +108,10 @@ def _chapter_key(topic: str, subject: str | None = None, chapter: str | None = N
 
 def match_topic(topic_mastery: list[dict[str, Any]] | None, topic: str) -> dict[str, Any] | None:
     """The result's topic entry for `topic`: same name (case-insensitive), else same matrix chapter."""
-    wanted = " ".join(str(topic or "").split()).casefold()
+    wanted = analytics.norm(topic)
     entries = [t for t in topic_mastery or [] if isinstance(t, dict) and t.get("topic")]
     for t in entries:
-        if " ".join(str(t["topic"]).split()).casefold() == wanted:
+        if analytics.norm(t["topic"]) == wanted:
             return t
     chapter = _chapter_key(topic)
     if chapter is None:
@@ -276,7 +256,7 @@ def run(db: Session, body: Any) -> dict[str, Any]:
                 {
                     "submission_id": r["sub"].id,
                     "student_name": r["sub"].student_name,
-                    "student_ref": _ref(r["sub"]),
+                    "student_ref": student_key(r["sub"]),
                     "mastery_before": r1(r["mastery"]),
                     "mastery_after": r["after"],
                     "exam_marks_gain": round(r["gain"], 2),

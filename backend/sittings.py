@@ -35,8 +35,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 import analytics
-import hashing
-from database import INPUT_VOICE, Batch, Rubric, StudentSubmission, SubmissionStatus
+import voice
+from database import Batch, Rubric, StudentSubmission, SubmissionStatus
+from hashing import student_key
 
 MIN_CLASS_STUDENTS = 3  # a smaller sitting is never a batch's main test or a progress pair
 BIG_CHANGE = 5.0  # "up 5+" / "down 5+"; a smaller change is "steady"
@@ -45,12 +46,8 @@ FULL_PAPER_QUESTIONS = 10  # two different tests compare only as full papers (th
 Pair = tuple[StudentSubmission, StudentSubmission]  # one student's (before, after) sheets
 
 
-def student_key(sub: StudentSubmission) -> str:
-    """The stable per-student key (roll-number ref, else a slug of the name)."""
-    return sub.student_ref or hashing.student_ref_for(sub.student_name)
-
-
 def is_completed(sub: StudentSubmission) -> bool:
+    """COMPLETED with a usable result (what every report / PDF / card endpoint requires)."""
     result = sub.result
     return (
         sub.status == SubmissionStatus.COMPLETED
@@ -303,7 +300,7 @@ def subject_set(sub: StudentSubmission) -> frozenset[str]:
     questions = analytics._question_items(sub.result)
     topic_items = analytics._topic_items(sub.result, questions, sub.rubric)
     return frozenset(
-        " ".join(str(s["subject"]).split()).casefold()
+        analytics.norm(s["subject"])
         for s in analytics._subject_rollup(topic_items, questions) if s.get("subject")
     )
 
@@ -325,7 +322,7 @@ def comparable(a: StudentSubmission, b: StudentSubmission, families: Families) -
     return not_comparable_reason(a, b, families) is None
 
 
-def _person(sub: StudentSubmission) -> tuple[str, bool]:
+def person_key(sub: StudentSubmission) -> tuple[str, bool]:
     """A student: (student_key, is_demo); a real student and a demo namesake never pair."""
     return student_key(sub), bool(sub.is_demo)
 
@@ -333,7 +330,7 @@ def _person(sub: StudentSubmission) -> tuple[str, bool]:
 def history(db: Session, subs: Iterable[StudentSubmission]) -> list[StudentSubmission]:
     """Every completed sheet of these sheets' students (any batch or test): where `pairs` finds
     each one's earlier sheet."""
-    people = {_person(s) for s in subs}
+    people = {person_key(s) for s in subs}
     if not people:
         return []
     rows = db.scalars(
@@ -345,7 +342,7 @@ def history(db: Session, subs: Iterable[StudentSubmission]) -> list[StudentSubmi
                 StudentSubmission.student_ref.is_(None)),
         )
     ).all()
-    return [s for s in rows if _person(s) in people]
+    return [s for s in rows if person_key(s) in people]
 
 
 def pairs(after: Iterable[StudentSubmission], earlier: Iterable[StudentSubmission]) -> list[Pair]:
@@ -353,11 +350,11 @@ def pairs(after: Iterable[StudentSubmission], earlier: Iterable[StudentSubmissio
     sat before it: the newest such sheet, never an oral answer. In `after` order."""
     by_person: dict[tuple[str, bool], list[StudentSubmission]] = {}
     for sub in earlier:
-        if is_completed(sub) and (sub.input_kind or "document") != INPUT_VOICE:
-            by_person.setdefault(_person(sub), []).append(sub)
+        if is_completed(sub) and not voice.is_voice(sub):
+            by_person.setdefault(person_key(sub), []).append(sub)
     out = []
     for sub in after:
-        before = max((s for s in by_person.get(_person(sub), []) if order(s) < order(sub)), key=order, default=None)
+        before = max((s for s in by_person.get(person_key(sub), []) if order(s) < order(sub)), key=order, default=None)
         if before is not None:
             out.append((before, sub))
     return out

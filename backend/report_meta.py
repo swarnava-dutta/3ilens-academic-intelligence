@@ -33,7 +33,7 @@ from database import (
     SubmissionStatus,
     utcnow,
 )
-from hashing import student_ref_for
+from hashing import student_key
 
 REPORT_TIMEZONE = "Asia/Kolkata"
 
@@ -85,10 +85,6 @@ def release_info(result: EvaluationResult) -> dict[str, Any]:
     }
 
 
-def ref_of(sub: StudentSubmission) -> str:
-    return sub.student_ref or student_ref_for(sub.student_name)
-
-
 # --------------------------------------------------------------------------- #
 # Longitudinal history (FR-5.8)
 # --------------------------------------------------------------------------- #
@@ -133,7 +129,7 @@ def history_for(
         query = query.join(Batch, StudentSubmission.batch_id == Batch.id).where(Batch.institution_id == institution_id)
     if is_demo is not None:
         query = query.where(StudentSubmission.is_demo.is_(bool(is_demo)))
-    rows = [s for s in db.scalars(query).all() if ref_of(s) == ref and s.result is not None and s.result.total_marks]
+    rows = [s for s in db.scalars(query).all() if student_key(s) == ref and s.result is not None and s.result.total_marks]
     rows.sort(key=lambda s: (s.created_at, s.id))
     entries = []
     for sub in rows:
@@ -297,7 +293,7 @@ def result_extras(
     """Keys: report_meta, release, history, deliveries."""
     import result_view  # local import: result_view imports this module
 
-    ref = ref_of(sub)
+    ref = student_key(sub)
     return {
         "report_meta": {
             "run_id": run_id_for(sub, result),

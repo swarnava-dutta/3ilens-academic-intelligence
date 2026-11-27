@@ -121,6 +121,21 @@ def is_utf16_text(head: bytes) -> bool:
     return head[:2] in UTF16_BOMS and utf16_text(head) is not None
 
 
+def decode_text(data: bytes, detail: str) -> str:
+    """A text file's text: UTF-16 (with a byte-order mark, or every other byte zero - utf16_text),
+    else UTF-8 (a UTF-8 BOM dropped). 415 unsupported_signature with `detail` for anything else
+    (binary bytes, another encoding)."""
+    wide = utf16_text(data)
+    if wide is not None:
+        return wide
+    if b"\x00" in data[:4096]:
+        raise ApiError(415, detail, "unsupported_signature")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ApiError(415, detail, "unsupported_signature") from exc
+
+
 def is_voice_note(head: bytes) -> bool:
     """MP3 (ID3 tag or MPEG frame sync), WAV, M4A/AAC, Ogg/Opus (WhatsApp voice notes), AMR. A
     UTF-16 byte-order mark followed by readable text is a text file, not audio (is_utf16_text)."""

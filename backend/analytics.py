@@ -48,14 +48,14 @@ import insights
 import marking
 from config import get_settings
 from database import Batch, EvaluationResult, Institution, Rubric, StudentSubmission, SubmissionStatus, ist_today
-from hashing import student_ref_for
+from hashing import student_key
+from schemas import URGENCIES as URGENCY_LEVELS
 
 logger = logging.getLogger("3ilens.analytics")
 
 URGENCY_ON_TRACK = 70.0
 URGENCY_AT_RISK = 55.0
 LOW_TOPIC = 40.0
-URGENCY_LEVELS = ("on_track", "needs_attention", "at_risk")
 URGENCY_LABELS = {"on_track": "on track", "needs_attention": "needs attention", "at_risk": "at risk"}
 URGENCY_RULE = (
     ">=70% on track, 55-70% needs attention, <55% at risk; one level worse when 2+ topics are below 40%"
@@ -131,7 +131,8 @@ _STOP = {"and", "the", "of", "in", "a", "an"}
 # Urgency and exam-date rules
 # --------------------------------------------------------------------------- #
 def percentage(result: EvaluationResult | Any) -> float:
-    """Score as a 0-100 percentage of the rubric total (1 decimal)."""
+    """Score as a 0-100 percentage of the rubric total (1 decimal). round(), as the stored
+    overall_mastery (insights._percent) rounds the same ratio; sittings.r1 rounds the dashboard means."""
     try:
         total = float(result.total_marks or 0)
         score = float(result.total_score or 0)
@@ -232,7 +233,7 @@ def strategy_mode_for(days: int | None) -> str | None:
 def _days_text(days: int | None) -> str:
     if days is None:
         return "exam date unknown"
-    return f"{days} day{'s' if days != 1 else ''} to exam"
+    return f"{marking.plural(days, 'day')} to exam"
 
 
 # --------------------------------------------------------------------------- #
@@ -442,9 +443,9 @@ def _group_stats(items: list[dict[str, Any]]) -> dict[str, Any]:
     right, wrong, blank, bonus = kinds["right"], kinds["wrong"], kinds["blank"], kinds["bonus"]
     attempted = right + wrong + kinds["partial"] + kinds["zero"]
     scorable = len(items) - bonus
-    score = sum(_num(q.get("estimated_marks")) for q in items)
-    max_marks = sum(_num(q.get("max_marks")) for q in items)
-    ordered = sorted(items, key=lambda q: _num(q.get("question")))
+    score = sum(num(q.get("estimated_marks")) for q in items)
+    max_marks = sum(num(q.get("max_marks")) for q in items)
+    ordered = sorted(items, key=lambda q: num(q.get("question")))
     return {
         "n": len(items),
         "right": right,
@@ -458,9 +459,9 @@ def _group_stats(items: list[dict[str, Any]]) -> dict[str, Any]:
         "score": score,
         "max_marks": max_marks,
         "pct_exact": max(0.0, min(100.0, score / max_marks * 100.0)) if max_marks > 0 else 0.0,
-        "penalty": sum(_num(q.get("penalty")) for q in items if _kind(q) != "bonus"),
-        "bonus_marks": sum(_num(q.get("estimated_marks")) for q in items if _kind(q) == "bonus"),
-        "blank_marks": sum(_num(q.get("max_marks")) for q in items if _kind(q) == "blank"),
+        "penalty": sum(num(q.get("penalty")) for q in items if _kind(q) != "bonus"),
+        "bonus_marks": sum(num(q.get("estimated_marks")) for q in items if _kind(q) == "bonus"),
+        "blank_marks": sum(num(q.get("max_marks")) for q in items if _kind(q) == "blank"),
         # answered questions that lost marks first (wrong / partial / zero), then the blanks
         "wrong_refs": [int(q["question"]) for q in ordered
                        if _kind(q) in ("wrong", "partial", "zero") and isinstance(q.get("question"), int)],
@@ -580,12 +581,13 @@ def _ocr_mean(questions: list[dict[str, Any]]) -> float | None:
     return round(fmean(values), 3) if values else None
 
 
-def _num(value: Any, default: float = 0.0) -> float:
+def num(value: Any, default: float = 0.0) -> float:
+    """A float from a stored / JSON value; the default for None, text, NaN or infinity."""
     try:
         number = float(value)
     except (TypeError, ValueError):
         return default
-    return default if math.isnan(number) else number
+    return number if math.isfinite(number) else default
 
 
 def _g(value: float, digits: int = 2) -> str:
@@ -599,15 +601,11 @@ def _short_topic(topic: str) -> str:
     return " ".join(words[:2]) or str(topic)
 
 
-def _same(a: Any, b: Any) -> bool:
-    return " ".join(str(a or "").split()).casefold() == " ".join(str(b or "").split()).casefold()
-
-
 def _exact_mastery(topic: dict[str, Any]) -> float:
     """0-100 mastery from the UNROUNDED score / max_marks when the stored (1-decimal) mastery is its
     rounding; the stored value otherwise (hand-built rows). Projections never compound a rounding."""
-    stored = max(0.0, min(100.0, _num(topic.get("mastery"))))
-    max_marks, score = _num(topic.get("max_marks")), _num(topic.get("score"))
+    stored = max(0.0, min(100.0, num(topic.get("mastery"))))
+    max_marks, score = num(topic.get("max_marks")), num(topic.get("score"))
     if max_marks <= 0:
         return stored
     exact = max(0.0, min(100.0, score / max_marks * 100.0))
@@ -643,7 +641,7 @@ def _effort_band(mastery: float, bands: dict[str, Any]) -> float:
         value = bands.get("from_mid")
     else:
         value = bands.get("from_high")
-    return _num(value)
+    return num(value)
 
 
 def _plan_rows(
@@ -657,48 +655,48 @@ def _plan_rows(
 ) -> list[dict[str, Any]]:
     """One engine row per topic (with private helper keys prefixed by '_')."""
     matrix = load_matrix(exam) or {}
-    matrix_conf = _num(matrix.get("confidence"), 0.3)
+    matrix_conf = num(matrix.get("confidence"), 0.3)
     topic_of_question = {q.get("question"): str(q.get("topic")) for q in questions}
     confused_topics = {topic_of_question.get(c.get("question")) for c in confusions if c.get("question") is not None}
     subject_totals: dict[str, float] = {}
     for t in topics:
-        subject_totals[str(t.get("subject") or "General")] = subject_totals.get(str(t.get("subject") or "General"), 0.0) + _num(t.get("max_marks"))
+        subject_totals[str(t.get("subject") or "General")] = subject_totals.get(str(t.get("subject") or "General"), 0.0) + num(t.get("max_marks"))
     rows = []
     for t in topics:
         name = str(t.get("topic") or "")
         subject = str(t.get("subject") or "General")
-        max_marks, score = _num(t.get("max_marks")), _num(t.get("score"))
+        max_marks, score = num(t.get("max_marks")), num(t.get("score"))
         mastery = _exact_mastery(t)  # unrounded score / max when the stored mastery is its rounding
         row = map_chapter(name, subject, t.get("chapter"), exam)
         if row is not None:
-            exam_marks = _num(row.get("avg_marks"))
+            exam_marks = num(row.get("avg_marks"))
             effort = _effort_band(mastery, row.get("effort_hours") or {})
             hist_err = row.get("historic_error_rate")
-            confidence = _num(row.get("confidence"), matrix_conf)
+            confidence = num(row.get("confidence"), matrix_conf)
             chapter = str(row.get("chapter"))
         else:
             weightage = t.get("weightage")
             if weightage is None:
                 share = max_marks / subject_totals[subject] if subject_totals.get(subject) else 0.0
                 weightage = NEET_SUBJECT_WEIGHTS.get(subject.casefold(), 1.0 / max(1, len(subject_totals))) * share
-            exam_marks = _num(weightage) * EXAM_TOTAL_MARKS
+            exam_marks = num(weightage) * EXAM_TOTAL_MARKS
             effort, hist_err, confidence = 0.0, None, matrix_conf
             chapter = t.get("chapter") or None
-        subject_level = _same(name, subject)
+        subject_level = norm(name) == norm(subject)
         effort_source = "matrix" if effort > 0 else "rubric"
         if effort <= 0:
-            effort = _num(t.get("effort_hours"), 1.0) or 1.0
+            effort = num(t.get("effort_hours"), 1.0) or 1.0
             # A whole subject, or the 1 h rubric default, is not a study-effort estimate.
             if subject_level or abs(effort - PLACEHOLDER_EFFORT_HOURS) < 1e-9:
                 effort_source = "placeholder"
         if max_marks > 0:
             err = max(0.0, min(1.0, (max_marks - score) / max_marks))
         else:
-            err = _num(hist_err, 0.5)
+            err = num(hist_err, 0.5)
         gain = exam_marks * max(0.0, TARGET_MASTERY - mastery) / 100.0
         factor = _time_factor(days, exam_marks, mastery, err)
-        n = int(_num(t.get("n"), 0)) or sum(1 for q in questions if str(q.get("topic")) == name)
-        not_full = n - int(_num(t.get("full"), 0))
+        n = int(num(t.get("n"), 0)) or sum(1 for q in questions if str(q.get("topic")) == name)
+        not_full = n - int(num(t.get("full"), 0))
         boosted = strategy_mode_for(days) == "revision" and (name in confused_topics or not_full >= 2)
         if boosted:
             factor *= REVISION_BOOST
@@ -708,7 +706,7 @@ def _plan_rows(
         own = [q for q in questions if str(q.get("topic")) == name]
         diag_action = _diagnosis_action(_group_stats(own)) if own else None
         lost = [q for q in own if isinstance(q.get("question"), int)
-                and _num(q.get("estimated_marks")) < _num(q.get("max_marks")) and _kind(q) != "bonus"]
+                and num(q.get("estimated_marks")) < num(q.get("max_marks")) and _kind(q) != "bonus"]
         # Wrong answers first; a topic to learn (mostly skipped) cites its blanks first.
         blank_first = diag_action == "learn"
         cite = [int(q["question"]) for q in sorted(
@@ -1240,7 +1238,7 @@ def _strategy(mode: str, days: int | None, exam: str, exam_date: str | None, ass
             f"Rule: {MODE_RULE['focused']}. Budget {_g(study_hours)} h this week."
         )
     return f"{days} days left · {title}", (
-        f"{text} {days} day{'s' if days != 1 else ''} to {when}. Rule: {MODE_RULE[mode]}. "
+        f"{text} {marking.plural(days, 'day')} to {when}. Rule: {MODE_RULE[mode]}. "
         f"Budget {_g(study_hours)} h this week."
     )
 
@@ -1401,16 +1399,16 @@ def _study_plan_with_rows(
 def _strongest_weakest(topics: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     if not topics:
         return None, None
-    strongest = min(topics, key=lambda t: (-_num(t.get("mastery")), -_num(t.get("max_marks")), str(t.get("topic"))))
+    strongest = min(topics, key=lambda t: (-num(t.get("mastery")), -num(t.get("max_marks")), str(t.get("topic"))))
     weakest = min(
         topics,
-        key=lambda t: (_num(t.get("mastery")), -(_num(t.get("max_marks")) - _num(t.get("score"))), str(t.get("topic"))),
+        key=lambda t: (num(t.get("mastery")), -(num(t.get("max_marks")) - num(t.get("score"))), str(t.get("topic"))),
     )
     return strongest, weakest
 
 
 def _frac(t: dict[str, Any]) -> str:
-    return f"{_g(_num(t.get('score')))}/{_g(_num(t.get('max_marks')))}"
+    return f"{_g(num(t.get('score')))}/{_g(num(t.get('max_marks')))}"
 
 
 # --------------------------------------------------------------------------- #
@@ -1441,10 +1439,6 @@ def _qrefs(numbers: list[int], limit: int) -> str:
     return ", ".join(f"Q{n}" for n in numbers[:limit])
 
 
-def _plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
-
-
 def _negative_marking(questions: list[dict[str, Any]], rubric: Rubric | None) -> bool:
     """The paper has negatively-marked MCQs (from the rubric policy; else any penalty applied)."""
     content = rubric.content if rubric is not None and isinstance(rubric.content, dict) else None
@@ -1452,18 +1446,18 @@ def _negative_marking(questions: list[dict[str, Any]], rubric: Rubric | None) ->
         policy = marking.policy_for(content)
         for rq in _rubric_questions(rubric):
             if marking.question_type(rq) == "mcq" and not marking.is_bonus(rq):
-                if _num(marking.question_policy(rq, policy).get("negative_marks")) > 0:
+                if num(marking.question_policy(rq, policy).get("negative_marks")) > 0:
                     return True
-    return any(_num(q.get("penalty")) > 0 for q in questions)
+    return any(num(q.get("penalty")) > 0 for q in questions)
 
 
 def _right_answer_marks(questions: list[dict[str, Any]]) -> float | None:
     """The usual marks of one right answer on this paper: the modal max_marks of the non-bonus MCQs
     (of every non-bonus question on a written paper)."""
     for mcq_only in (True, False):
-        marks = Counter(_num(q.get("max_marks")) for q in questions
+        marks = Counter(num(q.get("max_marks")) for q in questions
                         if (not mcq_only or q.get("question_type") == "mcq") and _kind(q) != "bonus"
-                        and _num(q.get("max_marks")) > 0)
+                        and num(q.get("max_marks")) > 0)
         if marks:
             return max(marks, key=lambda v: (marks[v], v))
     return None
@@ -1477,7 +1471,7 @@ def score_band(
     total, the target (a batch target when one is set, else the On track line) and the gap to it."""
     if total_marks <= 0:
         return None
-    batch_target = _num(getattr(batch, "target_pct", None), 0.0) if batch is not None else 0.0
+    batch_target = num(getattr(batch, "target_pct", None), 0.0) if batch is not None else 0.0
     target_pct = batch_target if 0 < batch_target <= 100 else URGENCY_ON_TRACK
     target_marks = total_marks * target_pct / 100.0
     to_target = max(0.0, target_marks - total_score)
@@ -1525,7 +1519,7 @@ def batch_median_marks(db: Session | None, sub: StudentSubmission | None) -> flo
 
 def _chapter_level(topics: list[dict[str, Any]]) -> bool:
     """topic_mastery is per chapter: at least 2 topics that are not just their subject's name."""
-    return sum(1 for t in topics if not _same(t.get("topic"), t.get("subject"))) >= 2
+    return sum(1 for t in topics if norm(t.get("topic")) != norm(t.get("subject"))) >= 2
 
 
 def _area_rows(
@@ -1556,8 +1550,8 @@ def focus_target(band: dict[str, Any] | None) -> tuple[float, str]:
     """(target %, its name) for the focus list, the gain insight and the student summary - the
     score card's target, so the report has one target: the On track line (or the batch target)
     while the student is below it, else the 85% stretch target."""
-    if band and _num(band.get("marks_to_target")) > 0 and 0 < _num(band.get("target_pct")) <= 100:
-        return _num(band["target_pct"]), ("your target" if band.get("target_source") == "batch_target"
+    if band and num(band.get("marks_to_target")) > 0 and 0 < num(band.get("target_pct")) <= 100:
+        return num(band["target_pct"]), ("your target" if band.get("target_source") == "batch_target"
                                           else BAND_LABELS["on_track"])
     return TARGET_MASTERY, "stretch"
 
@@ -1578,14 +1572,14 @@ def _route(ranked: list[dict[str, Any]], need: float, limit: int = MAX_FOCUS_ROW
 def _wrong_penalty(questions: list[dict[str, Any]], rubric: Rubric | None) -> float | None:
     """The usual marks deducted for one wrong MCQ answer (modal applied penalty, else the rubric
     policy); None without negative marking."""
-    applied = Counter(_num(q.get("penalty")) for q in questions if _kind(q) == "wrong" and _num(q.get("penalty")) > 0)
+    applied = Counter(num(q.get("penalty")) for q in questions if _kind(q) == "wrong" and num(q.get("penalty")) > 0)
     if applied:
         return max(applied, key=lambda v: (applied[v], v))
     content = rubric.content if rubric is not None and isinstance(rubric.content, dict) else None
     if content:
         policy = marking.policy_for(content)
         values = Counter(
-            _num(marking.question_policy(rq, policy).get("negative_marks")) for rq in _rubric_questions(rubric)
+            num(marking.question_policy(rq, policy).get("negative_marks")) for rq in _rubric_questions(rubric)
             if marking.question_type(rq) == "mcq" and not marking.is_bonus(rq))
         values = Counter({v: n for v, n in values.items() if v > 0})
         if values:
@@ -1602,18 +1596,18 @@ def _attempts_insight(
     r, w, bl, bn, a = st["right"], st["wrong"], st["blank"], st["bonus"], st["attempted"]
     p, blank_marks = st["penalty"], st["blank_marks"]
     refs = st["blank_refs"]
-    blank_sizes = {_num(q.get("max_marks")) for q in questions if _kind(q) == "blank"}
+    blank_sizes = {num(q.get("max_marks")) for q in questions if _kind(q) == "blank"}
     blank_formula = (f"{bl} blank × {_m(blank_sizes.pop())} marks = {_m(blank_marks)}" if len(blank_sizes) == 1
                      else f"Sum of the marks of the {bl} blank questions = {_m(blank_marks)}")
     figures = [
         {"key": "blank", "label": "Questions left blank", "value": float(bl), "unit": "questions",
          "formula": f"{bl} of {st['scorable']} scorable questions had no answer marked"
-                    + (f" ({_plural(bn, 'bonus question')} excluded)" if bn else "")},
+                    + (f" ({marking.plural(bn, 'bonus question')} excluded)" if bn else "")},
         {"key": "blank_marks", "label": "Marks unclaimed on blanks", "value": round(blank_marks, 2), "unit": "marks",
          "formula": blank_formula},
     ]
     if not negative:
-        short = sum(_num(q.get("max_marks")) - _num(q.get("estimated_marks"))
+        short = sum(num(q.get("max_marks")) - num(q.get("estimated_marks"))
                     for q in questions if _kind(q) in ("wrong", "partial", "zero"))
         mcq = all(q.get("question_type") == "mcq" for q in questions)
         what = "wrong answers" if mcq else "partial credit"
@@ -1638,7 +1632,7 @@ def _attempts_insight(
     acc = r / a if a else 0.0
     figures += [
         {"key": "penalty", "label": "Marks lost to wrong answers", "value": round(p, 2), "unit": "marks",
-         "formula": f"{w} wrong answer{'s' if w != 1 else ''}, {_m(p)} marks deducted in all"},
+         "formula": f"{marking.plural(w, 'wrong answer')}, {_m(p)} marks deducted in all"},
         {"key": "score_without_wrong", "label": "Score without the wrong answers", "value": round(s + p, 2),
          "unit": "marks", "formula": f"{_m(s)} + {_m(p)} = {_m(s + p)} of {_m(t)} ({pct1(s + p, t)})"},
         {"key": "accuracy", "label": "Right when answered", "value": round(acc * 100, 1), "unit": "%",
@@ -1664,7 +1658,7 @@ def _attempts_insight(
             "key": "break_even", "label": "Break-even certainty", "value": round(be, 1), "unit": "%",
             "formula": f"{_m(per_wrong)} ÷ ({_m(per_right)} + {_m(per_wrong)}) = {_pct_rule(be)}: answer when "
                        "you are surer than this"})
-    blank_part = f"{_plural(bl, 'question')} left blank — {_m(blank_marks)} marks unclaimed."
+    blank_part = f"{marking.plural(bl, 'question')} left blank — {_m(blank_marks)} marks unclaimed."
     acc_part = f"right on {pct1(r, a)} of what you answered ({r} of {a})" if a else "nothing answered"
     highlight = None
     if a == 0:
@@ -1683,7 +1677,7 @@ def _attempts_insight(
         headline, tone = "Skipping, not wrong answers, is holding your score back", "warn"
         only = "only " if p < blank_marks else ""
         if guess is not None and guess["likely"] >= 1:
-            detail = (f"{_plural(bl, 'question')} left blank. With +{_m(per_right)}/{MINUS}{_m(per_wrong)} marking, "
+            detail = (f"{marking.plural(bl, 'question')} left blank. With +{_m(per_right)}/{MINUS}{_m(per_wrong)} marking, "
                       f"{_attempt_rule(guess['be'], 'whenever')}: narrowing half the blanks to two options is "
                       f"worth about +{_m(round(guess['likely']))} marks, {_m(blank_marks)} at most. You were "
                       f"{acc_part}; wrong answers cost {only}{_m(p)} marks.")
@@ -1695,7 +1689,7 @@ def _attempts_insight(
     else:
         headline, tone = "Your attempt strategy is working", "good"
         detail = (f"You were {acc_part}; wrong answers cost {_m(p)} marks and "
-                  f"{_plural(bl, 'blank')} left {_m(blank_marks)} unclaimed.")
+                  f"{marking.plural(bl, 'blank')} left {_m(blank_marks)} unclaimed.")
         evidence = {"kind": "questions", "filter": "wrong" if w else "blank",
                     "refs": st["wrong_refs"] if w else refs, "anchor": "questions"}
     return {"id": "attempts", "tone": tone, "headline": headline, "detail": detail, "figures": figures,
@@ -1742,7 +1736,7 @@ def _subjects_insight(
     else:
         parts = [f"{n} {label}" for n, label in ((w["right"], "full"), (w["partial"], "partial"),
                                                    (w["zero"], "zero"), (w["blank"], "blank")) if n]
-        answered = f"{', '.join(parts)} of {_plural(w['n'], 'question')}"
+        answered = f"{', '.join(parts)} of {marking.plural(w['n'], 'question')}"
     detail = f"{_area_text(w)}: {answered}."
     if strongest is not weakest:
         detail += f" Strongest: {_area_text(strongest)}."
@@ -1871,7 +1865,7 @@ def _gain_insight(
     counted = ranked if level == "subject" else ranked[:MAX_FOCUS_ROWS]
     all_projected = total_score + sum(r["gain"] for r in counted)
     if level == "chapter":
-        group = f"Top {len(counted)} chapter{'s' if len(counted) != 1 else ''}"
+        group = f"Top {marking.plural(len(counted), 'chapter')}"
     elif len(counted) == len(rows):
         group = NUMBER_WORDS.get(len(rows), f"All {len(rows)}") + " subjects"
     else:
@@ -2045,11 +2039,11 @@ def student_summary(
                "mixed": f", from skipping and {lost}", "solid": ""}[_diagnosis(weakest)]
         lines.append(f"Strongest: {_area_text(strongest)}. Weakest: {_area_text(weakest)}{why}.")
     rows = focus.get("rows") or []
-    target = _num(focus.get("target_pct"), TARGET_MASTERY) or TARGET_MASTERY
+    target = num(focus.get("target_pct"), TARGET_MASTERY) or TARGET_MASTERY
     if rows:
         top = rows[0]
-        need = _num(band["marks_to_target"]) if band is not None else 0.0
-        same_target = band is not None and abs(target - _num(band["target_pct"])) < 1e-9
+        need = num(band["marks_to_target"]) if band is not None else 0.0
+        same_target = band is not None and abs(target - num(band["target_pct"])) < 1e-9
         picked, reached = _route(rows, need, limit=2) if need > 0 and same_target else ([], False)
         if reached and len(picked) == 2:
             second = picked[1]
@@ -2098,7 +2092,7 @@ def _executive_summary(
         if marking.bonus_scored(q) and not str(q.get("student_answer") or "").strip()
     ]
     bonus = (
-        f", plus {len(bonus_blank)} bonus question{'s' if len(bonus_blank) != 1 else ''} left blank but scored "
+        f", plus {marking.plural(len(bonus_blank), 'bonus question')} left blank but scored "
         f"full ({', '.join(bonus_blank)})" if bonus_blank else ""
     )
     mcq_paper = bool(questions) and all(q.get("question_type") == "mcq" for q in questions)
@@ -2112,8 +2106,8 @@ def _executive_summary(
         + f"{counts['blank']} blank{bonus} ({tally})."
     )
     strongest, weakest = _strongest_weakest(topics)
-    result_line = (f"Draft result {_g(_num(result.total_score))}/{_g(_num(result.total_marks))} "
-                   f"({pct1(_num(result.total_score), _num(result.total_marks))}).")
+    result_line = (f"Draft result {_g(num(result.total_score))}/{_g(num(result.total_marks))} "
+                   f"({pct1(num(result.total_score), num(result.total_marks))}).")
     if strongest is not None and weakest is not None and strongest is not weakest:
         result_line += (
             f" Strongest topic: {strongest.get('topic')} ({_frac(strongest)}); "
@@ -2123,7 +2117,7 @@ def _executive_summary(
         result_line += f" Only topic assessed: {strongest.get('topic')} ({_frac(strongest)})."
     elif weakest is not None:  # strongest is weakest: every topic ties on mastery
         result_line += (
-            f" All {len(topics)} topics at {_num(weakest.get('mastery')):.1f}%; most marks lost in "
+            f" All {len(topics)} topics at {num(weakest.get('mastery')):.1f}%; most marks lost in "
             f"{weakest.get('topic')} ({_frac(weakest)})."
         )
     actions = []
@@ -2149,8 +2143,8 @@ def summary_line(result: EvaluationResult, rubric: Rubric | None = None) -> str:
 
 def _summary_line(result: EvaluationResult, topics: list[dict[str, Any]], priorities: list[dict[str, Any]], pct: float, urgency: str) -> str:
     strongest, weakest = _strongest_weakest(topics)
-    line = (f"Scored {_g(_num(result.total_score))}/{_g(_num(result.total_marks))} "
-            f"({pct1(_num(result.total_score), _num(result.total_marks))}, {URGENCY_LABELS[urgency]})")
+    line = (f"Scored {_g(num(result.total_score))}/{_g(num(result.total_marks))} "
+            f"({pct1(num(result.total_score), num(result.total_marks))}, {URGENCY_LABELS[urgency]})")
     if strongest is not None and weakest is not None and strongest is not weakest:
         line += f"; strongest {strongest.get('topic')} ({_frac(strongest)}), weakest {weakest.get('topic')} ({_frac(weakest)})"
     if priorities:
@@ -2163,8 +2157,8 @@ def _qualitative_ranks(priorities: list[dict[str, Any]], topics: list[dict[str, 
 
     def key(p: dict[str, Any]) -> tuple:
         t = by_topic.get(str(p.get("topic")), {})
-        lost = _num(t.get("max_marks")) - _num(t.get("score"))
-        return (-lost, -int(_num(t.get("blank"))), -int(_num(t.get("n"))), str(p.get("topic")))
+        lost = num(t.get("max_marks")) - num(t.get("score"))
+        return (-lost, -int(num(t.get("blank"))), -int(num(t.get("n"))), str(p.get("topic")))
 
     return {str(p.get("topic")): rank for rank, p in enumerate(sorted(priorities, key=key), start=1)}
 
@@ -2233,7 +2227,7 @@ def result_extras(
     item_sum = round(sum(float(q.get("estimated_marks") or 0) for q in questions), 4)
     matrix = load_matrix(plan["exam"]) or {}
     stored_summary = " ".join(str(result.summary or "").split())
-    total_score, total_marks = _num(result.total_score), _num(result.total_marks)
+    total_score, total_marks = num(result.total_score), num(result.total_marks)
     band = _guarded("score_band", lambda: score_band(
         questions, urgency=urgency, total_score=total_score, total_marks=total_marks, batch=batch,
         batch_median=_guarded("batch_median", lambda: batch_median_marks(db, sub), None)), None)
@@ -2360,7 +2354,8 @@ def focus_items(
 # --------------------------------------------------------------------------- #
 # Cohort extras
 # --------------------------------------------------------------------------- #
-def _norm(text: Any) -> str:
+def norm(text: Any) -> str:
+    """Whitespace-collapsed, case-folded text: how names, topics and subjects are compared."""
     return " ".join(str(text or "").split()).casefold()
 
 
@@ -2377,7 +2372,7 @@ def _common_errors(pairs: list[tuple[StudentSubmission, EvaluationResult]]) -> l
                 if not text:
                     continue
                 group = groups.setdefault(
-                    (q["question"], _norm(q.get("topic")), _norm(text)),
+                    (q["question"], norm(q.get("topic")), norm(text)),
                     {"question": q["question"], "topic": str(q.get("topic") or ""), "error": text, "students": []},
                 )
                 if sub.student_name not in group["students"]:
@@ -2399,7 +2394,7 @@ def _confusion_clusters(pairs: list[tuple[StudentSubmission, EvaluationResult]])
     clusters: dict[tuple[str, str], dict[str, Any]] = {}
     for sub, result in pairs:
         for c in _confusion_items(result):
-            key = tuple(sorted((_norm(c["concept_a"]), _norm(c["concept_b"]))))
+            key = tuple(sorted((norm(c["concept_a"]), norm(c["concept_b"]))))
             cluster = clusters.setdefault(
                 key, {"concept_a": str(c["concept_a"]).strip(), "concept_b": str(c["concept_b"]).strip(), "students": []}
             )
@@ -2423,7 +2418,7 @@ def _class_interventions(
         for t in result.topic_mastery or []:
             if not isinstance(t, dict) or not t.get("topic"):
                 continue
-            mastery = _num(t.get("mastery"))
+            mastery = num(t.get("mastery"))
             per_topic.setdefault(str(t["topic"]), []).append(mastery)
             if mastery < TOPIC_GAP_MASTERY:
                 weak.setdefault(str(t["topic"]), []).append(sub.student_name)
@@ -2443,7 +2438,7 @@ def _class_interventions(
             rationale += f" Most common error: \"{error['error']}\" ({error['count']}/{error['denominator']}, Q{error['question']})."
         out.append({
             "topic": topic,
-            "action": f"10-min re-teach + 5 unseen questions for {count} student{'s' if count != 1 else ''}",
+            "action": f"10-min re-teach + 5 unseen questions for {marking.plural(count, 'student')}",
             "students_count": count,
             "rationale": rationale,
         })
@@ -2482,7 +2477,7 @@ def cohort_extras(
             {
                 "submission_id": sub.id,
                 "student_name": sub.student_name,
-                "student_ref": sub.student_ref or student_ref_for(sub.student_name),
+                "student_ref": student_key(sub),
                 "score": float(result.total_score),
                 "total_marks": float(result.total_marks),
                 "pct": pct,

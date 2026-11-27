@@ -18,7 +18,7 @@ import os
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -61,6 +61,7 @@ from schemas import (
     StudentCard,
     StudentRoster,
     TestOption,
+    UrgencyLit,
 )
 
 logger = logging.getLogger("3ilens.outputs")
@@ -68,10 +69,8 @@ logger = logging.getLogger("3ilens.outputs")
 router = APIRouter()
 
 DbSession = Annotated[Session, Depends(get_db)]
-UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
 
 RENDER_VERSION = "sair-pdf-v6"   # bump to invalidate every cached student PDF (v6: "In short", the week plan, faculty lab last)
-TOPIC_GAP_MASTERY = 60.0         # topic filter: mastery below this, or the topic is in the stored top 5
 PDF_MEDIA_TYPE = "application/pdf"
 
 
@@ -182,21 +181,6 @@ def archived_pdf(db: Session, sub: StudentSubmission, version: int) -> tuple[byt
     return pdf, name
 
 
-def _matches_topic(result: EvaluationResult, topic: str) -> bool:
-    wanted = topic.strip().casefold()
-    for tm in result.topic_mastery or []:
-        if isinstance(tm, dict) and str(tm.get("topic", "")).casefold() == wanted:
-            try:
-                if float(tm.get("mastery", 100)) < TOPIC_GAP_MASTERY:
-                    return True
-            except (TypeError, ValueError):
-                pass
-    return any(
-        isinstance(p, dict) and str(p.get("topic", "")).casefold() == wanted
-        for p in (result.roi_recommendations or [])[:5]
-    )
-
-
 def _submissions(
     db: Session,
     *,
@@ -238,7 +222,7 @@ def _submissions(
             assert sub.result is not None
             if urgency and analytics.result_urgency(sub.result)[0] != urgency:
                 continue
-            if topic and not _matches_topic(sub.result, topic):
+            if topic and not cohort_module.matches_topic(sub.result, topic):
                 continue
             kept.append(sub)
         subs = kept
@@ -286,7 +270,7 @@ def reports_bundle(
     db: DbSession,
     batch_id: int | None = None,
     rubric_id: int | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     topic: str | None = None,
     test_id: int | None = None,
     per_student: bool = False,
@@ -361,7 +345,7 @@ def cohort_pdf(
     db: DbSession,
     batch_id: int | None = None,
     rubric_id: int | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     topic: str | None = None,
     test_id: int | None = None,
     per_student: bool = False,
@@ -510,7 +494,7 @@ def list_students(
     db: DbSession,
     batch_id: int | None = None,
     rubric_id: int | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     topic: str | None = None,
 ) -> list[StudentCard]:
     return _cards(_submissions(db, batch_id=batch_id, rubric_id=rubric_id, urgency=urgency, topic=topic))
@@ -522,7 +506,7 @@ def student_roster(
     batch_id: int | None = None,
     rubric_id: int | None = None,
     demo: bool | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     topic: str | None = None,
 ) -> StudentRoster:
     """One row per student (student_ref + is_demo) with the latest graded paper in scope, the change

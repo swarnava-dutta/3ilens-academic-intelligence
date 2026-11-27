@@ -89,6 +89,11 @@ def create_rubric(
     return rubric
 
 
+def rubric_label(rubric: Rubric | None) -> str:
+    """"'Biology - Genetics' (v1)" - how review and log messages name a rubric."""
+    return f"'{rubric.name}' ({rubric.version})" if rubric is not None else "an unknown rubric"
+
+
 def _questions(content: dict[str, Any] | None) -> dict[int, dict[str, Any]]:
     out: dict[int, dict[str, Any]] = {}
     for q in (content or {}).get("questions") or []:

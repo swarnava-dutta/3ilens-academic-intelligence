@@ -228,7 +228,7 @@ def result_row(sub: StudentSubmission) -> dict[str, Any]:
         logger.exception("Nudges unavailable for LMS row %s", sub.id)
     return {
         "submission_id": sub.id,
-        "student_ref": sub.student_ref or hashing.student_ref_for(sub.student_name),
+        "student_ref": hashing.student_key(sub),
         "student_name": sub.student_name,
         "institution_id": institution.id,
         "institution_name": institution.name,
@@ -291,7 +291,7 @@ def batches(db: Session, scope_institution_id: int | None) -> list[dict[str, Any
         query = query.where(Batch.institution_id == scope_institution_id)
     refs: dict[int, set[str]] = {}
     for sub in _submissions(db, scope_institution_id):
-        refs.setdefault(sub.batch_id, set()).add(sub.student_ref or hashing.student_ref_for(sub.student_name))
+        refs.setdefault(sub.batch_id, set()).add(hashing.student_key(sub))
     out = []
     for batch in db.scalars(query).all():
         out.append({
@@ -311,7 +311,7 @@ def students(db: Session, scope_institution_id: int | None, batch_id: int | None
     """LmsStudent dicts, one per student_ref; latest_* come from the newest completed result."""
     groups: dict[str, list[StudentSubmission]] = {}
     for sub in _submissions(db, scope_institution_id, batch_id):
-        groups.setdefault(sub.student_ref or hashing.student_ref_for(sub.student_name), []).append(sub)
+        groups.setdefault(hashing.student_key(sub), []).append(sub)
     out = []
     for ref, subs in groups.items():
         completed = sorted(

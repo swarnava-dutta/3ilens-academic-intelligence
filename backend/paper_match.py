@@ -61,9 +61,6 @@ HOLD_VERDICTS = ("reordered", "mismatch")
 
 # shape_check(): a printed paper this long against a non-MCQ rubric covering under half of it.
 SHAPE_MIN_QUESTIONS = 10
-# The MCQ-heavy rule of mcq_marks.mcq_heavy (not imported: mcq_marks pulls in the AI layer).
-MCQ_HEAVY_MIN_QUESTIONS = 10
-MCQ_HEAVY_SHARE = 0.8
 
 # Short function words are already dropped by the 3-character minimum.
 _STOPWORDS = frozenset(
@@ -260,10 +257,6 @@ def rubric_code(rubric_content: dict | None) -> str | None:
 # --------------------------------------------------------------------------- #
 # Comparison
 # --------------------------------------------------------------------------- #
-def _plural(count: int, word: str) -> str:
-    return f"{count} {word}{'' if count == 1 else 's'}"
-
-
 def compare(stems: dict[int, str], rubric_content: dict, *, sheet_code: str | None = None) -> RubricMatch:
     """How the printed question stems (by number) line up with the rubric's questions."""
     rubric_words, rubric_prompts = _rubric_texts(rubric_content)
@@ -384,7 +377,7 @@ def compare(stems: dict[int, str], rubric_content: dict, *, sheet_code: str | No
     elif total < MIN_COMPARED:
         message = (
             f"Too little printed question text to check the sheet against the rubric "
-            f"({_plural(total, 'question')} compared)."
+            f"({marking.plural(total, 'question')} compared)."
         )
     else:
         message = (
@@ -426,33 +419,38 @@ def _mcq_note(total: int, mcqs: int) -> str:
     return f"{total} questions, {mcqs} of them {'an MCQ' if mcqs == 1 else 'MCQs'}"
 
 
+def rubric_counts(rubric_content: dict | None) -> tuple[int, int]:
+    """(questions, MCQs) of a rubric."""
+    questions = (rubric_content or {}).get("questions") if isinstance(rubric_content, dict) else None
+    questions = [q for q in questions or [] if isinstance(q, dict)]
+    return len(questions), sum(1 for q in questions if marking.question_type(q) == "mcq")
+
+
 def shape_check(
     numbered_questions: int, rubric_content: dict | None, *, rubric_label: str | None = None
 ) -> RubricMatch | None:
     """A printed paper (paper_detect: question_paper / answer_key_paper) against a rubric that cannot
     be its rubric: at least SHAPE_MIN_QUESTIONS numbered questions, a rubric that is not MCQ-heavy
-    (mcq_marks.mcq_heavy: >= 10 questions, >= 80% MCQs) and covers fewer than half of them. A
+    (marking.mcq_heavy: >= 10 questions, >= 80% MCQs) and covers fewer than half of them. A
     "mismatch" RubricMatch (nothing compared, no printed code: see structural) in that case; None
     otherwise, also for an empty rubric. rubric_label names the rubric in the message ("'Biology -
     Genetics' (v1)"). The message states the fact only - it is also shown before the file is uploaded;
     a caller that holds the sheet adds what to do (pipeline.document_paper_check)."""
-    raw = rubric_content.get("questions") if isinstance(rubric_content, dict) else None
-    questions = [q for q in raw or [] if isinstance(q, dict)]
+    total, mcqs = rubric_counts(rubric_content)
     try:
         printed = int(numbered_questions)
     except (TypeError, ValueError):
         return None
-    if not questions or printed < SHAPE_MIN_QUESTIONS:
+    if not total or printed < SHAPE_MIN_QUESTIONS:
         return None
-    mcqs = sum(1 for q in questions if marking.question_type(q) == "mcq")
-    if len(questions) >= MCQ_HEAVY_MIN_QUESTIONS and mcqs >= MCQ_HEAVY_SHARE * len(questions):
+    if marking.mcq_heavy(rubric_content):
         return None  # an MCQ rubric: the printed-question comparison decides
-    if len(questions) * 2 >= printed:
+    if total * 2 >= printed:
         return None
     name = f"rubric {rubric_label}" if rubric_label else "the selected rubric"
     message = (
         f"This is a printed question paper with about {printed} numbered questions, but {name} has "
-        f"{_mcq_note(len(questions), mcqs)} - it is not this paper's rubric."
+        f"{_mcq_note(total, mcqs)} - it is not this paper's rubric."
     )
     return RubricMatch(
         verdict="mismatch", compared=0, matched=0, moved=0, sheet_code=None,

@@ -20,6 +20,7 @@ import analytics
 import marking
 import provenance
 import sittings
+from analytics import norm as _norm, num as _num
 from database import InterventionRecord, ModelInvocation, ReleaseStatus, StudentSubmission
 from sittings import MIN_CLASS_STUDENTS, change_pts, mean1, median1, r1, student_key
 
@@ -39,17 +40,6 @@ RETEACH_SHARE = 1 / 3  # a class re-teach: at least a third of the students who 
 RETEACH_MIN = 2  # ... and at least this many students
 
 Subs = list[StudentSubmission]
-
-
-def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _norm(text: Any) -> str:
-    return " ".join(str(text or "").split()).casefold()
 
 
 def _pct(sub: StudentSubmission) -> float:
@@ -624,10 +614,6 @@ def _f(value: float) -> str:
     return f"{value:.1f}"
 
 
-def _plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
-
-
 def comparison(n: int, paired: dict[str, Any] | None, reason: str | None) -> tuple[bool, str | None]:
     """Is the class average fairly compared with the previous class sitting? Only when the two
     papers are comparable (`reason` = sittings.not_comparable_reason of their sheets is None) and at
@@ -667,9 +653,9 @@ def summary(
     out: list[dict[str, Any]] = []
     avg = head["average_pct"]
     if mode == "all":
-        text = f"Average {_f(avg)}% across {_plural(n, 'student')}' latest tests (median {_f(head['median_pct'])}%)."
+        text = f"Average {_f(avg)}% across {marking.plural(n, 'student')}' latest tests (median {_f(head['median_pct'])}%)."
     elif n < MIN_CLASS_STUDENTS:
-        text = (f"Only {_plural(n, 'student')} sat this test ({_f(avg)}%"
+        text = (f"Only {marking.plural(n, 'student')} sat this test ({_f(avg)}%"
                 f"{'' if n == 1 else ' on average'}), so it is not compared with other tests.")
     elif previous and previous.get("average_pct") is not None and previous.get("comparable", True):
         delta = head.get("delta_pts")
@@ -700,7 +686,7 @@ def summary(
 
     at_risk = counts.get("at_risk", 0)
     if at_risk:
-        text = f"{at_risk} of {_plural(n, 'student')} at risk"
+        text = f"{at_risk} of {marking.plural(n, 'student')} at risk"
         new = sum(1 for s in students if s["newly_at_risk"])
         if previous and new:
             text += f" ({new} new since {previous['short_name']})"
@@ -853,7 +839,7 @@ def class_interventions(
                           f"Q{error['question']}).")
         out.append({
             "topic": c["topic"],
-            "action": f"10-min re-teach + 5 unseen questions for {_plural(count, 'student')}",
+            "action": f"10-min re-teach + 5 unseen questions for {marking.plural(count, 'student')}",
             "students_count": count,
             "rationale": rationale,
         })

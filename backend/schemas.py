@@ -25,7 +25,6 @@ def _non_empty(value: Any, what: str) -> str:
     return " ".join(value.split())
 
 
-QUESTION_TYPES = ("descriptive", "mcq")
 MAX_OPTIONS = 6
 MAX_SCHEME_STEPS = 20
 
@@ -609,25 +608,6 @@ class UncertainWordOut(BaseModel):
     confidence: float
 
 
-def question_outcome(item: dict[str, Any]) -> str:
-    """FULL / PARTIAL / ZERO / BLANK for a stored question evaluation (old rows lack 'outcome'). A
-    bonus question scored at full marks (marking.bonus_scored) is FULL, blank or not."""
-    if marking.bonus_scored(item):
-        return "FULL"
-    if not str(item.get("student_answer") or "").strip():
-        return "BLANK"
-    try:
-        marks = float(item.get("estimated_marks") or 0)
-        max_marks = float(item.get("max_marks") or 0)
-    except (TypeError, ValueError):
-        return "PARTIAL"
-    if max_marks > 0 and marks >= max_marks:
-        return "FULL"
-    if marks <= 0:
-        return "ZERO"
-    return "PARTIAL"
-
-
 class MarkingAward(BaseModel):
     criterion: str
     marks: float
@@ -673,7 +653,7 @@ class QuestionEvaluationOut(BaseModel):
     def _default_outcome(cls, data: Any) -> Any:
         # filled when missing; a bonus question at full marks is FULL (older rows stored BLANK)
         if isinstance(data, dict) and (not data.get("outcome") or marking.bonus_scored(data)):
-            data = {**data, "outcome": question_outcome(data)}
+            data = {**data, "outcome": insights.outcome_of(data)}
         if isinstance(data, dict) and data.get("bonus") is None:
             data = {**data, "bonus": marking.bonus_note(data)}
         if isinstance(data, dict) and not isinstance(data.get("accepted_options"), list):

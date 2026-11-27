@@ -36,6 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 import analytics
+import marking
 import outcomes
 import patterns
 import provenance
@@ -115,10 +116,6 @@ def _int_half_up(value: float) -> int:
     return int(Decimal(repr(float(value))).quantize(Decimal("1"), ROUND_HALF_UP))
 
 
-def _key(name: str | None) -> str:
-    return " ".join((name or "").split()).casefold()
-
-
 def _display(name: str | None) -> str:
     return " ".join((name or "").split())
 
@@ -156,18 +153,14 @@ def _signed(value: float) -> str:
     return text
 
 
-def _plural(n: int, singular: str, plural: str | None = None) -> str:
-    return f"{n} {singular if n == 1 else (plural or singular + 's')}"
-
-
 def _age(days: float | None) -> str:
     """3.0 -> '3 days', 0.4 -> '10 h'."""
     if days is None:
         return "-"
     if days < 1:
         hours = _int_half_up(days * 24)
-        return "under an hour" if hours == 0 else _plural(hours, "hour")
-    return _plural(_int_half_up(days), "day")
+        return "under an hour" if hours == 0 else marking.plural(hours, "hour")
+    return marking.plural(_int_half_up(days), "day")
 
 
 def _test_name(sub: StudentSubmission) -> str:
@@ -256,8 +249,8 @@ def _progress_student(pair: Pair, batches: dict[int, Batch], batch_id: int) -> d
 # Topics
 # --------------------------------------------------------------------------- #
 def _subject_only(topic: str, subject: str | None) -> bool:
-    name = _key(topic)
-    return name in SUBJECT_NAMES or (bool(subject) and name == _key(subject))
+    name = analytics.norm(topic)
+    return name in SUBJECT_NAMES or (bool(subject) and name == analytics.norm(subject))
 
 
 def _topic_gaps(latest: list[StudentSubmission], batches: dict[int, Batch]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -470,7 +463,7 @@ def _faculty(
     names: dict[str, str] = {}
 
     def add(raw: str | None) -> None:
-        key = _key(raw)
+        key = analytics.norm(raw)
         if key and key not in names:
             names[key] = _display(raw)
 
@@ -485,11 +478,11 @@ def _faculty(
 
     out = []
     for key, name in names.items():
-        led = [b for b in batches if _key(b.faculty_lead) == key]
+        led = [b for b in batches if analytics.norm(b.faculty_lead) == key]
         led_ids = {b.id for b in led}
         led_rows = [batch_rows[b.id] for b in led if b.id in batch_rows]
         graded = sum(row["students_graded"] for row in led_rows)
-        released = [s for s in completed if _released(s) and _key(s.result.reviewed_by) == key]
+        released = [s for s in completed if _released(s) and analytics.norm(s.result.reviewed_by) == key]
         hours = []
         for sub in released:
             start: datetime | None = sub.completed_at or sub.result.created_at
@@ -497,7 +490,7 @@ def _faculty(
             if start is not None and end is not None:
                 hours.append(max(0.0, (end - start).total_seconds() / 3600.0))
         progress = _progress([progress_by_batch[bid] for bid in led_ids if bid in progress_by_batch], families)
-        authored = [r for r in interventions if _key(r.applied_by) == key]
+        authored = [r for r in interventions if analytics.norm(r.applied_by) == key]
         oldest = [row["oldest_awaiting_days"] for row in led_rows if row["oldest_awaiting_days"] is not None]
         out.append({
             "name": name,
@@ -506,7 +499,7 @@ def _faculty(
             # Kept for older clients; the overview compares progress, not raw averages across papers.
             "average_pct": _mean(_pct(s) for bid in led_ids for s in latest_by_batch.get(bid, [])),
             "reports_released": len(released),
-            "ocr_reviews": sum(1 for r in reviews if _key(r.reviewer) == key),
+            "ocr_reviews": sum(1 for r in reviews if analytics.norm(r.reviewer) == key),
             "interventions_logged": len(authored),
             "avg_release_hours": r1(fmean(hours)) if hours else None,
             "median_release_hours": r1(median(hours)) if hours else None,
@@ -660,7 +653,7 @@ def _signals(
         else:
             out.append(_signal(
                 "at_risk_actioned", "good", "Every at-risk student has an action since their latest test",
-                detail=f"{_plural(total, 'at-risk student')}, each with a logged action", count=total,
+                detail=f"{marking.plural(total, 'at-risk student')}, each with a logged action", count=total,
             ))
 
     # S2 release backlog (per student, latest report)
@@ -683,7 +676,7 @@ def _signals(
         ))
     elif graded:
         out.append(_signal("all_released", "good", "Every graded student has their latest report",
-                           detail=f"{_plural(graded, 'student')}", count=graded))
+                           detail=f"{marking.plural(graded, 'student')}", count=graded))
 
     # S3 a batch slipping on the same students
     for row in batch_rows:
@@ -702,7 +695,7 @@ def _signals(
     drops = sorted((m for m in movers if m["change"] <= STUDENT_DROP_PTS), key=lambda m: (m["change"], m["student_name"]))
     if drops:
         out.append(_signal(
-            "students_dropping", "act", f"{_plural(len(drops), 'student')} dropped 10+ points since their previous test",
+            "students_dropping", "act", f"{marking.plural(len(drops), 'student')} dropped 10+ points since their previous test",
             detail=", ".join(f"{m['student_name']} {_signed(m['change'])}" for m in drops[:3]) + (f" and {len(drops) - 3} more" if len(drops) > 3 else ""),
             count=len(drops),
             items=[_item(m["student_name"], f"{m['batch_name']} · {m['before_pct']:.1f}% to {m['after_pct']:.1f}%",
@@ -718,7 +711,7 @@ def _signals(
         out.append(_signal(
             "topic_gap", "check",
             f"Weakest topic: {gap['topic']}, {_int_half_up(gap['mastery'])}% across {gap['students']} students",
-            detail=f"{', '.join(gap['batches'])} · {_plural(gap['below_40'], 'student')} below 40%",
+            detail=f"{', '.join(gap['batches'])} · {marking.plural(gap['below_40'], 'student')} below 40%",
             count=gap["students"], href=href, cta="Open in cohort",
         ))
 
@@ -726,7 +719,7 @@ def _signals(
     if held:
         one = len(held) == 1
         out.append(_signal(
-            "held", "check", f"{_plural(len(held), 'sheet')} held for review",
+            "held", "check", f"{marking.plural(len(held), 'sheet')} held for review",
             detail=_sheet_names(held, reason=True), count=len(held),
             href=f"/report/{held[0]['submission_id']}" if one else "/", cta="Open sheet" if one else "Open Intake",
             items=[_item(s["student_name"], f"{s['batch_name']} · {REVIEW_REASON_TEXT.get(s['review_reason'] or '', 'held for review')}",
@@ -736,7 +729,7 @@ def _signals(
     # S7 failed sheets
     if failed:
         out.append(_signal(
-            "failed", "act", f"{_plural(len(failed), 'sheet')} failed to process",
+            "failed", "act", f"{marking.plural(len(failed), 'sheet')} failed to process",
             detail=_sheet_names(failed, reason=False), count=len(failed), href="/", cta="Open Intake",
         ))
 

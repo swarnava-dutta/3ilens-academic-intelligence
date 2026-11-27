@@ -15,7 +15,7 @@ from typing import Any, get_args
 
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import analytics
 import hashing
@@ -35,7 +35,9 @@ from database import (
     StudentSubmission,
     SubmissionStatus,
 )
+from errors import ApiError
 from schemas import (
+    LANGUAGE_HINTS,
     BatchOut,
     CohortPatterns,
     InstitutionOut,
@@ -52,10 +54,10 @@ from schemas import (
     SubmissionOut,
     VoiceInfo,
 )
+from sittings import is_completed
 
 logger = logging.getLogger("3ilens.result_view")
 
-LANGUAGE_CODES = ("en", "hi", "ta", "kn", "te")
 REVIEW_REASONS: tuple[str, ...] = get_args(ReviewReasonLit)
 
 
@@ -127,7 +129,7 @@ def rubric_out(rubric: Rubric) -> RubricOut:
 
 
 def _language_hints(sub: StudentSubmission) -> list[str]:
-    hints = [h for h in (sub.language_hints or []) if h in LANGUAGE_CODES]
+    hints = [h for h in (sub.language_hints or []) if h in LANGUAGE_HINTS]
     return hints or ["en"]
 
 
@@ -166,7 +168,7 @@ def submission_out(sub: StudentSubmission) -> SubmissionOut:
         file_size=sub.file_size,
         page_count=sub.page_count,
         language_hints=_language_hints(sub),
-        student_ref=sub.student_ref or hashing.student_ref_for(sub.student_name),
+        student_ref=hashing.student_key(sub),
         intake_batch_id=sub.intake_batch_id,
         attempts=int(sub.attempts or 0),
         max_attempts=settings.max_job_attempts,
@@ -236,15 +238,16 @@ def pending_out(sub: StudentSubmission) -> ResultPendingOut:
     )
 
 
-def is_completed(sub: StudentSubmission) -> bool:
-    """COMPLETED with a usable result (what every report / PDF / card endpoint requires)."""
-    result = sub.result
-    return (
-        sub.status == SubmissionStatus.COMPLETED
-        and result is not None
-        and bool(result.total_marks)
-        and result.total_marks > 0
+def get_submission(db: Session, submission_id: int) -> StudentSubmission:
+    """The submission with its result and rubric loaded; 404 not_found when there is none."""
+    sub = db.get(
+        StudentSubmission,
+        submission_id,
+        options=[selectinload(StudentSubmission.result), selectinload(StudentSubmission.rubric)],
     )
+    if sub is None:
+        raise ApiError(404, f"Submission {submission_id} not found.", "not_found")
+    return sub
 
 
 def build_result(db: Session, sub: StudentSubmission) -> ResultOut:
@@ -417,7 +420,7 @@ def student_card(sub: StudentSubmission, *, batches: dict[int, BatchOut] | None 
     base: dict[str, Any] = {
         "submission_id": sub.id,
         "student_name": sub.student_name,
-        "student_ref": sub.student_ref or hashing.student_ref_for(sub.student_name),
+        "student_ref": hashing.student_key(sub),
         "batch": cache[sub.batch_id],
         "test": rubric_ref(sub.rubric),
         "status": sub.status,

@@ -157,3 +157,15 @@ def test_annotate_questions_fills_only_missing_keys():
     assert out[1]["bloom_level"] == "K4" and out[1]["bloom_source"] == "ai" and out[1]["penalty"] == 0.5
     mcq = marking.annotate_questions([{"question": 1, "student_answer": "(c)"}], {"questions": [MCQ]})[0]
     assert (mcq["question_type"], mcq["selected_option"], mcq["correct_option"]) == ("mcq", "C", "B")
+
+
+def test_plural_mcq_heavy_and_option_counts():
+    assert [marking.plural(n, "question") for n in (0, 1, 2)] == ["0 questions", "1 question", "2 questions"]
+    assert marking.plural(2, "copy", "copies") == "2 copies"
+    mcqs = [{**MCQ, "question": n} for n in range(1, 9)]
+    written = [{"question": n, "max_marks": 4} for n in (9, 10)]
+    assert marking.mcq_heavy({"questions": mcqs + written})  # 8 of 10
+    assert not marking.mcq_heavy({"questions": mcqs[:7] + written})  # 7 of 9: too few questions
+    assert not marking.mcq_heavy({"questions": mcqs[:7] + written + [{"question": 11}]})  # 7 of 10
+    assert marking.mcq_option_counts({"questions": mcqs[:2] + [{**MCQ, "question": 3, "options": None}] + written}) == {
+        1: 4, 2: 4, 3: None}

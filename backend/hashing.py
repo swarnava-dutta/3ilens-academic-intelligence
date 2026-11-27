@@ -63,6 +63,11 @@ def student_ref_for(name: str, roll_no: str | None = None) -> str:
     return (slug or "student")[:STUDENT_REF_MAX]
 
 
+def student_key(sub: Any) -> str:
+    """A submission's stable student key: its stored ref, else a slug of its name (student_ref_for)."""
+    return getattr(sub, "student_ref", None) or student_ref_for(sub.student_name)
+
+
 def short_hash(value: str | None, length: int = 8) -> str:
     """'3f9a1c2b...' style prefix for logs and the UI."""
     return f"{value[:length]}..." if value else "-"

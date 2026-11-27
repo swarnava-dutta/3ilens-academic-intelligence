@@ -103,17 +103,6 @@ HELD_OR_FAILED = (SubmissionStatus.HUMAN_REVIEW_REQUIRED, SubmissionStatus.FAILE
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _submission(db: Session, submission_id: int) -> StudentSubmission:
-    sub = db.get(
-        StudentSubmission,
-        submission_id,
-        options=[selectinload(StudentSubmission.result), selectinload(StudentSubmission.rubric)],
-    )
-    if sub is None:
-        raise ApiError(404, f"Submission {submission_id} not found.", "not_found")
-    return sub
-
-
 def _invalid_state(sub: StudentSubmission, needed: str) -> ApiError:
     return ApiError(409, f"Submission {sub.id} is {sub.status}; this action needs {needed}.", "invalid_state")
 
@@ -135,19 +124,18 @@ def _claim(db: Session, sub: StudentSubmission, allowed: tuple[SubmissionStatus,
     sub.status = SubmissionStatus.PENDING
 
 
-def _ai_readiness() -> tuple[bool, list[str]]:
+def safe_readiness() -> tuple[bool, list[str]]:
+    """ai.ai_readiness(), never raising: a failed check reads as not ready (also GET /api/health)."""
     try:
         ready, missing = ai.ai_readiness()
         return bool(ready), [str(m) for m in missing]
-    except NotImplementedError:
-        return False, ["AI layer not implemented yet"]
     except Exception:  # noqa: BLE001
         logger.exception("ai.ai_readiness() failed")
         return False, ["AI readiness check failed - see the backend logs"]
 
 
 def _require_ai() -> None:
-    ready, missing = _ai_readiness()
+    ready, missing = safe_readiness()
     if not ready:
         raise ApiError(
             503,
@@ -188,7 +176,7 @@ def rename_submission(submission_id: int, body: RenameInput, db: DbSession) -> S
     student_ref is kept: it may be a roll number and it links this sheet to the student's history,
     so a rename never moves the sheet to another student. 409 while queued or processing (the
     pipeline rewrites the log)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     name = uploads.validate_student_name(body.student_name)
     if sub.status in ACTIVE_STATUSES:
         raise _invalid_state(sub, "a sheet that is not queued or processing")
@@ -210,7 +198,7 @@ def retry_submission(submission_id: int, background_tasks: BackgroundTasks, db: 
     Submission.attempts keeps counting across runs (max_attempts is the automatic retry budget
     of ONE run), so after a re-drive it can exceed max_attempts: current_step and the log name
     the attempt ("attempt N") for the UI."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     if sub.status != SubmissionStatus.FAILED:
         raise _invalid_state(sub, "FAILED")
     mode = pipeline.last_run_mode(sub.id)
@@ -291,7 +279,7 @@ def reevaluate_submission(
     """Re-grade a COMPLETED sheet from its stored transcript (no OCR) against rubric_id, an inline
     `rubric` (an edited answer key: validated like upload's rubric_json and stored as a new rubric
     snapshot row - one call instead of POST /api/rubrics + reevaluate), or its current rubric."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     if sub.status != SubmissionStatus.COMPLETED or sub.result is None:
         raise _invalid_state(sub, "COMPLETED")
     target, inline = _target_rubric(db, sub, body)
@@ -362,7 +350,7 @@ def _review_out(review: OcrReview) -> OcrReviewOut:
 
 @router.get("/api/submissions/{submission_id}/ocr", response_model=OcrReviewData)
 def get_ocr_review(submission_id: int, db: DbSession) -> OcrReviewData:
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     transcript, _name, _raw = pipeline.stored_transcript(sub.id)
     if transcript is not None:
         by_question = {a.question: a for a in transcript.answers}
@@ -405,7 +393,7 @@ def review_submission(
     """approve: grade the OCR transcript as is. correct: replace the given answers (source
     'faculty', confidence 1.0; an empty answer marks the question unattempted). Either way the
     sheet is graded next WITHOUT a new OCR call (evaluation-only run, no confidence gate)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     if sub.status != SubmissionStatus.HUMAN_REVIEW_REQUIRED:
         raise _invalid_state(sub, "HUMAN_REVIEW_REQUIRED")
     reviewer = " ".join(body.reviewer.split())
@@ -519,7 +507,7 @@ def rescan_submission(
 ) -> SubmissionOut:
     """Replace the stored scan (same validation as upload) and run the full pipeline again. The kind
     is kept: a voice answer is replaced by audio, a document by a document (422 input_kind_mismatch)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     if sub.status not in (SubmissionStatus.HUMAN_REVIEW_REQUIRED, SubmissionStatus.FAILED):
         raise _invalid_state(sub, "HUMAN_REVIEW_REQUIRED or FAILED")
     if file is None or not file.filename:
@@ -622,7 +610,7 @@ def rerun_submission(
     (RERUN_ARTIFACTS: the faculty-reviewed transcript, run.json and dead_letter.json - a Retry after
     a restart would otherwise re-grade the old transcript - plus ocr.json when the rubric changes);
     a current result, if any, is archived."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     if sub.status not in HELD_OR_FAILED:
         raise _invalid_state(sub, "HUMAN_REVIEW_REQUIRED or FAILED")
     previous = sub.rubric
@@ -754,7 +742,7 @@ def page_refs(sub: StudentSubmission) -> list[PageRef]:
 
 @router.get("/api/submissions/{submission_id}/pages", response_model=list[PageRef])
 def list_pages(submission_id: int, db: DbSession) -> list[PageRef]:
-    return page_refs(_submission(db, submission_id))
+    return page_refs(result_view.get_submission(db, submission_id))
 
 
 @router.get("/api/submissions/{submission_id}/pages/{page_number}")
@@ -769,7 +757,7 @@ def page_image(
     not_found = ApiError(404, f"Page {page_number} of submission {submission_id} was not found.", "page_not_found")
     if not PAGE_NUMBER_RE.fullmatch(page_number):
         raise not_found
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     job_dir = _job_dir(sub).resolve()
     suffix = "_original" if variant == "original" else ""
     for extension, media_type in PAGE_MEDIA_TYPES.items():
@@ -808,7 +796,7 @@ def _invocation_out(row: ModelInvocation) -> ModelInvocationOut:
 
 @router.get("/api/submissions/{submission_id}/invocations", response_model=list[ModelInvocationOut])
 def list_invocations(submission_id: int, db: DbSession) -> list[ModelInvocationOut]:
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     return [_invocation_out(row) for row in provenance.invocations_for(db, sub.id)]
 
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 import analytics
 import cohort_insights
 import insights
+import marking
 import provenance
 import result_view
 import seed
@@ -31,7 +32,6 @@ DISTRIBUTION_LABELS = ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"]
 # The cohort page's bins (per_student=true): [0,20) [20,40) [40,60) [60,80) [80,100] of the shown
 # 1-dp percentage, so a 59.96% shown as 60.0% is counted in 60-79%.
 PAGE_DISTRIBUTION_LABELS = ["<20%", "20–39%", "40–59%", "60–79%", "80%+"]
-TOPIC_GAP_MASTERY = 60.0  # topic filter: mastery below this, or the topic is in the stored top 5
 # CohortOut fields only filled with per_student=true (the cohort page); left out of the v1 payload.
 PAGE_FIELDS = {
     "scope", "sittings", "previous", "headline", "students_view", "attempt", "chapters", "subjects",
@@ -53,12 +53,13 @@ def _context(db: Session, batch_id: int | None) -> tuple[Institution, Batch]:
     return institution, batch
 
 
-def _matches_topic(result: EvaluationResult, topic: str) -> bool:
+def matches_topic(result: EvaluationResult, topic: str) -> bool:
+    """The topic filter: mastery below analytics.TOPIC_GAP_MASTERY, or the topic is in the stored top 5."""
     wanted = topic.strip().casefold()
     for tm in result.topic_mastery or []:
         if isinstance(tm, dict) and str(tm.get("topic", "")).casefold() == wanted:
             try:
-                if float(tm.get("mastery", 100)) < TOPIC_GAP_MASTERY:
+                if float(tm.get("mastery", 100)) < analytics.TOPIC_GAP_MASTERY:
                     return True
             except (TypeError, ValueError):
                 pass
@@ -254,18 +255,14 @@ def build_cohort(
                 continue
             if urgency and analytics.result_urgency(r)[0] != urgency:
                 continue
-            if topic and not _matches_topic(r, topic):
+            if topic and not matches_topic(r, topic):
                 continue
             subs.append(s)
     else:
         subs = list(all_subs)
 
     statuses = Counter(s.status for s in subs)
-    completed_subs = [
-        s for s in subs
-        if s.status == SubmissionStatus.COMPLETED and s.result is not None
-        and s.result.total_marks and s.result.total_marks > 0
-    ]
+    completed_subs = [s for s in subs if sittings.is_completed(s)]
     results = [s.result for s in completed_subs]
 
     # Different rubric totals are compared by percentage; report on the most common scale.
@@ -322,8 +319,8 @@ def build_cohort(
                 effort_hours=effort,
                 mastery=mastery,
                 rationale=(
-                    f"Cohort mastery averages {mastery:g}% across {assessments} "
-                    f"assessment{'s' if assessments != 1 else ''}. At {weightage * 100:.4g}% of the exam weight "
+                    f"Cohort mastery averages {mastery:g}% across {marking.plural(assessments, 'assessment')}. "
+                    f"At {weightage * 100:.4g}% of the exam weight "
                     f"({agg['subject']}), closing the {gain:g}-point gap in about {effort:g} study "
                     f"hour{'s' if effort != 1 else ''} gives an ROI of {roi:.2f}."
                 ),

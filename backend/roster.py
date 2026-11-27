@@ -2,7 +2,7 @@
 
 Deterministic, no AI. Definitions (the /students page reads every number from here):
 
-* Student = (student_ref, is_demo): report_meta.ref_of (the stored ref, else the name-derived
+* Student = (student_ref, is_demo): hashing.student_key (the stored ref, else the name-derived
   one). A real student and a synthetic demo namesake are never merged (same rule as history).
 * Graded = COMPLETED with a usable result (sittings.is_completed, as on the cohort and owner
   pages), an oral answer too. Paper = a graded sheet whose input_kind is not "voice": only papers
@@ -51,14 +51,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 import analytics
+import hashing
 import marking
 import outcomes
 import patterns
 import report_meta
 import result_view
 import sittings
+import voice
+from analytics import norm as _norm, num as _num
 from database import (
-    INPUT_VOICE,
     InterventionRecord,
     ReleaseStatus,
     StudentSubmission,
@@ -89,18 +91,6 @@ StudentKey = tuple[str, bool]
 # --------------------------------------------------------------------------- #
 # Small helpers
 # --------------------------------------------------------------------------- #
-def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return default
-    return out if math.isfinite(out) else default
-
-
-def _norm(text: Any) -> str:
-    return " ".join(str(text or "").split()).casefold()
-
-
 def _f1(value: float) -> str:
     """One decimal, always ('10.0'): the page shows every point and delta this way."""
     return f"{sittings.r1(value):.1f}"
@@ -111,20 +101,12 @@ def _g(value: float) -> str:
     return f"{rounded:g}"
 
 
-def is_voice(sub: StudentSubmission) -> bool:
-    return (sub.input_kind or "document") == INPUT_VOICE
-
-
-def student_key(sub: StudentSubmission) -> StudentKey:
-    return report_meta.ref_of(sub), bool(sub.is_demo)
-
-
 _order = sittings.order  # (upload time, id)
 
 
 def _graded_paper(sub: StudentSubmission) -> bool:
     """A COMPLETED, usable, non-voice sheet (what previous / spark / papers_count are built from)."""
-    return not is_voice(sub) and result_view.is_completed(sub)
+    return not voice.is_voice(sub) and result_view.is_completed(sub)
 
 
 def _day(dt: datetime | None) -> str:
@@ -156,7 +138,7 @@ def latest_paper_per_student(subs: Iterable[StudentSubmission]) -> dict[StudentK
     for sub in subs:
         if not _graded_paper(sub):
             continue
-        key = student_key(sub)
+        key = sittings.person_key(sub)
         current = latest.get(key)
         if current is None or _order(sub) > _order(current):
             latest[key] = sub
@@ -166,7 +148,7 @@ def latest_paper_per_student(subs: Iterable[StudentSubmission]) -> dict[StudentK
 def previous_paper(db: Session, sub: StudentSubmission) -> StudentSubmission | None:
     """The student's COMPLETED non-voice sheet immediately before `sub` by sittings.order, in
     any batch or test (same is_demo)."""
-    ref = report_meta.ref_of(sub)
+    ref = hashing.student_key(sub)
     rows = db.scalars(
         select(StudentSubmission)
         .options(selectinload(StudentSubmission.result))
@@ -176,7 +158,7 @@ def previous_paper(db: Session, sub: StudentSubmission) -> StudentSubmission | N
             or_(StudentSubmission.student_ref == ref, StudentSubmission.student_ref.is_(None)),
         )
     ).all()
-    earlier = [s for s in rows if report_meta.ref_of(s) == ref and _graded_paper(s) and _order(s) < _order(sub)]
+    earlier = [s for s in rows if hashing.student_key(s) == ref and _graded_paper(s) and _order(s) < _order(sub)]
     return max(earlier, key=_order, default=None)
 
 
@@ -424,7 +406,7 @@ def _row(
     waiting = [
         s for s in scope_subs
         if not result_view.is_completed(s) and (latest_sub is None or _order(s) > _order(latest_sub))
-        and (latest_sub is None or not is_voice(s))
+        and (latest_sub is None or not voice.is_voice(s))
     ]
     pending_sub = waiting[-1] if waiting else None
     # Every sheet in scope that is held, failed or still being marked (older ones too), newest first.
@@ -681,7 +663,7 @@ def _history(db: Session, scope_subs: list[StudentSubmission]) -> dict[StudentKe
     out: dict[StudentKey, list[StudentSubmission]] = {}
     for sub in sittings.history(db, scope_subs):
         if _graded_paper(sub):
-            out.setdefault(student_key(sub), []).append(sub)
+            out.setdefault(sittings.person_key(sub), []).append(sub)
     for subs in out.values():
         subs.sort(key=_order)
     return out
@@ -701,7 +683,7 @@ def build_roster(
     scope_subs = _load(db, batch_id=batch_id, rubric_id=rubric_id, demo=demo)
     grouped: dict[StudentKey, list[StudentSubmission]] = {}
     for sub in scope_subs:
-        grouped.setdefault(student_key(sub), []).append(sub)
+        grouped.setdefault(sittings.person_key(sub), []).append(sub)
     history = _history(db, scope_subs)
     records = _records_by_student(db, {ref for ref, _demo in grouped})
     follow = _FollowUps(db)

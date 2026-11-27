@@ -11,6 +11,7 @@ import pymupdf
 import pytest
 
 import config
+import marking
 import mcq_marks
 import paper_detect
 from tests.test_contract import check_interface
@@ -623,7 +624,7 @@ def test_ingestion_hint_follows_the_all_mcq_rule_of_the_reader():
     for number, question in enumerate(content["questions"], start=1):
         question["prompt"] = _mcq_block(number)[0].split(". ", 1)[1]
     content["questions"][-1].update(question_type="written", options=None, correct_option=None)
-    assert mcq_marks.mcq_heavy(content) and not mcq_marks.reads_ticks(content)  # 14 of 15 MCQs
+    assert marking.mcq_heavy(content) and not mcq_marks.reads_ticks(content)  # 14 of 15 MCQs
     sheet = SimpleNamespace(mime_type="application/pdf")
     assert pipeline.ocr_reader(sheet, content, 30) == pipeline.READER_OCR
     hint = paper_detect.ingestion_hint(pdf, "application/pdf", settings, rubric_content=content,

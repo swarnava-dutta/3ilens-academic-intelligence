@@ -37,6 +37,7 @@ import bloom
 import hashing
 import insights
 import marking
+from analytics import num as _num
 
 THRESHOLD_LABEL = "default - confirm with academic lead"
 THRESHOLD_NOTE = f"Pattern thresholds: {THRESHOLD_LABEL}"
@@ -114,14 +115,6 @@ def empty_cohort_patterns() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Input helpers
 # --------------------------------------------------------------------------- #
-def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return default
-    return out if math.isfinite(out) else default
-
-
 def _qnum(item: dict[str, Any] | None) -> int | None:
     try:
         return int((item or {}).get("question"))
@@ -775,10 +768,7 @@ def _modal_risk(risks: list[str]) -> str:
 def _latest_test_only(profiles: list[tuple[Any, dict[str, Any]]], sections: list[dict[str, Any] | None]) -> int:
     """Keep one student-list row per student (their most recent flagged test) in each section.
     Returns how many students have more than one profiled test (0 when filtered to one test)."""
-    def key(sub: Any) -> str:
-        return getattr(sub, "student_ref", None) or hashing.student_ref_for(sub.student_name)
-
-    tests = Counter(key(sub) for sub, _ in profiles)
+    tests = Counter(hashing.student_key(sub) for sub, _ in profiles)
     repeated = sum(1 for n in tests.values() if n > 1)
     if not repeated:
         return 0
@@ -788,7 +778,7 @@ def _latest_test_only(profiles: list[tuple[Any, dict[str, Any]]], sections: list
             continue
         kept: dict[str, int] = {}
         for sid in sorted((r["submission_id"] for r in section["students"]), key=lambda i: (str(subs[i].created_at), i)):
-            kept[key(subs[sid])] = sid  # the newest test wins
+            kept[hashing.student_key(subs[sid])] = sid  # the newest test wins
         section["students"] = [r for r in section["students"] if r["submission_id"] in kept.values()]
     return repeated
 

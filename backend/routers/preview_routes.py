@@ -246,21 +246,6 @@ def _image_preview(data: bytes, mime_type: str, page: int, width: int) -> tuple[
     return buffer.getvalue(), 1
 
 
-def decode_text(data: bytes) -> str:
-    """A text file's text: UTF-16 (with a byte-order mark, or every other byte zero -
-    uploads.utf16_text), else UTF-8 (a UTF-8 BOM dropped). 415 unsupported_signature for anything
-    else (binary bytes, another encoding)."""
-    wide = uploads.utf16_text(data)
-    if wide is not None:
-        return wide
-    if b"\x00" in data[:4096]:
-        raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature") from exc
-
-
 def text_lines(text: str) -> list[str]:
     """The first TEXT_LINES lines of a text, each cut at TEXT_LINE_CHARS characters (tabs expanded,
     control characters blanked) - what a text preview wraps. Only the first TEXT_SCAN_CHARS
@@ -276,7 +261,7 @@ def _text_preview(data: bytes, page: int, width: int) -> tuple[bytes, int]:
     """(PNG, 1): the first TEXT_LINES wrapped lines of a text file (e.g. a typed answer key or a JSON
     rubric; UTF-8 or UTF-16) on a white page at least A4-shaped, in Pillow's default font. Each line
     is cut at TEXT_LINE_CHARS characters before it is wrapped (text_lines)."""
-    text = decode_text(data)
+    text = uploads.decode_text(data, UNSUPPORTED_DETAIL)
     _check_page(page, 1)
     font_size = max(8, round(width / 45))
     font = ImageFont.load_default(size=font_size)

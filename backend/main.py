@@ -13,7 +13,7 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from statistics import fmean
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +22,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, defer, selectinload
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-import ai
 import cohort
 import costing
 import pipeline
@@ -50,12 +49,13 @@ from database import (
 from errors import ApiError, install_error_handlers
 from hashing import student_ref_for
 from routers import ai_ops, analytics_routes, insights_routes, intake_routes, lms, outputs, owner_routes, pipeline_ops
-from routers import voice_routes
+from routers import preview_routes, voice_routes
 from schemas import (
     LANGUAGE_HINTS,
     CohortOut,
     CohortSitting,
     DemoSeedOut,
+    DemoSetLit,
     HealthOut,
     ReevaluationEstimate,
     ResultOut,
@@ -63,22 +63,16 @@ from schemas import (
     RubricContentIn,
     RubricOut,
     SubmissionOut,
+    UrgencyLit,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("3ilens.api")
 
 DbSession = Annotated[Session, Depends(get_db)]
-UrgencyQuery = Literal["on_track", "needs_attention", "at_risk"]
-DemoSetQuery = Literal["genetics", "mixed", "all", "insights"]
 
 MAX_ROLL_NO = 40
-CHUNK_SIZE = uploads.CHUNK_SIZE
 INTAKE_BATCH_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
-# Upload intake lives in uploads.py (shared with POST /api/submissions/{id}/rescan).
-MIME_EXTENSIONS = uploads.MIME_EXTENSIONS
-PIL_FORMATS = uploads.PIL_FORMATS
-DISTRIBUTION_LABELS = cohort.DISTRIBUTION_LABELS
 # Fallback per-student grading estimate when no evaluation call has been recorded yet:
 # a 5-question rubric with effort=high grading is roughly this many tokens.
 ESTIMATE_INPUT_TOKENS = 6000
@@ -98,7 +92,7 @@ async def lifespan(_app: FastAPI):
         seed.seed_base(db)
         pipeline.recover_interrupted_jobs(db)
         pipeline.recheck_held_sheets(db)  # held rows of older builds: the review reason, no AI call
-    ready, missing = _ai_readiness()
+    ready, missing = pipeline_ops.safe_readiness()
     if not ready:
         logger.warning("AI providers not ready - missing configuration: %s", ", ".join(missing) or "unknown")
     yield
@@ -156,17 +150,6 @@ app.add_middleware(  # added last = outermost, so even error responses carry COR
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _ai_readiness() -> tuple[bool, list[str]]:
-    try:
-        ready, missing = ai.ai_readiness()
-        return bool(ready), [str(m) for m in missing]
-    except NotImplementedError:
-        return False, ["AI layer not implemented yet"]
-    except Exception:  # noqa: BLE001
-        logger.exception("ai.ai_readiness() failed")
-        return False, ["AI readiness check failed - see the backend logs"]
-
-
 def _context(db: Session) -> tuple[Institution, Batch]:
     institution = db.scalar(select(Institution).order_by(Institution.id))
     batch = db.scalar(select(Batch).order_by(Batch.id))
@@ -175,36 +158,12 @@ def _context(db: Session) -> tuple[Institution, Batch]:
     return institution, batch
 
 
-# Kept for callers/tests that used the v1 private helpers.
-_institution_out = result_view.institution_out
-_batch_out = result_view.batch_out
-_submission_out = result_view.submission_out
-_processing_log = result_view.processing_log
-_pending_detail = result_view.pending_detail
-
-
-_unprocessable = uploads.unprocessable
-sniff_mime = uploads.sniff_mime
-sanitize_filename = uploads.sanitize_filename
-_display_filename = uploads.display_filename
-_store_upload = uploads.store_upload
-_discard = uploads.discard
-_inspect_document = uploads.inspect_document
-_human_size = uploads.human_size
-
-
-_format_validation_errors = rubric_store.format_validation_errors
-
-
-_validate_student_name = uploads.validate_student_name  # shared with PATCH /api/submissions/{id}
-
-
 def _validate_roll_no(raw: str | None) -> str | None:
     roll = " ".join((raw or "").split())
     if not roll:
         return None
     if len(roll) > MAX_ROLL_NO or not re.fullmatch(r"[A-Za-z0-9/_.\- ]+", roll):
-        raise _unprocessable(
+        raise uploads.unprocessable(
             f"Roll number must be at most {MAX_ROLL_NO} letters, digits, spaces or - _ . /", "invalid_roll_no"
         )
     return roll
@@ -217,7 +176,7 @@ def _validate_language_hints(raw: str | None) -> list[str]:
         return ["en"]
     unknown = [c for c in codes if c not in LANGUAGE_HINTS]
     if unknown:
-        raise _unprocessable(
+        raise uploads.unprocessable(
             f"Unsupported answer language(s): {', '.join(unknown)}. Use {', '.join(LANGUAGE_HINTS)}.",
             "invalid_language",
         )
@@ -229,7 +188,7 @@ def _validate_intake_batch_id(raw: str | None) -> str | None:
     if not value:
         return None
     if not INTAKE_BATCH_RE.fullmatch(value):
-        raise _unprocessable(
+        raise uploads.unprocessable(
             "intake_batch_id must be 1-64 letters, digits or hyphens.", "invalid_intake_batch"
         )
     return value
@@ -241,10 +200,10 @@ def _resolve_batch(db: Session, batch_id: str | None) -> Batch | None:
     try:
         bid = int(batch_id.strip())
     except ValueError as exc:
-        raise _unprocessable("batch_id must be an integer.", "unknown_batch") from exc
+        raise uploads.unprocessable("batch_id must be an integer.", "unknown_batch") from exc
     batch = db.get(Batch, bid)
     if batch is None:
-        raise _unprocessable(f"Batch {bid} does not exist.", "unknown_batch")
+        raise uploads.unprocessable(f"Batch {bid} does not exist.", "unknown_batch")
     return batch
 
 
@@ -260,7 +219,7 @@ def _resolve_rubric(
         try:
             data = json.loads(rubric_json)
         except json.JSONDecodeError as exc:
-            raise _unprocessable(
+            raise uploads.unprocessable(
                 f"rubric_json is not valid JSON ({exc.msg} at line {exc.lineno}, column {exc.colno}).",
                 "invalid_rubric",
             ) from exc
@@ -270,19 +229,19 @@ def _resolve_rubric(
         try:
             rid = int(rubric_id.strip())
         except ValueError as exc:
-            raise _unprocessable("rubric_id must be an integer.", "invalid_rubric") from exc
+            raise uploads.unprocessable("rubric_id must be an integer.", "invalid_rubric") from exc
         rubric = db.get(Rubric, rid)
         if rubric is None:
-            raise _unprocessable(f"Rubric {rid} does not exist.", "unknown_rubric")
+            raise uploads.unprocessable(f"Rubric {rid} does not exist.", "unknown_rubric")
         if rubric_hash and rubric_hash.strip() and rubric_hash.strip().lower() != rubric.rubric_hash:
-            raise _unprocessable(
+            raise uploads.unprocessable(
                 f"Rubric {rid} is no longer this intake's answer key (the data was reset) - add the question "
                 "paper or answer key again.",
                 "unknown_rubric",
             )
         return rubric, None
 
-    raise _unprocessable(rubric_store.RUBRIC_REQUIRED_DETAIL, "rubric_required")
+    raise uploads.unprocessable(rubric_store.RUBRIC_REQUIRED_DETAIL, "rubric_required")
 
 
 def _validate_voice_question(
@@ -307,12 +266,8 @@ def _validate_voice_question(
     except ValueError:
         number = None
     if number is None or number not in numbers:
-        raise _unprocessable("voice_question must be one of the rubric's question numbers.", "invalid_question")
+        raise uploads.unprocessable("voice_question must be one of the rubric's question numbers.", "invalid_question")
     return number
-
-
-def _create_custom_rubric(db: Session, content: RubricContentIn) -> Rubric:
-    return rubric_store.create_rubric(db, content)
 
 
 # --------------------------------------------------------------------------- #
@@ -320,7 +275,7 @@ def _create_custom_rubric(db: Session, content: RubricContentIn) -> Rubric:
 # --------------------------------------------------------------------------- #
 @app.get("/api/health", response_model=HealthOut)
 def health(db: DbSession) -> HealthOut:
-    ready, missing = _ai_readiness()
+    ready, missing = pipeline_ops.safe_readiness()
     institution, batch = _context(db)
     settings = get_settings()
     return HealthOut(
@@ -437,14 +392,14 @@ def upload_answer_sheet(
     rubric_source_file is, for its label - question_paper (default), rubric_file or marked_copy (an
     unknown value is ignored)."""
     settings = get_settings()
-    name = _validate_student_name(student_name)
+    name = uploads.validate_student_name(student_name)
     rubric, custom_rubric = _resolve_rubric(db, rubric_id, rubric_json, rubric_hash)  # before saving the upload
     roll = _validate_roll_no(roll_no)
     languages = _validate_language_hints(language_hints)
     chosen_batch = _resolve_batch(db, batch_id)
     intake_id = _validate_intake_batch_id(intake_batch_id)
     if file is None or not file.filename:
-        raise _unprocessable(
+        raise uploads.unprocessable(
             f"Attach an answer sheet ({uploads.ACCEPTED_LABEL}) or a voice answer (MP3, WAV, M4A or OGG).",
             "missing_file",
         )
@@ -455,15 +410,15 @@ def upload_answer_sheet(
             if staged is not None:
                 sources.append(staged)
 
-    original_filename = _display_filename(file.filename)
-    path, mime_type, size, sha256 = _store_upload(file, original_filename, settings)
+    original_filename = uploads.display_filename(file.filename)
+    path, mime_type, size, sha256 = uploads.store_upload(file, original_filename, settings)
     is_voice = uploads.is_audio_mime(mime_type)
     kept_sources: int | None = None  # rubric id whose source files were written
     try:
-        description, page_count = _inspect_document(path, mime_type, settings)
+        description, page_count = uploads.inspect_document(path, mime_type, settings)
         question = _validate_voice_question(voice_question, rubric, custom_rubric) if is_voice else None
         if custom_rubric is not None:
-            rubric = _create_custom_rubric(db, custom_rubric)
+            rubric = rubric_store.create_rubric(db, custom_rubric)
             if sources and rubric_sources.store(rubric.id, sources):
                 kept_sources = rubric.id
         assert rubric is not None
@@ -502,7 +457,7 @@ def upload_answer_sheet(
             )
         else:
             received = (
-                f"Received {original_filename} ({description}, {_human_size(size)}) and stored it in the "
+                f"Received {original_filename} ({description}, {uploads.human_size(size)}) and stored it in the "
                 f"local S3 mock (uploads/). SHA-256 {sha256[:12]}... recorded for chain of custody."
             )
         pipeline.append_log(sub, "Ingestion", received)
@@ -522,13 +477,13 @@ def upload_answer_sheet(
         db.commit()
     except BaseException:
         db.rollback()
-        _discard(path)
+        uploads.discard(path)
         if kept_sources is not None:
             rubric_sources.remove(kept_sources)
         raise
 
     background_tasks.add_task(pipeline.process_submission, sub.id)
-    logger.info("Queued submission %s (%s, %s)", sub.id, mime_type, _human_size(size))
+    logger.info("Queued submission %s (%s, %s)", sub.id, mime_type, uploads.human_size(size))
     return result_view.submission_out(sub)
 
 
@@ -537,7 +492,7 @@ def list_submissions(
     db: DbSession,
     batch_id: int | None = None,
     rubric_id: int | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     intake_batch_id: str | None = None,
 ) -> list[SubmissionOut]:
     # Only the columns result_view.submission_out reads: no logs, page confidences, question JSON or rubric content.
@@ -592,7 +547,7 @@ def get_cohort(
     db: DbSession,
     batch_id: int | None = None,
     rubric_id: int | None = None,
-    urgency: UrgencyQuery | None = None,
+    urgency: UrgencyLit | None = None,
     topic: str | None = None,
     test_id: int | None = None,
     per_student: bool = False,
@@ -618,7 +573,7 @@ def get_cohort_sittings(db: DbSession, batch_id: int | None = None) -> list[dict
 @app.post("/api/demo/seed", response_model=DemoSeedOut)
 def seed_demo(
     db: DbSession,
-    demo_set: Annotated[DemoSetQuery, Query(alias="set")] = "genetics",
+    demo_set: Annotated[DemoSetLit, Query(alias="set")] = "genetics",
 ) -> DemoSeedOut:
     if not seed.demo_data_enabled():
         raise ApiError(403, seed.DEMO_DISABLED_DETAIL, "demo_data_disabled")
@@ -648,5 +603,4 @@ app.include_router(owner_routes.router)
 app.include_router(insights_routes.router)
 # Intake: local paper detection before upload (printed MCQ papers, answer-key papers).
 app.include_router(intake_routes.router)
-from routers import preview_routes  # noqa: E402 - intake thumbnails (POST /api/intake/preview)
-app.include_router(preview_routes.router)
+app.include_router(preview_routes.router)  # intake thumbnails (POST /api/intake/preview)

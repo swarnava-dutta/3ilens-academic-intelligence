@@ -62,7 +62,6 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
-from xml.etree import ElementTree as ET
 
 import pymupdf
 from PIL import Image, ImageOps
@@ -182,10 +181,6 @@ def _normalise(text: str) -> str:
     text = _BOLD.sub(r"\1", text)
     text = _SLASH_ENTRIES.sub(r"\1, ", text)
     return paper_detect._rejoin_numbers(text)
-
-
-def _plural(count: int, word: str, plural: str | None = None) -> str:
-    return f"{count} {word if count == 1 else plural or word + 's'}"
 
 
 def _listed(numbers: list[int]) -> str:
@@ -685,7 +680,7 @@ def _grid_runs(flat: _Flat) -> tuple[list[_Run], list[str], list[str], set[int]]
             if cells is None:
                 warnings.append(
                     f"A Que. / Ans. grid for Q{numbers[0]}-Q{numbers[-1]} has {len(numbers)} question numbers but "
-                    f"{_plural(count, 'answer')} - not read (a cell may be blank or unreadable); check it."
+                    f"{marking.plural(count, 'answer')} - not read (a cell may be blank or unreadable); check it."
                 )
                 continue
             if extra:
@@ -970,7 +965,7 @@ def _range_rows(text: str) -> tuple[list[_Run], list[str], str, set[int]]:
             runs.append(list(zip(range(first, last + 1), cells)))
         elif run_together or all(_OPTION_ISH.fullmatch(token) for token in rest.split()):
             warnings.append(
-                f"The row for Q{first}-Q{last} gives {_plural(read, 'answer')} for {count} questions - not read; "
+                f"The row for Q{first}-Q{last} gives {marking.plural(read, 'answer')} for {count} questions - not read; "
                 "check it."
             )
         else:
@@ -2035,6 +2030,8 @@ def _utf16(data: bytes) -> str | None:
 
 
 def _decode_text(data: bytes) -> str:
+    """uploads.decode_text with this module's _utf16, not uploads.utf16_text: the two disagree on
+    odd-length, NBSP / ZWJ and control-character files, so sharing one would change which keys are read."""
     wide = _utf16(data)
     if wide is not None:
         return wide
@@ -2051,110 +2048,9 @@ def _docx_text(data: bytes) -> str:
         raise ApiError(415, UNSUPPORTED, "unsupported_signature")
     try:
         docx_reader.validate_docx(data)
-        return _docx_numbered_text(data) or docx_reader.docx_text(data)
+        return docx_reader.numbered_text(data) or docx_reader.docx_text(data)
     except docx_reader.DocxError as exc:
         raise ApiError(422, str(exc), exc.code) from exc
-
-
-_ROMAN = ((1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
-          (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
-
-
-def _list_label(value: int, number_format: str) -> str | None:
-    if number_format in ("decimal", "decimalZero"):
-        return str(value)
-    if number_format in ("lowerLetter", "upperLetter") and 1 <= value <= 26:
-        letter = chr(ord("a") + value - 1)
-        return letter if number_format == "lowerLetter" else letter.upper()
-    if number_format in ("lowerRoman", "upperRoman") and 1 <= value < 4000:
-        roman = ""
-        for amount, digits in _ROMAN:
-            while value >= amount:
-                roman += digits
-                value -= amount
-        return roman if number_format == "lowerRoman" else roman.upper()
-    return None
-
-
-def _list_levels(numbering: ET.Element) -> dict[str, dict[int, tuple[int, str, str]]]:
-    """numId -> ilvl -> (start, numFmt, lvlText) from word/numbering.xml."""
-    w = docx_reader._w
-    abstract: dict[str | None, dict[int, tuple[int, str, str]]] = {}
-    for definition in numbering.findall(w("abstractNum")):
-        levels: dict[int, tuple[int, str, str]] = {}
-        for level in definition.findall(w("lvl")):
-            ilvl = int(level.get(w("ilvl"), "0") or 0)
-            start, fmt, text = level.find(w("start")), level.find(w("numFmt")), level.find(w("lvlText"))
-            levels[ilvl] = (
-                int(start.get(w("val"), "1")) if start is not None else 1,
-                fmt.get(w("val"), "decimal") if fmt is not None else "decimal",
-                text.get(w("val"), f"%{ilvl + 1}.") if text is not None else f"%{ilvl + 1}.",
-            )
-        abstract[definition.get(w("abstractNumId"))] = levels
-    nums: dict[str, dict[int, tuple[int, str, str]]] = {}
-    for num in numbering.findall(w("num")):
-        reference = num.find(w("abstractNumId"))
-        levels = dict(abstract.get(reference.get(w("val")) if reference is not None else None, {}))
-        for override in num.findall(w("lvlOverride")):
-            start = override.find(w("startOverride"))
-            ilvl = int(override.get(w("ilvl"), "0") or 0)
-            if start is not None and ilvl in levels:
-                levels[ilvl] = (int(start.get(w("val"), "1")), *levels[ilvl][1:])
-        nums[num.get(w("numId"), "")] = levels
-    return nums
-
-
-def _docx_numbered_text(data: bytes) -> str | None:
-    """docx_reader.docx_text with Word's automatic list numbers written out ("1.", "(a)"): a typed
-    key or paper whose numbers come from a numbered list has them only in word/numbering.xml.
-    None when no paragraph is numbered (docx_text is used)."""
-    w = docx_reader._w
-    with docx_reader._open(data) as archive:
-        body = docx_reader._document(archive)
-        if body.find(f".//{w('numPr')}") is None:
-            return None
-        try:
-            levels = _list_levels(ET.fromstring(archive.read("word/numbering.xml")))
-        except (KeyError, ET.ParseError):
-            levels = {}  # a list with no definition: Word's default numbered list, "1.", "2." ...
-        counters: dict[str, list[int | None]] = {}
-        lines: list[str] = []
-        for child in body:
-            if child.tag == w("tbl"):
-                lines.extend(" | ".join(cells) for cells in docx_reader._table_rows(child))
-                continue
-            if child.tag != w("p"):
-                continue
-            text = docx_reader._paragraph_text(child)
-            numbered = child.find(f"{w('pPr')}/{w('numPr')}")
-            num_id = numbered.find(w("numId")) if numbered is not None else None
-            definition = None
-            if num_id is not None and num_id.get(w("val"), "0") != "0":  # numId 0 switches numbering off
-                definition = levels.get(num_id.get(w("val"), "")) or {0: (1, "decimal", "%1.")}
-            if numbered is None or not definition:
-                lines.append(text)
-                continue
-            level = numbered.find(w("ilvl"))
-            ilvl = int(level.get(w("val"), "0") or 0) if level is not None else 0
-            counts = counters.setdefault(num_id.get(w("val"), ""), [])  # type: ignore[union-attr]
-            counts.extend([None] * (ilvl + 1 - len(counts)))
-            start = definition.get(ilvl, (1, "decimal", ""))[0]
-            counts[ilvl] = start if counts[ilvl] is None else counts[ilvl] + 1  # type: ignore[operator]
-            del counts[ilvl + 1:]
-
-            def render(match: re.Match[str]) -> str:
-                at = int(match.group(1)) - 1
-                start_at, number_format, _text = definition.get(at, (1, "decimal", ""))
-                value = counts[at] if at < len(counts) and counts[at] is not None else start_at
-                return _list_label(value, number_format) or "\x00"  # type: ignore[arg-type]
-
-            label = re.sub(r"%(\d)", render, definition.get(ilvl, (1, "decimal", "%1."))[2])
-            lines.append(f"{label} {text}".strip() if label.strip() and "\x00" not in label else text)
-    out: list[str] = []
-    for line in lines:
-        if line or (out and out[-1]):
-            out.append(line)
-    return "\n".join(out).strip()
 
 
 def _pdf_page_texts(data: bytes) -> list[str]:
@@ -2486,8 +2382,8 @@ def _merged(
         dict(sorted(entries.items())), [], multi, bonus, False, accepted=accepted, expected=set(text.expected),
     )
     warnings = [
-        f"{_plural(len(text.entries), 'entry', 'entries')} read from the text layer"
-        + (f"; {_plural(len(filled), 'more', 'more')} read from the page images ({_listed(sorted(filled))})" if filled else "")
+        f"{marking.plural(len(text.entries), 'entry', 'entries')} read from the text layer"
+        + (f"; {marking.plural(len(filled), 'more', 'more')} read from the page images ({_listed(sorted(filled))})" if filled else "")
         + "."
     ]
     if differ:
@@ -2701,8 +2597,8 @@ def _read_pages(pages: list[Any], on_usage: ai.UsageCallback | None) -> tuple[_P
                 key.add(number, reading.get("correct_option"))
     calls = sum(outcome.calls for outcome in outcomes)
     warnings = [
-        f"Read {_plural(total, 'page')} in {_plural(calls, 'AI call')}; "
-        f"{_plural(len(key.entries), 'answer-key entry', 'answer-key entries')} found."
+        f"Read {marking.plural(total, 'page')} in {marking.plural(calls, 'AI call')}; "
+        f"{marking.plural(len(key.entries), 'answer-key entry', 'answer-key entries')} found."
     ]
     for outcome in failures:
         error = outcome.error
@@ -2882,7 +2778,7 @@ def apply(
         )
     if stats["unkeyed"]:
         warnings.append(
-            f"No answer key for {_listed(stats['unkeyed'])} ({_plural(len(stats['unkeyed']), 'MCQ')}) - set "
+            f"No answer key for {_listed(stats['unkeyed'])} ({marking.plural(len(stats['unkeyed']), 'MCQ')}) - set "
             "correct_option before approving."
         )
     try:
@@ -2896,7 +2792,7 @@ def summary(stats: dict[str, Any]) -> str:
     """"Answer key file: set 178 keys (2 changed: Q3, Q7; Q51, Q53 accept more than one option;
     bonus: Q71, Q98); 2 entries not in this paper (Q181-Q182)."."""
     applied = stats["set"] + stats["changed"] + stats["unchanged"]
-    text = f"{SUMMARY_LABEL}: set {_plural(applied, 'key')}"
+    text = f"{SUMMARY_LABEL}: set {marking.plural(applied, 'key')}"
     details = []
     if stats["changed"]:
         details.append(f"{stats['changed']} changed: {_listed(stats['changed_questions'])}")
@@ -2909,11 +2805,11 @@ def summary(stats: dict[str, Any]) -> str:
         text += f" ({'; '.join(details)})"
     if stats["not_in_rubric"]:
         text += (
-            f"; {_plural(len(stats['not_in_rubric']), 'entry', 'entries')} not in this paper "
+            f"; {marking.plural(len(stats['not_in_rubric']), 'entry', 'entries')} not in this paper "
             f"({_listed(stats['not_in_rubric'])})"
         )
     if stats["descriptive"]:
-        text += f"; {_plural(len(stats['descriptive']), 'entry', 'entries')} for questions that are not MCQs " \
+        text += f"; {marking.plural(len(stats['descriptive']), 'entry', 'entries')} for questions that are not MCQs " \
                 f"({_listed(stats['descriptive'])})"
     if stats["beyond_options"]:
         text += f"; {len(stats['beyond_options'])} beyond the options ({_listed(stats['beyond_options'])})"

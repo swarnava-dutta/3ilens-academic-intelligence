@@ -745,7 +745,7 @@ def top_up_nudges(
             out.append({
                 "priority": NUDGE_PRIORITIES[min(len(out), len(NUDGE_PRIORITIES) - 1)],
                 "label": SKIPPED_NUDGE_LABEL,
-                "text": (f"{len(skipped)} question{'s' if len(skipped) != 1 else ''} left blank "
+                "text": (f"{marking.plural(len(skipped), 'question')} left blank "
                          f"({refs_text(skipped, MAX_NUDGE_REFS)}): ask whether time ran out or the topic is "
                          "unfamiliar before re-teaching."),
                 "topic": None,

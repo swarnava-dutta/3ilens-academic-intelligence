@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import analytics
 import whatif
+from analytics import norm as _norm, num as _num
 from config import get_settings
 from database import (
     Institution,
@@ -28,7 +29,7 @@ from database import (
     utcnow,
 )
 from errors import ApiError
-from hashing import student_ref_for
+from hashing import student_key
 
 CAVEAT = (
     "Observational comparison: students and topics were not randomised, so uplift is indicative, not causal - "
@@ -52,19 +53,8 @@ KIND_LABELS = {
 MEASURED = ("improved", "flat", "declined")
 
 
-def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
-def _norm(text: Any) -> str:
-    return " ".join(str(text or "").split()).casefold()
 
 
 def _chapter(entry: dict[str, Any]) -> str | None:
@@ -135,7 +125,7 @@ def build_record(
         institution_id=sub.batch.institution_id,
         batch_id=sub.batch_id,
         submission_id=sub.id,
-        student_ref=sub.student_ref or student_ref_for(sub.student_name),
+        student_ref=student_key(sub),
         student_name=sub.student_name,
         topic=name,
         kind=kind,

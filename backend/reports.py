@@ -32,6 +32,8 @@ from typing import Any
 
 import pymupdf
 
+import marking
+import voice
 from analytics import HIGH_ROI_SHARE, TARGET_MASTERY, WEAK_MASTERY
 from config import get_settings
 from report_meta import fmt_ist, to_ist
@@ -592,7 +594,7 @@ def _student_meta(result: ResultOut, superseded_by: str | None) -> list[Block]:
     rubric = result.rubric
     extraction = result.extraction
     student = _e(sub.student_name) + (' <span class="muted">(synthetic demo record)</span>' if meta.is_demo else "")
-    is_voice = getattr(sub, "input_kind", "document") == "voice"
+    is_voice = voice.is_voice(sub)
     if meta.is_demo:
         ocr = (
             "Synthetic sample voice answer - no audio stored, no transcription or AI call was made" if is_voice
@@ -1508,7 +1510,7 @@ def _section_focus(result: ResultOut, num: str) -> list[Block]:
         where = f"<b>{_e(r.topic)}</b>" + (f'<br/><span class="muted">{_e(r.subject)}</span>'
                                           if focus.level == "chapter" else "")
         if r.low_evidence:
-            where += f'<br/><span class="muted small">based on {r.n} question{"s" if r.n != 1 else ""}</span>'
+            where += f'<br/><span class="muted small">based on {marking.plural(r.n, "question")}</span>'
         rows.append([
             _e(f"{rank}"), where,
             f"{_marks(r.score)}/{_marks(r.max_marks)} ({_pct(r.mastery)})",

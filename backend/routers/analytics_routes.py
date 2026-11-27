@@ -23,7 +23,7 @@ from typing import Annotated, Any
 import pymupdf
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from pydantic import ValidationError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 import ai
 import analytics
@@ -86,23 +86,12 @@ PAGED_PAPER_ROLES = ("answer_key_paper", "question_paper")
 SPARSE_PAGE_CHARS = 100  # a page with less text than this counts as scanned (no text layer)
 PAGED_MIN_QUESTIONS = 30  # an unplaced layout with this many numbered questions is still paged
 KEY_SOURCES = ("auto", "marks")  # rubric parse key_source: printed key / table / ticks, or "ticks are the key"
-ZIP_MAGIC = b"PK\x03\x04"
+UNSUPPORTED_DETAIL = "Unsupported file type: upload a PDF, Word (.docx), JSON or text file."
 
 
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _submission(db: Session, submission_id: int) -> StudentSubmission:
-    sub = db.get(
-        StudentSubmission,
-        submission_id,
-        options=[selectinload(StudentSubmission.result), selectinload(StudentSubmission.rubric)],
-    )
-    if sub is None:
-        raise ApiError(404, f"Submission {submission_id} not found.", "not_found")
-    return sub
-
-
 def _require_completed(sub: StudentSubmission) -> None:
     if not result_view.is_completed(sub):
         raise ApiError(
@@ -157,7 +146,7 @@ def get_study_plan(
 ) -> StudyPlan:
     """What-if study plan: days_to_exam / study_hours override the batch exam date and
     STUDY_HOURS_PER_WEEK. Deterministic and illustrative (no AI call)."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     _require_completed(sub)
     plan = analytics.build_study_plan(
         result=sub.result, rubric=sub.rubric, batch=sub.batch, days_to_exam=days_to_exam, study_hours=study_hours
@@ -290,7 +279,7 @@ def _compare(
 def consistency_check(submission_id: int, db: DbSession) -> ConsistencyCheck:
     """Re-grade the stored transcript once (purpose 'consistency') and compare per-question marks
     with the stored result; within tolerance when the totals differ by at most 2 marks."""
-    sub = _submission(db, submission_id)
+    sub = result_view.get_submission(db, submission_id)
     _require_completed(sub)
     if not get_settings().anthropic_api_key:
         raise _ai_not_configured("The consistency re-grade")
@@ -358,20 +347,6 @@ def _peek(file: UploadFile) -> bytes:
     data = file.file.read(get_settings().max_upload_bytes + 1)
     file.file.seek(0)
     return data
-
-
-def _decode_text(data: bytes) -> str:
-    wide = uploads.utf16_text(data)  # a key / paper saved as "Unicode text" (UTF-16)
-    if wide is not None:
-        return wide
-    if b"\x00" in data[:4096]:
-        raise ApiError(415, "Unsupported file type: upload a PDF, Word (.docx), JSON or text file.",
-                       "unsupported_signature")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ApiError(415, "Unsupported file type: upload a PDF, Word (.docx), JSON or text file.",
-                       "unsupported_signature") from exc
 
 
 def _pdf_source(data: bytes) -> tuple[str | None, bytes | None, int, list[str]]:
@@ -516,11 +491,9 @@ def _draft_rubric(
                 return _parse_paper_pages(db, data, subject=subject, exam=exam, key_from_marks=key_from_marks)
             if key_from_marks:  # ticks are only visible on the page images, not in the text layer
                 source_text, pdf_bytes = None, data
-        elif data.startswith(ZIP_MAGIC):
-            kind = docx_reader.package_kind(data) if hasattr(docx_reader, "package_kind") else "docx"
-            if kind == "zip":
-                raise ApiError(415, "Unsupported file type: upload a PDF, Word (.docx), JSON or text file.",
-                               "unsupported_signature")
+        elif data.startswith(uploads.ZIP_SIGNATURE):
+            if docx_reader.package_kind(data) == "zip":
+                raise ApiError(415, UNSUPPORTED_DETAIL, "unsupported_signature")
             try:
                 docx_reader.validate_docx(data)
                 source_text = docx_reader.docx_text(data)
@@ -528,7 +501,7 @@ def _draft_rubric(
                 raise ApiError(422, str(exc), exc.code) from exc
             source = "docx"
         else:
-            source_text = _decode_text(data)
+            source_text = uploads.decode_text(data, UNSUPPORTED_DETAIL)
     elif text is not None:
         source_text = text
 
@@ -594,10 +567,10 @@ def _key_only_source(data: bytes, text: str | None) -> str | None:
     try:
         if data.startswith(b"%PDF"):
             texts, source = answer_keys._pdf_page_texts(data), "pdf"
-        elif data.startswith(ZIP_MAGIC):
+        elif data.startswith(uploads.ZIP_SIGNATURE):
             texts, source = [docx_reader.docx_text(data)], "docx"
         elif data:
-            texts, source = [_decode_text(data)], "text"
+            texts, source = [uploads.decode_text(data, UNSUPPORTED_DETAIL)], "text"
         else:
             texts, source = [text or ""], "text"
     except Exception:  # noqa: BLE001 - not readable here: the normal path reports it

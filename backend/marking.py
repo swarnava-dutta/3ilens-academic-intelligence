@@ -32,6 +32,10 @@ DEFAULT_POLICY: dict[str, Any] = {"partial_credit": "steps", "mark_step": 0.5, "
 # Must equal analytics.MARKING_RULE (the default text, pinned by tests).
 DEFAULT_MARKING_RULE = "Partial credit in 0.5-mark steps, clamped to each question max; totals summed server-side"
 REQUIRED_STEP_SHARE = 0.5
+# A rubric is "MCQ-heavy" (a printed objective paper, read by the tick reader) when at least this
+# share of at least this many questions are MCQs.
+MCQ_HEAVY_SHARE = 0.8
+MCQ_HEAVY_MIN_QUESTIONS = 10
 # Per-question rubric fields that make a rubric "non-default" for marking_rule_text.
 _MARKING_FIELDS = ("marking_scheme", "partial_credit", "mark_step", "negative_marks")
 
@@ -291,6 +295,11 @@ def or_join(letters: list[str]) -> str:
     if len(letters) <= 1:
         return "".join(letters)
     return f"{', '.join(letters[:-1])} or {letters[-1]}"
+
+
+def plural(count: Any, word: str, plural: str | None = None) -> str:
+    """'1 question', '3 questions'; an irregular plural is passed in: plural(2, 'copy', 'copies')."""
+    return f"{count} {word if count == 1 else plural or word + 's'}"
 
 
 def _correct_letter(question: dict[str, Any], n_options: int | None) -> str | None:
@@ -590,6 +599,26 @@ def _qnum(question: dict[str, Any]) -> int | None:
         return int(question.get("question"))
     except (TypeError, ValueError):
         return None
+
+
+def mcq_heavy(rubric_content: dict[str, Any] | None) -> bool:
+    """At least 10 questions and at least 80% of them MCQs (a printed objective paper)."""
+    questions = _questions(rubric_content)
+    if len(questions) < MCQ_HEAVY_MIN_QUESTIONS:
+        return False
+    mcqs = sum(1 for q in questions if question_type(q) == "mcq")
+    return mcqs / len(questions) >= MCQ_HEAVY_SHARE
+
+
+def mcq_option_counts(rubric_content: dict[str, Any] | None) -> dict[int, int | None]:
+    """MCQ number -> its number of options (None when the rubric lists none)."""
+    out: dict[int, int | None] = {}
+    for question in _questions(rubric_content):
+        number = _qnum(question)
+        if number is not None and question_type(question) == "mcq":
+            options = question.get("options") if isinstance(question.get("options"), list) else []
+            out[number] = len(options) or None
+    return out
 
 
 def marking_rule_text(rubric_content: dict[str, Any] | None) -> str:
