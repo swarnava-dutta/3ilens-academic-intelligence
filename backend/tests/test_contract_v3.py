@@ -3,14 +3,13 @@ validation, unchanged seed hashes, the insights demo set, faculty_lead, and the 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
+import seed
 from tests.conftest import _wav
 from tests.test_contract import check_interface
 
-RUBRICS = Path(__file__).resolve().parents[1] / "rubrics"
 GENETICS_LEVELS = {1: "K3", 2: "K2", 3: "K2", 4: "K3", 5: "K1"}
 
 MCQ_RUBRIC = {
@@ -153,7 +152,7 @@ def test_mcq_rubric_upload_end_to_end(upload, fake_ai, client, monkeypatch):
 
 # (e) rubric validation ------------------------------------------------------------------------
 def _with_question(**changes):
-    rubric = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    rubric = seed.load_genetics_rubric()
     rubric["questions"][0].update(changes)
     return rubric
 
@@ -200,8 +199,7 @@ def test_seeded_rubric_hashes_are_unchanged(demo_data, client):
 
     assert client.post("/api/demo/seed", params={"set": "all"}).json()["created"] == 27
     rubrics = {r["name"]: r for r in client.get("/api/rubrics").json()}
-    for filename in ("biology_genetics_v1.json", "neet_mixed_mock08_v1.json"):
-        content = json.loads((RUBRICS / filename).read_text(encoding="utf-8"))
+    for content in (seed.load_genetics_rubric(), seed.load_mixed_rubric()):
         stored = rubrics[content["name"]]
         assert stored["content"] == content
         assert stored["rubric_hash"] == hashing.rubric_hash(content)
@@ -210,7 +208,7 @@ def test_seeded_rubric_hashes_are_unchanged(demo_data, client):
 def test_rubric_questions_hash_only_changes_for_typed_questions():
     import hashing
 
-    content = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    content = seed.load_genetics_rubric()
     view = [{"question": q["question"], "topic": q["topic"], "prompt": q.get("prompt")} for q in content["questions"]]
     assert hashing.rubric_questions_hash(content) == hashing.sha256_json(view)
     typed = {**content, "questions": [{**content["questions"][0], "question_type": "mcq"}, *content["questions"][1:]]}
@@ -300,7 +298,7 @@ def test_structure_transcript_question_hint_path(monkeypatch):
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-    content = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    content = seed.load_genetics_rubric()
     out = ai.structure_transcript("  Tall is dominant so the F1 shows 3:1.  ", content, question_hint=1,
                                   language_hints=["hi", "xx", "en"])
     assert [(a.question, a.answer, a.confidence, a.source) for a in out.answers] == [
@@ -328,7 +326,7 @@ def test_voice_stubs_and_fakes(tmp_path, fake_ai, fake_transcriber):
     assert voice.wav_seconds(tmp_path / "b.wav") is None
     transcript = voice.transcribe(wav, "audio/wav", language_hints=["en"], keywords=["Punnett"])
     assert transcript.text.startswith("Question 1.") and fake_transcriber.calls == 1
-    content = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    content = seed.load_genetics_rubric()
     mapped = ai.structure_transcript("Question 1 tall is dominant. Q3 semi-conservative replication.", content)
     assert [a.question for a in mapped.answers] == [1, 3] and fake_ai.structure_calls == 1
 

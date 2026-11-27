@@ -262,7 +262,7 @@ def test_changing_a_key_marks_the_question_changed():
     assert rubric_store.compatibility(old, old)["changed"] == []
 
 
-def test_upload_and_regrade_with_bonus_and_accepted_keys_end_to_end(upload, fake_ai, client, monkeypatch):
+def test_upload_and_regrade_with_bonus_and_accepted_keys_end_to_end(upload, fake_ai, client, monkeypatch, ai_ready):
     import ai
     from ai_schemas import OcrAnswer, OcrResult
 
@@ -274,7 +274,6 @@ def test_upload_and_regrade_with_bonus_and_accepted_keys_end_to_end(upload, fake
         return OcrResult(answers=answers, overall_confidence=0.95, provider="anthropic", model="fake-vision-model")
 
     monkeypatch.setattr(ai, "run_ocr", letters_ocr)
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
     queued = upload(student_name="Bonus Student", rubric_json=json.dumps(RUBRIC))
     assert queued.status_code == 202, queued.text
     result = client.get(f"/api/results/{queued.json()['id']}").json()

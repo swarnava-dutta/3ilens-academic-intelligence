@@ -1,16 +1,13 @@
 """marking.py: MCQ option parsing and +4/-1 scoring, marking-scheme rules, rule text (FR-3.8, FR-4.8)."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 import analytics
 import insights
 import marking
+import seed
 
-RUBRICS = Path(__file__).resolve().parents[1] / "rubrics"
 NEET = {"partial_credit": "steps", "mark_step": 0.5, "negative_marks": 1.0, "scheme_name": "NEET +4/-1 (sample)"}
 MCQ = {"question": 1, "topic": "Cell", "max_marks": 4, "question_type": "mcq", "options": ["a", "b", "c", "d"],
        "correct_option": "B"}
@@ -125,9 +122,9 @@ def test_policy_for_and_question_policy():
 
 
 def test_marking_rule_text():
-    genetics = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    genetics = seed.load_genetics_rubric()
     assert marking.marking_rule_text(genetics) == marking.DEFAULT_MARKING_RULE == analytics.MARKING_RULE
-    mixed = json.loads((RUBRICS / "neet_mixed_mock08_v1.json").read_text(encoding="utf-8"))
+    mixed = seed.load_mixed_rubric()
     assert marking.marking_rule_text(mixed) == marking.DEFAULT_MARKING_RULE
     content = {"marking_policy": NEET, "questions": [
         MCQ,
@@ -145,7 +142,7 @@ def test_marking_rule_text():
 
 
 def test_annotate_questions_fills_only_missing_keys():
-    genetics = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    genetics = seed.load_genetics_rubric()
     stored = [{"question": 1, "topic": "Monohybrid Cross", "estimated_marks": 3.0, "max_marks": 4.0},
               {"question": 5, "topic": "x", "estimated_marks": 1.0, "max_marks": 4.0, "penalty": 0.5,
                "bloom_level": "K4", "bloom_source": "ai"}]

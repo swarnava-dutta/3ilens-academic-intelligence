@@ -3,8 +3,11 @@ dirs (never backend/3ilens.db), with API keys blanked so no test can reach a rea
 from __future__ import annotations
 
 import io
+import re
 import sys
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
@@ -421,3 +424,44 @@ def no_network_clients(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(ai, "_anthropic_client", forbidden, raising=False)
     monkeypatch.setattr(ai, "_openai_client", forbidden, raising=False)
     return calls
+
+
+@pytest.fixture
+def ai_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ai.ai_readiness() says ready, so the review / re-run / re-evaluate routes reach the (faked) AI."""
+    import ai
+
+    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+
+
+def page_labels(kwargs: dict[str, Any]) -> list[int]:
+    """The "Page N of M:" numbers of one Claude request, in order."""
+    content = kwargs["messages"][0]["content"]
+    return [int(m.group(1)) for c in content if c["type"] == "text" for m in [re.match(r"Page (\d+) of \d+:", c["text"])] if m]
+
+
+class PagedClaude:
+    """Thread-safe scripted Claude client: reply(page numbers, attempt) per request; attempt counts
+    requests for the same pages."""
+
+    def __init__(self, reply: Callable[[list[int], int], Any]):
+        self.reply = reply
+        self.calls: list[dict[str, Any]] = []
+        self.attempts: dict[tuple[int, ...], int] = {}
+        self._lock = threading.Lock()
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        pages = page_labels(kwargs)
+        with self._lock:
+            self.calls.append(kwargs)
+            attempt = self.attempts[tuple(pages)] = self.attempts.get(tuple(pages), 0) + 1
+        return self.reply(pages, attempt)
+
+
+def use_claude(monkeypatch: pytest.MonkeyPatch, fake):
+    """Makes ai build `fake` as its Anthropic client."""
+    import ai
+
+    monkeypatch.setattr(ai, "_anthropic_client", lambda settings: fake)
+    return fake

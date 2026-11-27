@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import seed
+
 SUBMISSION_KEYS = {
     "id", "student_name", "original_filename", "status", "ocr_confidence", "created_at", "updated_at",
     "error_message", "current_step", "is_demo", "total_score", "total_marks", "rubric_id", "batch_id",
@@ -58,11 +60,6 @@ RUBRIC_KEYS = {
     "created_at",
 }
 DISTRIBUTION_LABELS = ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"]
-
-
-def genetics_rubric() -> dict:
-    path = Path(__file__).resolve().parents[1] / "rubrics" / "biology_genetics_v1.json"
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def uploaded_files(tmp_path: Path) -> list[Path]:
@@ -221,7 +218,7 @@ def test_upload_on_a_fresh_database_needs_its_own_rubric(bare_client, fake_ai, p
     assert bare_client.get("/api/rubrics").json() == []  # nothing was created silently
 
     first = bare_client.post(
-        "/api/upload", data={"student_name": "Aarav", "rubric_json": json.dumps(genetics_rubric())}, files=files
+        "/api/upload", data={"student_name": "Aarav", "rubric_json": json.dumps(seed.load_genetics_rubric())}, files=files
     )
     assert first.status_code == 202, first.text
     snapshot = first.json()["rubric_id"]
@@ -348,7 +345,7 @@ def test_upload_accepts_multi_page_pdf(upload, fake_ai, make_pdf, client):
     ],
 )
 def test_upload_rejects_invalid_rubric_json(upload, forbid_ai, tmp_path, mutate, expected):
-    response = upload(rubric_json=mutate(genetics_rubric()))
+    response = upload(rubric_json=mutate(seed.load_genetics_rubric()))
     assert response.status_code == 422
     assert expected in response.json()["detail"]
     assert response.json()["code"] == "invalid_rubric"
@@ -406,7 +403,7 @@ def test_upload_with_custom_rubric_json_creates_a_new_rubric(upload, fake_ai, cl
 
 def test_upload_keeps_the_rubric_source_files_with_rubric_json(client, fake_ai, png_bytes, make_pdf, tmp_path):
     """rubric_json wins over rubric_id, and the question paper / key files come with it."""
-    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(genetics_rubric()),
+    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(seed.load_genetics_rubric()),
             "rubric_id": str(client.test_rubric_id)}
     files = {"file": ("sheet.png", png_bytes, "image/png"),
              "rubric_source_file": ("paper.pdf", make_pdf(2), "application/pdf"),
@@ -421,7 +418,7 @@ def test_upload_keeps_the_rubric_source_files_with_rubric_json(client, fake_ai, 
 
 
 def test_upload_checks_the_rubric_source_files_before_saving(client, forbid_ai, png_bytes, tmp_path):
-    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(genetics_rubric())}
+    data = {"student_name": "Aarav Sharma", "rubric_json": json.dumps(seed.load_genetics_rubric())}
     files = {"file": ("sheet.png", png_bytes, "image/png"),
              "rubric_key_file": ("key.pdf", b"%PDF-1.4 truncated", "application/pdf")}
     response = client.post("/api/upload", data=data, files=files)
@@ -716,8 +713,6 @@ def test_cohort_filters_and_extras_on_the_demo_cohort(demo_data, client):
     assert cohort["filters"] == {"batch_id": None, "rubric_id": None, "urgency": None, "topic": None}
     assert len(cohort["rubric_versions"]) == 1 and cohort["mixed_rubrics"] is False
     assert cohort["excluded"] == {"review": ["Aditya Kulkarni"], "failed": [], "processing": []}
-    import seed
-
     released = len(getattr(seed, "DEMO_RELEASED", ()))  # demo faculty sign-offs
     assert cohort["release_counts"] == {"provisional": 12 - released, "released": released}
     assert cohort["operations"]["target_inr"] == 5 and cohort["operations"]["dlq_count"] == 0

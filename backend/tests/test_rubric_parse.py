@@ -17,9 +17,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import ai  # noqa: E402
+import seed  # noqa: E402
 from tests.test_contract import check_interface  # noqa: E402
 
-GENETICS = json.loads((BACKEND_DIR / "rubrics" / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+GENETICS = seed.load_genetics_rubric()
 TEST_KEY = "sk-ant-test-rubric-parse-0000"
 
 DRAFT_REPLY = {

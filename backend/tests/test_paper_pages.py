@@ -6,12 +6,11 @@ from __future__ import annotations
 import io
 import json
 import random
-import re
 import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import anthropic
 import httpx2
@@ -26,6 +25,7 @@ import ai  # noqa: E402
 import paper_pages  # noqa: E402
 from ai import AIServiceError  # noqa: E402
 from ai_schemas import ModelUsage  # noqa: E402
+from tests.conftest import PagedClaude, page_labels, use_claude  # noqa: E402
 from tests.test_contract import check_interface  # noqa: E402
 
 TEST_KEY = "sk-ant-test-paper-pages-0000"
@@ -33,17 +33,11 @@ REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 
 
 @pytest.fixture(autouse=True)
-def paper_env(monkeypatch):
+def paper_env(monkeypatch, no_network_clients):
     monkeypatch.setenv("ANTHROPIC_API_KEY", TEST_KEY)
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
     monkeypatch.setenv("RUBRIC_PAGES_PER_CALL", "2")
     monkeypatch.setenv("AI_CHUNK_CONCURRENCY", "3")
-
-    def forbidden(_settings):
-        raise AssertionError("test tried to create a real SDK client")
-
-    monkeypatch.setattr(ai, "_anthropic_client", forbidden)
-    monkeypatch.setattr(ai, "_openai_client", forbidden)
 
 
 def _pages(n: int) -> list[paper_pages.PageImage]:
@@ -73,34 +67,6 @@ def _reply(payload: dict | None = None, *, stop_reason: str = "end_turn"):
 
 def chunk(questions: list[dict[str, Any]], *, name: str = "", answer_key: list[dict[str, Any]] | None = None):
     return _reply({"name": name, "subject": "Physics", "questions": questions, "answer_key": answer_key or []})
-
-
-def page_labels(kwargs: dict[str, Any]) -> list[int]:
-    content = kwargs["messages"][0]["content"]
-    return [int(m.group(1)) for c in content if c["type"] == "text" for m in [re.match(r"Page (\d+) of \d+:", c["text"])] if m]
-
-
-class PagesClaude:
-    """Thread-safe fake: reply(page numbers, attempt) per request; attempt counts requests for the same pages."""
-
-    def __init__(self, reply: Callable[[list[int], int], Any]):
-        self.reply = reply
-        self.calls: list[dict[str, Any]] = []
-        self.attempts: dict[tuple[int, ...], int] = {}
-        self._lock = threading.Lock()
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
-
-    def _create(self, **kwargs):
-        pages = page_labels(kwargs)
-        with self._lock:
-            self.calls.append(kwargs)
-            attempt = self.attempts[tuple(pages)] = self.attempts.get(tuple(pages), 0) + 1
-        return self.reply(pages, attempt)
-
-
-def _use(monkeypatch, fake: PagesClaude) -> PagesClaude:
-    monkeypatch.setattr(ai, "_anthropic_client", lambda settings: fake)
-    return fake
 
 
 # --------------------------------------------------------------------------- #
@@ -154,7 +120,7 @@ def test_paged_draft_merges_chunks_by_question_number(monkeypatch):
             return chunk([mcq(2, "3", prompt="A longer version of question two"), mcq(3, None), mcq(4, "1")])
         return chunk([mcq(6, "4")], answer_key=[{"question": 3, "option": "4"}, {"question": 4, "option": "2"}])
 
-    fake = _use(monkeypatch, PagesClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     caller = threading.get_ident()
     usage_threads: list[int] = []
     usages: list[ModelUsage] = []
@@ -211,7 +177,7 @@ def test_a_failed_chunk_is_reported_and_the_rest_kept(monkeypatch):
             return chunk([mcq(1, None), mcq(2, None)])
         return chunk([mcq(9, "1")])
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(5))
     warnings = result["warnings"]
     # MCQs without a key cannot be saved yet: the contract puts "Fix before saving" first
@@ -232,7 +198,7 @@ def test_a_transient_error_is_retried_once(monkeypatch):
             raise anthropic.APITimeoutError(request=REQUEST)
         return chunk([mcq(1, "1"), mcq(2, "2")])
 
-    fake = _use(monkeypatch, PagesClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     usages: list[ModelUsage] = []
     result = ai.parse_rubric_pages(_pages(2), on_usage=usages.append)
     assert len(fake.calls) == 2
@@ -246,7 +212,7 @@ def test_a_truncated_chunk_is_read_page_by_page(monkeypatch):
             return _reply({"name": ""}, stop_reason="max_tokens")
         return chunk([mcq(pages[0], "3")])
 
-    fake = _use(monkeypatch, PagesClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(2))
     assert sorted(tuple(page_labels(c)) for c in fake.calls) == [(1,), (1, 2), (2,)]
     single = next(c for c in fake.calls if page_labels(c) == [1])
@@ -258,7 +224,7 @@ def test_a_truncated_chunk_is_read_page_by_page(monkeypatch):
 
 
 def test_every_chunk_failing_raises_the_first_error(monkeypatch):
-    _use(monkeypatch, PagesClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
     usages: list[ModelUsage] = []
     with pytest.raises(AIServiceError) as excinfo:
         ai.parse_rubric_pages(_pages(4), on_usage=usages.append)
@@ -286,7 +252,7 @@ def test_a_full_180_question_paper_validates_with_a_short_warning_list(monkeypat
         return chunk([{**mcq(n, str(n % 4 + 1), subject=subject_of(n)), "effort_hours": 0} for n in numbers],
                      name="NEET 2016" if pages[0] == 1 else "")
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(18))
     draft, warnings = result["draft"], result["warnings"]
     assert len(draft["questions"]) == 180 and draft["subject"] == "Mixed"
@@ -400,12 +366,12 @@ def _text_pdf(pages: int) -> bytes:
 
 
 def test_marked_key_note_reaches_every_chunk_only_when_asked(monkeypatch):
-    fake = _use(monkeypatch, PagesClaude(lambda pages, _attempt: chunk([mcq(pages[0], "2")])))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: chunk([mcq(pages[0], "2")])))
     ai.parse_rubric_pages(_pages(4), key_from_marks=True)
     instructions = [c["messages"][0]["content"][-1]["text"] for c in fake.calls]
     assert len(instructions) == 2 and all(ai.MARKED_KEY_NOTE in text for text in instructions)
 
-    fake = _use(monkeypatch, PagesClaude(lambda pages, _attempt: chunk([mcq(pages[0], "2")])))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: chunk([mcq(pages[0], "2")])))
     ai.parse_rubric_pages(_pages(4))
     assert all(ai.MARKED_KEY_NOTE not in c["messages"][0]["content"][-1]["text"] for c in fake.calls)
 
@@ -450,7 +416,7 @@ def test_a_question_number_returned_with_different_text_is_flagged(monkeypatch):
             mcq(47, None, prompt="The pKa of acetic acid is 4.76; the pH of a 0.1 M buffer is"),
         ])
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     warnings = ai.parse_rubric_pages(_pages(4))["warnings"]
     assert "Q13, Q47 appear more than once with different text - one was kept; check the numbering on those pages." \
         in warnings
@@ -465,7 +431,7 @@ def test_one_flagged_number_reads_in_the_singular(monkeypatch):
         text = "Find the current in the circuit" if pages == [1, 2] else "Identify the product of ozonolysis"
         return chunk([mcq(5, "1", prompt=text)])
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     warnings = ai.parse_rubric_pages(_pages(3))["warnings"]
     assert "Q5 appears more than once with different text - one was kept; check the numbering on those pages." \
         in warnings
@@ -641,7 +607,7 @@ def test_two_different_keys_for_one_question_are_reported(monkeypatch):
             return chunk([mcq(1, "2"), mcq(2, "1")])
         return chunk([mcq(2, "3", prompt="Question 2 text")])
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(3))
     by_number = {q["question"]: q for q in result["draft"]["questions"]}
     assert by_number[2]["correct_option"] == "A"  # the first reading (page order) is kept
@@ -667,7 +633,7 @@ def test_an_answer_key_table_entry_that_does_not_fit_the_options_is_reported(mon
             return chunk([dict(mcq(5, None), options=["a", "b"])])
         return chunk([], answer_key=[{"question": 5, "option": "4"}])
 
-    _use(monkeypatch, PagesClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(3))
     assert (
         "Answer-key table entries for Q5 could not be matched to the options - set the key by hand."
@@ -686,7 +652,7 @@ def test_the_printed_paper_code_lands_on_the_draft(monkeypatch):
             payload["paper_code"] = "Code 46"
         return _reply(payload)  # the first chunk's reply has no paper_code at all
 
-    fake = _use(monkeypatch, PagesClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     result = ai.parse_rubric_pages(_pages(5))
     assert result["draft"]["paper_code"] == "Code 45"  # the first code in page order, normalised
     from schemas import RubricContentIn
@@ -699,7 +665,7 @@ def test_the_printed_paper_code_lands_on_the_draft(monkeypatch):
 
 
 def test_no_printed_code_leaves_the_draft_without_one(monkeypatch):
-    _use(monkeypatch, PagesClaude(lambda pages, _attempt: _reply(
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(
         {"name": "", "subject": "Physics", "paper_code": "", "questions": [mcq(pages[0], "1")], "answer_key": []}
     )))
     assert "paper_code" not in ai.parse_rubric_pages(_pages(2))["draft"]

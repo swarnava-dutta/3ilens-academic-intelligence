@@ -89,10 +89,10 @@ def test_different_language_hints_miss(cache_on, upload, fake_ai):
 
 
 def test_different_rubric_questions_miss_but_mark_changes_hit(cache_on, upload, fake_ai, client):
-    from tests.test_api import genetics_rubric
+    from seed import load_genetics_rubric
 
     upload()
-    rubric = genetics_rubric()
+    rubric = load_genetics_rubric()
     marks_only = {**rubric, "name": "Genetics (re-marked)",
                   "questions": [{**q, "max_marks": 5} for q in rubric["questions"]]}
     upload(rubric_json=json.dumps(marks_only))

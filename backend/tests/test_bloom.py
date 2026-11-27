@@ -1,14 +1,10 @@
 """bloom.py: Bloom K1-K5 parsing, the verb heuristic and level resolution (FR-3.9)."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 import bloom
-
-RUBRICS = Path(__file__).resolve().parents[1] / "rubrics"
+import seed
 
 
 @pytest.mark.parametrize(
@@ -26,7 +22,7 @@ def test_parse_level(raw, expected):
 
 
 def test_genetics_rubric_heuristic_levels_are_pinned():
-    content = json.loads((RUBRICS / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+    content = seed.load_genetics_rubric()
     levels = bloom.resolve_levels(content)
     assert levels == {
         1: ("K3", "heuristic"), 2: ("K2", "heuristic"), 3: ("K2", "heuristic"),

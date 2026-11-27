@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import io
 import json
-import re
 import sys
 import threading
 from pathlib import Path
@@ -28,6 +27,7 @@ from ai_schemas import ModelUsage  # noqa: E402
 from errors import ApiError  # noqa: E402
 from schemas import AnswerKeyEntry, AnswerKeyExtraction, RubricContentIn  # noqa: E402
 from tests.test_contract import INTERFACES, check_interface  # noqa: E402
+from tests.conftest import PagedClaude, page_labels, use_claude  # noqa: E402
 from tests.test_docx import make_docx  # noqa: E402
 
 TEST_KEY = "sk-ant-test-answer-keys-0000"
@@ -35,17 +35,11 @@ REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 
 
 @pytest.fixture(autouse=True)
-def key_env(monkeypatch):
+def key_env(monkeypatch, no_network_clients):
     monkeypatch.setenv("ANTHROPIC_API_KEY", TEST_KEY)
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
     monkeypatch.setenv("RUBRIC_PAGES_PER_CALL", "2")
     monkeypatch.setenv("AI_CHUNK_CONCURRENCY", "3")
-
-    def forbidden(_settings):
-        raise AssertionError("test tried to create a real SDK client")
-
-    monkeypatch.setattr(ai, "_anthropic_client", forbidden)
-    monkeypatch.setattr(ai, "_openai_client", forbidden)
 
 
 # --------------------------------------------------------------------------- #
@@ -63,34 +57,6 @@ def _reply(payload: dict | None = None, *, stop_reason: str = "end_turn"):
 
 def key_reply(entries: dict[int, str], paper_code: str = ""):
     return _reply({"paper_code": paper_code, "entries": [{"question": n, "option": o} for n, o in entries.items()]})
-
-
-def page_labels(kwargs: dict[str, Any]) -> list[int]:
-    content = kwargs["messages"][0]["content"]
-    return [int(m.group(1)) for c in content if c["type"] == "text" for m in [re.match(r"Page (\d+) of \d+:", c["text"])] if m]
-
-
-class KeyClaude:
-    """Thread-safe fake: reply(page numbers, attempt) per request."""
-
-    def __init__(self, reply: Callable[[list[int], int], Any]):
-        self.reply = reply
-        self.calls: list[dict[str, Any]] = []
-        self.attempts: dict[tuple[int, ...], int] = {}
-        self._lock = threading.Lock()
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
-
-    def _create(self, **kwargs):
-        pages = page_labels(kwargs)
-        with self._lock:
-            self.calls.append(kwargs)
-            attempt = self.attempts[tuple(pages)] = self.attempts.get(tuple(pages), 0) + 1
-        return self.reply(pages, attempt)
-
-
-def _use(monkeypatch, fake: KeyClaude) -> KeyClaude:
-    monkeypatch.setattr(ai, "_anthropic_client", lambda settings: fake)
-    return fake
 
 
 def _pdf(pages: list[list[str]]) -> bytes:
@@ -284,7 +250,7 @@ def test_extract_pdf_text_layer_is_parsed_without_ai():
 def test_a_question_paper_with_keys_missing_from_the_text_reads_the_page_images(monkeypatch):
     # Q6's "Ans." line is drawn as an image (and the excerpt skips other questions): the text keys are
     # kept and the page images fill what the text lacks.
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({1: "3", 6: "3", 9: "1"})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({1: "3", 6: "3", 9: "1"})))
     data = _pdf([_allen_like_text().splitlines()[:40], _allen_like_text().splitlines()[40:]])
     result = answer_keys.extract(data, None)
     got = {e.question: e.option for e in result.entries}
@@ -329,7 +295,7 @@ def test_a_scanned_pdf_is_read_from_page_images(monkeypatch):
             return key_reply({1: "2", 2: "(4)", 3: "C"}, paper_code="CODE - 45")
         return key_reply({4: "1", 2: "1", 5: "1, 2"}, paper_code="Code 46")
 
-    fake = _use(monkeypatch, KeyClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     caller = threading.get_ident()
     threads: list[int] = []
     usages: list[ModelUsage] = []
@@ -359,13 +325,13 @@ def test_a_scanned_pdf_is_read_from_page_images(monkeypatch):
 
 def test_a_text_layer_with_too_few_entries_falls_back_to_ai(monkeypatch):
     lines = [f"{n}. Question {n} asks something about the topic here." for n in range(1, 21)] + ["1-B", "2-C"]
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({n: "3" for n in range(1, 21)})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({n: "3" for n in range(1, 21)})))
     result = answer_keys.extract(_pdf([lines]), None)
     assert result.method == "ai" and len(result.entries) == 20 and len(fake.calls) == 1
 
 
 def test_an_image_is_read_as_one_page(monkeypatch):
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({1: "a", 2: "d"})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({1: "a", 2: "d"})))
     result = answer_keys.extract(_png(2400, 1600), None)
     assert result.source == "image" and result.method == "ai"
     assert [(e.question, e.option) for e in result.entries] == [(1, "A"), (2, "D")]
@@ -390,7 +356,7 @@ def test_a_transient_error_is_retried_and_a_failed_chunk_reported(monkeypatch):
             return _reply(stop_reason="refusal")
         return key_reply({pages[0]: "2"})
 
-    fake = _use(monkeypatch, KeyClaude(reply))
+    fake = use_claude(monkeypatch, PagedClaude(reply))
     usages: list[ModelUsage] = []
     result = answer_keys.extract(_scan_pdf(5), None, on_usage=usages.append)
     assert [e.question for e in result.entries] == [1, 5]
@@ -402,7 +368,7 @@ def test_a_transient_error_is_retried_and_a_failed_chunk_reported(monkeypatch):
 
 
 def test_every_chunk_failing_raises_the_first_error(monkeypatch):
-    _use(monkeypatch, KeyClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
     with pytest.raises(ai.AIServiceError) as excinfo:
         answer_keys.extract(_scan_pdf(2), None)
     assert excinfo.value.code == "refusal"
@@ -548,7 +514,7 @@ def test_route_needs_the_key_only_for_ai(client, monkeypatch):
 def test_route_maps_ai_errors_and_records_usage(client, db_session, monkeypatch):
     from database import ModelInvocation
 
-    _use(monkeypatch, KeyClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
     response = _post_key(client, _scan_pdf(1))
     assert response.status_code == 502 and response.json()["code"] == "refusal"
     (row,) = db_session.query(ModelInvocation).all()
@@ -558,7 +524,7 @@ def test_route_maps_ai_errors_and_records_usage(client, db_session, monkeypatch)
 def test_route_reads_an_image_with_ai(client, monkeypatch, db_session):
     from database import ModelInvocation
 
-    _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({1: "4", 2: "2"}, paper_code="Set B")))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({1: "4", 2: "2"}, paper_code="Set B")))
     response = _post_key(client, _png(), name="key.png")
     assert response.status_code == 200, response.text
     body = response.json()
@@ -673,7 +639,7 @@ def test_a_key_file_needing_ai_without_the_key_is_a_warning(client, monkeypatch)
 def test_a_key_file_ai_failure_is_a_warning_and_its_usage_recorded(client, db_session, monkeypatch):
     from database import ModelInvocation
 
-    _use(monkeypatch, KeyClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(stop_reason="refusal")))
     response = _parse(client, key=_scan_pdf(1), key_name="key.pdf", text=json.dumps(JSON_RUBRIC))
     assert response.status_code == 200, response.text
     assert response.json()["warnings"][0].startswith("Answer key file not applied: ")
@@ -841,7 +807,7 @@ def _grid_key_pdf() -> bytes:
 def test_a_partly_unread_text_key_is_completed_from_the_page_images(monkeypatch):
     image_key = {n: "1" for n in range(1, 21)} | {11: "3", 12: "2", 13: "2", 14: "1", 15: "4", 17: "bonus"}
     image_key[3] = "4"  # the image reads Q3 differently from the text (A)
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply(image_key)))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply(image_key)))
     result = answer_keys.extract(_grid_key_pdf(), None)
     got = {e.question: e.option for e in result.entries}
     assert len(fake.calls) == 1 and result.method == "ai"
@@ -1160,7 +1126,7 @@ def test_a_lost_question_number_next_to_a_missing_ans_line_is_not_guessed():
 
 
 def test_an_incomplete_text_layer_reads_the_page_images(monkeypatch):
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 46)})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 46)})))
     paper = [line for n in range(1, 46) for line in _q(n, f"topic {n}", str(n % 4 + 1) if n <= 30 else None)]
     result = answer_keys.extract(_pdf([paper[i:i + 60] for i in range(0, len(paper), 60)]), None)
     assert fake.calls and result.method == "ai" and len(result.entries) == 45  # Q31-Q45 have no "Ans." line
@@ -1173,7 +1139,7 @@ def test_an_incomplete_text_layer_reads_the_page_images(monkeypatch):
 
 
 def test_a_text_clash_is_settled_by_the_page_image_and_reported(monkeypatch):
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({1: "2", 3: "1"})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({1: "2", 3: "1"})))
     lines = ["ANSWER KEY", "1. (2)  2. (4)  3. (1)  4. (3)  5. (2)", "6. (1)  7. (4)  8. (2)  9. (3)  10. (1)",
              "1. (3)", "3. (4)"]
     result = answer_keys.extract(_pdf([lines]), None)
@@ -1220,7 +1186,7 @@ def test_a_bare_page_number_that_is_a_grid_cell_is_kept():
 
 
 def test_a_merged_key_reports_an_unread_last_block_the_images_left_out(monkeypatch):
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 30)})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 30)})))
     rows = ["ANSWER KEY"]
     for start in (1, 11, 21):
         last = start + 9 if start < 21 else start + 8
@@ -1256,7 +1222,7 @@ def test_a_later_two_answer_or_bonus_reading_never_deletes_an_earlier_answer(mon
             return key_reply({1: "2", 2: "4", 3: "1", 4: "3", 5: "2"})
         return key_reply({1: "3", 2: "1 or 2", 3: "bonus"})
 
-    _use(monkeypatch, KeyClaude(reply))
+    use_claude(monkeypatch, PagedClaude(reply))
     result = answer_keys.extract(_scan_pdf(3), None)
     assert {e.question: e.option for e in result.entries} == {1: "B", 2: "D", 3: "A", 4: "C", 5: "B"}
     assert any("different answers for Q1 (B and C), Q2 (D; then A or B), Q3 (A; then bonus) - the first was kept" in w
@@ -1328,7 +1294,7 @@ def test_a_numbered_data_table_in_a_question_paper_is_not_a_key(monkeypatch):
     table = [[str(n), str(v)] for n, v in ((1, 2), (2, 3), (3, 1), (4, 4), (5, 2), (6, 3))]
     result = answer_keys.extract(make_docx([paper[0], *paper[8:]], table=table), None)
     assert result.entries == []
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({})))
     result = answer_keys.extract(_pdf([paper]), None)
     assert len(fake.calls) == 1 and result.entries == []  # the text layer holds no key: the images are read
     # the same rows under an answer-key heading are a key
@@ -1372,7 +1338,7 @@ def test_per_code_answer_columns_are_explained_in_text_pdf_and_images(monkeypatc
     with pytest.raises(ApiError) as caught:  # explained from the text layer, no AI call
         answer_keys.extract(pdf, None)
     assert "(Code A, Code B)" in str(caught.value.detail)
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: _reply(
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: _reply(
         {"paper_code": "", "per_code_columns": True, "entries": [{"question": 1, "option": "2"}]})))
     with pytest.raises(ApiError) as caught:  # the page images: no column is taken
         answer_keys.extract(_scan_pdf(1), None)
@@ -1471,7 +1437,7 @@ def test_numbered_notes_far_from_the_key_never_send_a_complete_pdf_key_to_the_im
     result = answer_keys.extract(_pdf([rows]), None)  # no AI: the autouse fixture forbids a client
     assert result.method == "parsed" and len(result.entries) == 90 and result.warnings == []
     # a numbered line that continues the key's numbers is still a question for the page images
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({})))
     paper = []
     for q in range(1, 9):
         paper += [f"{q}. Which of the following statements about enzymes is correct?", "(1) a (2) b (3) c (4) d",
@@ -1482,7 +1448,7 @@ def test_numbered_notes_far_from_the_key_never_send_a_complete_pdf_key_to_the_im
 
 
 def test_a_text_clash_with_a_bonus_or_two_answer_reading_is_settled_by_the_page_image(monkeypatch):
-    _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({3: "bonus", 5: "2 or 3"})))
+    use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({3: "bonus", 5: "2 or 3"})))
     lines = ["ANSWER KEY", "1. (2)  2. (4)  3. (1)  4. (3)  5. (2)", "6. (1)  7. (4)  8. (2)  9. (3)  10. (1)",
              "3. Bonus", "5. (2) or (3)"]
     result = answer_keys.extract(_pdf([lines]), None)
@@ -1515,7 +1481,7 @@ def test_a_blank_or_unreadable_first_or_last_answer_is_reported_not_dropped(monk
     result = answer_keys.extract(make_docx(["ANSWER KEY"], table=table), None)
     assert len(result.entries) == 29 and any(w.startswith("No answer could be read for Q30 in the") for w in result.warnings)
     # a PDF: the page images are read for it, and it is still reported when they leave it out too
-    fake = _use(monkeypatch, KeyClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 30)})))
+    fake = use_claude(monkeypatch, PagedClaude(lambda pages, _attempt: key_reply({n: str(n % 4 + 1) for n in range(1, 30)})))
     result = answer_keys.extract(_pdf([["ANSWER KEY", "Q.No. Answer", *rows, "30"]]), None)
     assert len(fake.calls) == 1 and len(result.entries) == 29
     assert any(w.startswith("No key was read for Q30 - not found in the text or the page images") for w in result.warnings)

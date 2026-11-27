@@ -22,11 +22,12 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import ai  # noqa: E402
+import seed  # noqa: E402
 from ai import AIConfigurationError, AIServiceError  # noqa: E402
 from ai_schemas import EvaluationOutput, ModelUsage, OcrAnswer, PreparedPage  # noqa: E402
 from config import get_settings  # noqa: E402
 
-GENETICS = json.loads((BACKEND_DIR / "rubrics" / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+GENETICS = seed.load_genetics_rubric()
 ANTHROPIC_TEST_KEY = "sk-ant-test-0123456789-SECRET"
 OPENAI_TEST_KEY = "sk-proj-test-9876543210-SECRET"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -40,8 +41,8 @@ REAL_OPENAI_CLIENT = ai._openai_client
 # Fixtures & fakes
 # --------------------------------------------------------------------------- #
 @pytest.fixture(autouse=True)
-def ai_env(monkeypatch):
-    """Deterministic settings for every test; real keys from .env never leak in."""
+def ai_env(monkeypatch, no_network_clients):
+    """Deterministic settings for every test; real keys from .env never leak in and no real SDK client is built."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", ANTHROPIC_TEST_KEY)
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("VISION_PROVIDER", "anthropic")
@@ -51,15 +52,6 @@ def ai_env(monkeypatch):
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     for name in ("LLM_FALLBACK", "LLM_FALLBACK_MODEL", "LLM_SIMULATE_PRIMARY_OUTAGE"):
         monkeypatch.delenv(name, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def no_real_clients(monkeypatch):
-    """Fail loudly if a test would build a real, network-capable client by accident."""
-    def forbidden(_settings):
-        raise AssertionError("test tried to create a real SDK client")
-    monkeypatch.setattr(ai, "_anthropic_client", forbidden)
-    monkeypatch.setattr(ai, "_openai_client", forbidden)
 
 
 def _pages(n: int = 2) -> list[PreparedPage]:

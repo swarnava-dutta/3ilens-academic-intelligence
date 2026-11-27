@@ -10,13 +10,6 @@ from PIL import Image
 
 
 @pytest.fixture
-def ai_ready(monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
-
-
-@pytest.fixture
 def held(upload, fake_ai, client):
     """A sheet held for review by low OCR confidence (0.55 < 0.80)."""
     fake_ai.answer_confidence = 0.55

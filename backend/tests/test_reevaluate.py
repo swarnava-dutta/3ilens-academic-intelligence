@@ -2,20 +2,12 @@
 reports without repeating OCR'): rubric versions, archived results, demo synthetic re-grades."""
 from __future__ import annotations
 
-import pytest
 
-from tests.test_api import genetics_rubric
-
-
-@pytest.fixture
-def ai_ready(monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+from seed import load_genetics_rubric
 
 
 def v2_content(*, add_q6: bool = False, drop_q5: bool = False, q1_marks: float | None = None) -> dict:
-    rubric = genetics_rubric()
+    rubric = load_genetics_rubric()
     questions = [dict(q) for q in rubric["questions"]]
     if q1_marks is not None:
         questions[0]["max_marks"] = q1_marks

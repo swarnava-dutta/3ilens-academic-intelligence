@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import seed
 from ai_schemas import OcrAnswer, OcrResult, PageAssessment
 from schemas import RubricMatch
 
@@ -329,9 +330,7 @@ def typed_sheet(kind: str, *, more_parts: bool = False) -> bytes:
 
 
 def mock08_id(client) -> int:
-    content = json.loads((Path(__file__).resolve().parents[1] / "rubrics" / "neet_mixed_mock08_v1.json").read_text(
-        encoding="utf-8"
-    ))
+    content = seed.load_mixed_rubric()
     response = client.post("/api/rubrics", json={"content": content, "approved": False})
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -347,9 +346,7 @@ def test_a_typed_answer_sheet_with_sub_parts_is_not_a_printed_paper(kind):
     inspection, texts = paper_detect.inspect_document(data, config.get_settings())
     # classify() alone calls it a printed MCQ paper (12 numbered questions, 5 option groups) ...
     assert (inspection.role, inspection.numbered_questions, inspection.option_groups) == ("question_paper", 12, 5)
-    content = json.loads((Path(__file__).resolve().parents[1] / "rubrics" / "neet_mixed_mock08_v1.json").read_text(
-        encoding="utf-8"
-    ))
+    content = seed.load_mixed_rubric()
     # ... and its answers compared with the rubric's questions read as another paper.
     assert paper_detect.match_rubric(texts, content).verdict == "mismatch"
     # The printed-paper gate: option lists for fewer than half its numbers - not checked anywhere.

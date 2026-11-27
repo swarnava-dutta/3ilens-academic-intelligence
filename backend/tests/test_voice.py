@@ -301,10 +301,7 @@ def test_failed_voice_answer_can_be_retried(upload, fake_ai, fake_transcriber, c
     assert result["submission"]["status"] == "COMPLETED" and fake_transcriber.calls == 2
 
 
-def test_short_voice_answer_is_held_then_reviewed_as_speech(upload, fake_ai, fake_transcriber, client, monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+def test_short_voice_answer_is_held_then_reviewed_as_speech(upload, fake_ai, fake_transcriber, client, ai_ready):
     fake_transcriber.text = "Tall."  # < 20 characters: confidence 0.5, below the gate
     sub = voice_upload(upload, voice_question="1").json()
     held = result_of(client, sub["id"])

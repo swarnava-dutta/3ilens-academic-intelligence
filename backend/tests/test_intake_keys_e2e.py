@@ -82,7 +82,7 @@ class Fakes:
 
 
 @pytest.fixture
-def fakes(monkeypatch) -> Fakes:
+def fakes(monkeypatch, ai_ready) -> Fakes:
     import ai
     import mcq_marks
 
@@ -91,7 +91,6 @@ def fakes(monkeypatch) -> Fakes:
     # A photo of a printed all-MCQ sheet goes to the tick reader (pipeline.ocr_reader).
     monkeypatch.setattr(mcq_marks, "read_marked_options", fake.run_ocr)
     monkeypatch.setattr(ai, "run_evaluation", fake.run_evaluation)
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
     return fake
 
 

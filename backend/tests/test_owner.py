@@ -517,10 +517,7 @@ def test_trend_has_one_point_per_sitting(client, seeded):
     assert len(neet_b) == 1 and neet_b[0]["main"] is False
 
 
-def test_live_rows_count_cost_and_reviews(client, upload, fake_ai, monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+def test_live_rows_count_cost_and_reviews(client, upload, fake_ai, ai_ready):
     fake_ai.answer_confidence = 0.55
     held = upload(student_name="Meera Pillai").json()
     fake_ai.answer_confidence = 0.93

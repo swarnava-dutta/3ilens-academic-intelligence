@@ -236,7 +236,7 @@ def test_negative_marking_brief_matches_the_report(seeded):
         assert _row(body, ref)["negative_marking"]["verdict"] == "skipping"
 
 
-def test_bonus_identity_on_a_negatively_marked_paper(upload, client, fake_ai, monkeypatch):
+def test_bonus_identity_on_a_negatively_marked_paper(upload, client, fake_ai, monkeypatch, ai_ready):
     """correct x 4 - wrong x 1 + bonus questions x 4 == total_score (the NEET 2016 identity)."""
     import ai
     from ai_schemas import OcrAnswer, OcrResult
@@ -249,7 +249,6 @@ def test_bonus_identity_on_a_negatively_marked_paper(upload, client, fake_ai, mo
         return OcrResult(answers=answers, overall_confidence=0.95, provider="anthropic", model="fake-vision-model")
 
     monkeypatch.setattr(ai, "run_ocr", letters_ocr)
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
     queued = upload(student_name="Bonus Student", rubric_json=json.dumps(RUBRIC))
     assert queued.status_code == 202, queued.text
     body = _roster(client)

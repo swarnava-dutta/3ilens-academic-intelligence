@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import insights  # noqa: E402
+import seed  # noqa: E402
 from ai_schemas import (  # noqa: E402
     Confusion,
     EvaluationOutput,
@@ -28,7 +29,7 @@ from insights import (  # noqa: E402
     calculate_roi,
 )
 
-GENETICS = json.loads((BACKEND_DIR / "rubrics" / "biology_genetics_v1.json").read_text(encoding="utf-8"))
+GENETICS = seed.load_genetics_rubric()
 
 
 def _grade(question: int, marks: float, strengths=None, gaps=None, evidence="Student wrote something.") -> QuestionGrade:

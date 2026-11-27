@@ -10,17 +10,10 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from tests.test_api import genetics_rubric
+from seed import load_genetics_rubric
 from tests.test_reset_data import load_script
 
 KEY_TEXT = "Answer key - NEET 2016 Code A\n1. (2)\n2. (4)\n3. (1)\n51. (2 or 3)\n71. Bonus\n"
-
-
-@pytest.fixture
-def ai_ready(monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
 
 
 @pytest.fixture
@@ -42,7 +35,7 @@ def paper_pdf(pages: int = 3) -> bytes:
 
 
 def section_b() -> dict:
-    content = genetics_rubric()
+    content = load_genetics_rubric()
     return {**content, "name": "Biology - Genetics Section B",
             "questions": [q for q in content["questions"] if q["question"] != 5]}
 
@@ -52,7 +45,7 @@ def upload_with_sources(client, png_bytes, *, paper: tuple | None = None, key: t
     """POST /api/upload with rubric_json (the Genetics key) unless rubric_id is given, plus the files."""
     data = {"student_name": student_name, **form}
     if "rubric_id" not in data:
-        data.setdefault("rubric_json", json.dumps(genetics_rubric()))
+        data.setdefault("rubric_json", json.dumps(load_genetics_rubric()))
     files = {"file": ("aarav_sheet.png", png_bytes, "image/png")}
     if paper is not None:
         files["rubric_source_file"] = paper

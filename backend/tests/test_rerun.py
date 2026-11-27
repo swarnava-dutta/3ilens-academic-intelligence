@@ -6,14 +6,7 @@ import json
 
 import pytest
 
-from tests.test_api import genetics_rubric
-
-
-@pytest.fixture
-def ai_ready(monkeypatch):
-    import ai
-
-    monkeypatch.setattr(ai, "ai_readiness", lambda: (True, []))
+from seed import load_genetics_rubric
 
 
 @pytest.fixture
@@ -38,7 +31,7 @@ def queued(monkeypatch):
 
 def other_rubric(client) -> dict:
     """Genetics without Q5, under another name: 4 questions."""
-    content = genetics_rubric()
+    content = load_genetics_rubric()
     content = {**content, "name": "Biology - Genetics Section B",
                "questions": [q for q in content["questions"] if q["question"] != 5]}
     response = client.post("/api/rubrics", json={"content": content, "approved": False})
@@ -164,7 +157,7 @@ def test_a_current_result_is_archived(upload, fake_ai, client, ai_ready, db_sess
 # Inline rubric (the answer key drafted on the fly and edited after grading)
 # --------------------------------------------------------------------------- #
 def section_b() -> dict:
-    content = genetics_rubric()
+    content = load_genetics_rubric()
     return {**content, "name": "Biology - Genetics Section B",
             "questions": [q for q in content["questions"] if q["question"] != 5]}
 
@@ -311,7 +304,7 @@ def test_printed_paper_with_the_wrong_rubric_is_held_then_rerun(upload, fake_ai,
     assert held["submission"].get("review_reason") == "paper_mismatch"
     assert "rubric 'Biology - Genetics' (v1) has 5 questions, none of them MCQs" in held["detail"]
 
-    content = {**genetics_rubric(), "name": "Physics short answers"}
+    content = {**load_genetics_rubric(), "name": "Physics short answers"}
     content["questions"] = [
         {**content["questions"][0], "question": n, "topic": f"Topic {n}", "prompt": f"Explain device {n}"}
         for n in range(1, 9)

@@ -515,20 +515,20 @@ def _mcq_rubric(count: int) -> dict:
 
 
 def test_ingestion_hint_with_a_small_descriptive_rubric_says_the_sheet_is_held():
-    from tests.test_api import genetics_rubric
+    from seed import load_genetics_rubric
 
     settings = config.get_settings()
     paper = _paper(range(1, 16), key=False)
-    hint = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=genetics_rubric(),
+    hint = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=load_genetics_rubric(),
                                        rubric_label=GENETICS_LABEL)
     assert hint == (
         "Printed MCQ paper detected (about 15 numbered questions), but rubric 'Biology - Genetics' (v1) has "
         "5 questions, none of them MCQs - not this paper's rubric; the sheet will be held for faculty review."
     )
-    unnamed = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=genetics_rubric())
+    unnamed = paper_detect.ingestion_hint(paper, "application/pdf", settings, rubric_content=load_genetics_rubric())
     assert unnamed is not None and ", but the selected rubric has 5 questions, none of them MCQs" in unnamed
     keyed = paper_detect.ingestion_hint(_paper(range(1, 13), key=True), "application/pdf", settings,
-                                        rubric_content=genetics_rubric(), rubric_label=GENETICS_LABEL)
+                                        rubric_content=load_genetics_rubric(), rubric_label=GENETICS_LABEL)
     assert keyed is not None and keyed.startswith("This file looks like a question paper with its answer key (12 ")
     assert keyed.endswith(
         "Rubric 'Biology - Genetics' (v1) has 5 questions, none of them MCQs - not this paper's rubric; the sheet "
